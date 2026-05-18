@@ -1,0 +1,502 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  USER
+  COMPANY
+  INSTITUTION
+  ADMIN
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum ProjectVisibility {
+  PRIVATE
+  TEAM
+  PUBLIC
+}
+
+enum ProjectTaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  BLOCKED
+}
+
+enum ProjectActivityType {
+  UPDATE
+  TASK
+  FILE
+  MILESTONE
+  INSIGHT
+}
+
+enum PostVisibility {
+  PUBLIC
+  CONNECTIONS
+  PRIVATE
+}
+
+enum OpportunityType {
+  JOB
+  INTERNSHIP
+  HACKATHON
+  EDUCATION
+  COMPETITION
+  STARTUP_PROGRAM
+}
+
+enum AIAnalysisType {
+  PROFILE_INSIGHT
+  PROJECT_INSIGHT
+  OPPORTUNITY_MATCH
+  PORTFOLIO_GENERATOR
+}
+
+enum OrganizationType {
+  COMPANY
+  UNIVERSITY
+  INSTITUTION
+  COMMUNITY
+}
+
+enum VerifiedRecordStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum OpportunityEnrollmentStatus {
+  APPLIED
+  ENROLLED
+  COMPLETED
+  REJECTED
+  WITHDRAWN
+}
+
+enum CertificateSource {
+  MANUAL
+  PROGRAM
+}
+
+enum NotificationType {
+  SYSTEM
+  PROJECT
+  PROJECT_INVITE
+  OPPORTUNITY
+  MESSAGE
+  AI
+  POST_LIKE
+  POST_COMMENT
+  FOLLOW
+}
+
+enum ProjectInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+model User {
+  id                     String             @id @default(cuid())
+  email                  String             @unique
+  password               String
+  name                   String
+  role                   UserRole           @default(USER)
+  avatarUrl              String?
+  coverUrl               String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  profile                Profile?
+  ownedProjects          Project[]          @relation("ProjectOwner")
+  projectMemberships     ProjectMember[]
+  sentProjectInvites     ProjectInvite[]           @relation("ProjectInviteInviter")
+  receivedProjectInvites ProjectInvite[]           @relation("ProjectInviteInvitee")
+  assignedTasks          ProjectTask[]      @relation("TaskAssignee")
+  projectActivities      ProjectActivity[]
+  uploadedFiles          ProjectFile[]      @relation("FileUploader")
+  posts                  Post[]             @relation("PostAuthor")
+  postLikes              PostLike[]
+  comments               Comment[]
+  opportunitiesCreated   Opportunity[]      @relation("OpportunityCreator")
+  savedOpportunities     SavedOpportunity[]
+  verifiedRecords        VerifiedRecord[]
+  aiAnalyses             AIAnalysis[]
+  notifications          Notification[]
+  sentMessages           Message[]          @relation("SentMessages")
+  receivedMessages       Message[]          @relation("ReceivedMessages")
+  following              UserFollow[]              @relation("UserFollowsFollower")
+  followers              UserFollow[]              @relation("UserFollowsFollowing")
+  triggeredNotifications Notification[]            @relation("NotificationActor")
+  opportunityEnrollments OpportunityEnrollment[]   @relation("EnrollmentUser")
+  approvedEnrollments    OpportunityEnrollment[]   @relation("EnrollmentApprover")
+}
+
+model Profile {
+  id           String        @id @default(cuid())
+  userId       String        @unique
+  headline     String?
+  bio          String?
+  school       String?
+  company      String?
+  location     String?
+  skills       String[]      @default([])
+  interests    String[]      @default([])
+  socialLinks  Json?
+  trustScore   Int           @default(0)
+  verified     Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  certificates Certificate[]
+  careers      Career[]
+  awards       Award[]
+  portfolios   Portfolio[]
+}
+
+model Certificate {
+  id            String                   @id @default(cuid())
+  profileId     String
+  title         String
+  issuer        String
+  issuedAt      DateTime?
+  credentialUrl String?
+  verified      Boolean                  @default(false)
+  source        CertificateSource        @default(MANUAL)
+  opportunityId String?                  @unique
+  profile       Profile                  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity?             @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  enrollment    OpportunityEnrollment?
+}
+
+model Career {
+  id          String    @id @default(cuid())
+  profileId   String
+  company     String
+  position    String
+  startDate   DateTime?
+  endDate     DateTime?
+  description String?
+  profile     Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+}
+
+model Award {
+  id          String    @id @default(cuid())
+  profileId   String
+  title       String
+  issuer      String?
+  awardedAt   DateTime?
+  description String?
+  profile     Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+}
+
+model Portfolio {
+  id          String  @id @default(cuid())
+  profileId   String
+  title       String
+  description String?
+  url         String?
+  imageUrl    String?
+  profile     Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+}
+
+model Project {
+  id              String             @id @default(cuid())
+  title           String
+  slug            String             @unique
+  description     String?
+  objective       String?
+  readme          String?
+  ownerId         String
+  status          ProjectStatus      @default(PLANNING)
+  progress        Int                @default(0)
+  visibility      ProjectVisibility  @default(PRIVATE)
+  skills          String[]           @default([])
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  owner           User               @relation("ProjectOwner", fields: [ownerId], references: [id])
+  roles           ProjectRole[]
+  members         ProjectMember[]
+  invites         ProjectInvite[]
+  tasks           ProjectTask[]
+  activities      ProjectActivity[]
+  files           ProjectFile[]
+  posts           Post[]
+  verifiedRecords VerifiedRecord[]
+  aiAnalyses      AIAnalysis[]
+}
+
+model ProjectRole {
+  id          String          @id @default(cuid())
+  projectId   String
+  name        String
+  slug        String
+  description String?
+  permissions String[]
+  isSystem    Boolean         @default(false)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members     ProjectMember[]
+  invites     ProjectInvite[]
+
+  @@unique([projectId, slug])
+}
+
+model ProjectMember {
+  id           String       @id @default(cuid())
+  projectId    String
+  userId       String
+  roleId       String?
+  role         String
+  contribution String?
+  joinedAt     DateTime     @default(now())
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectRole  ProjectRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, userId])
+}
+
+model ProjectInvite {
+  id           String              @id @default(cuid())
+  projectId    String
+  inviterId    String
+  inviteeId    String
+  roleId       String?
+  role         String
+  contribution String?
+  status       ProjectInviteStatus @default(PENDING)
+  createdAt    DateTime            @default(now())
+  respondedAt    DateTime?
+  project      Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inviter      User                @relation("ProjectInviteInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee      User                @relation("ProjectInviteInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+  projectRole  ProjectRole?        @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, inviteeId])
+}
+
+model ProjectTask {
+  id          String            @id @default(cuid())
+  projectId   String
+  title       String
+  description String?
+  status      ProjectTaskStatus @default(TODO)
+  assigneeId  String?
+  dueDate     DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee    User?             @relation("TaskAssignee", fields: [assigneeId], references: [id])
+}
+
+model ProjectActivity {
+  id          String              @id @default(cuid())
+  projectId   String
+  userId      String
+  type        ProjectActivityType @default(UPDATE)
+  title       String
+  description String?
+  createdAt   DateTime            @default(now())
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProjectFile {
+  id         String   @id @default(cuid())
+  projectId  String
+  name       String
+  url        String
+  fileType   String
+  uploadedBy String
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploader   User     @relation("FileUploader", fields: [uploadedBy], references: [id])
+}
+
+model Post {
+  id              String         @id @default(cuid())
+  authorId        String
+  content         String
+  linkedProjectId String?
+  repostOfId      String?
+  mediaUrls       String[]       @default([])
+  visibility      PostVisibility @default(PUBLIC)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  author          User           @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  linkedProject   Project?       @relation(fields: [linkedProjectId], references: [id])
+  repostOf        Post?          @relation("PostRepostOf", fields: [repostOfId], references: [id], onDelete: SetNull)
+  reposts         Post[]         @relation("PostRepostOf")
+  likes           PostLike[]
+  comments        Comment[]
+}
+
+model UserFollow {
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+  follower    User     @relation("UserFollowsFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("UserFollowsFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followingId])
+}
+
+model PostLike {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  postId    String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+}
+
+model Opportunity {
+  id                 String             @id @default(cuid())
+  title              String
+  type               OpportunityType
+  organization       String
+  description        String
+  skills             String[]           @default([])
+  location           String?
+  isRemote           Boolean            @default(false)
+  deadline           DateTime?
+  applyUrl           String?
+  createdBy          String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  creator            User?                    @relation("OpportunityCreator", fields: [createdBy], references: [id])
+  savedOpportunities SavedOpportunity[]
+  enrollments        OpportunityEnrollment[]
+  certificates       Certificate[]
+}
+
+model OpportunityEnrollment {
+  id            String                      @id @default(cuid())
+  userId        String
+  opportunityId String
+  status        OpportunityEnrollmentStatus @default(APPLIED)
+  appliedAt     DateTime                    @default(now())
+  enrolledAt    DateTime?
+  completedAt   DateTime?
+  approvedById  String?
+  certificateId String?                     @unique
+  user          User                        @relation("EnrollmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity                 @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  approver      User?                       @relation("EnrollmentApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  certificate   Certificate?                @relation(fields: [certificateId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, opportunityId])
+}
+
+model SavedOpportunity {
+  id            String      @id @default(cuid())
+  userId        String
+  opportunityId String
+  createdAt     DateTime    @default(now())
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, opportunityId])
+}
+
+model VerifiedRecord {
+  id                  String               @id @default(cuid())
+  userId              String
+  projectId           String
+  role                String
+  contributionSummary String
+  evidenceUrl         String?
+  trustScore          Int                  @default(0)
+  issuedAt            DateTime             @default(now())
+  status              VerifiedRecordStatus @default(PENDING)
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project             Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model AIAnalysis {
+  id        String         @id @default(cuid())
+  userId    String
+  projectId String?
+  type      AIAnalysisType
+  input     Json
+  output    Json
+  provider  String
+  model     String
+  createdAt DateTime       @default(now())
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+}
+
+model Organization {
+  id          String           @id @default(cuid())
+  name        String
+  type        OrganizationType
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  programs    Program[]
+}
+
+model Program {
+  id             String       @id @default(cuid())
+  organizationId String
+  title          String
+  description    String?
+  startDate      DateTime?
+  endDate        DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  actorId   String?
+  title     String
+  body      String
+  type      NotificationType @default(SYSTEM)
+  read      Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actor     User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+}
+
+model Message {
+  id         String    @id @default(cuid())
+  senderId   String
+  receiverId String
+  content    String
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  sender     User      @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User      @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+}
