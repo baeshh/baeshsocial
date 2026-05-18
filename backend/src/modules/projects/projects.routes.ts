@@ -513,6 +513,7 @@ projectsRouter.get('/:id', authenticate, async (req, res, next) => {
     if (isMember && !permissions.includes('project.view')) {
       throw new Error('PROJECT_FORBIDDEN')
     }
+    const isGuestViewer = !isOwner && permissions.length === 0
     const canInvite = permissions.includes('members.invite')
 
     const pendingInvites = canInvite
@@ -523,7 +524,23 @@ projectsRouter.get('/:id', authenticate, async (req, res, next) => {
         })
       : []
 
-    res.status(200).json({ project, pendingInvites, myPermissions: permissions, isOwner })
+    const visibleProject = isGuestViewer
+      ? {
+          ...project,
+          tasks: [],
+          files: [],
+          activities: [],
+          roles: [],
+        }
+      : project
+
+    res.status(200).json({
+      project: visibleProject,
+      pendingInvites,
+      myPermissions: permissions,
+      isOwner,
+      isGuestViewer,
+    })
   } catch (error) {
     if (handleProjectError(error, res)) {
       return

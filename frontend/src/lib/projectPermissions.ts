@@ -7,6 +7,13 @@ export function hasProjectPermission(
   return permissions?.includes(permission) ?? false
 }
 
+export function isGuestProjectViewer(
+  permissions: ProjectPermission[] | undefined,
+  isOwner: boolean,
+) {
+  return !isOwner && (permissions?.length ?? 0) === 0
+}
+
 export const PERMISSION_GROUPS: Array<{
   title: string
   permissions: ProjectPermission[]

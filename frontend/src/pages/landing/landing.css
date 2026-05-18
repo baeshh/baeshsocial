@@ -69,14 +69,16 @@
 }
 
 .landing-page .logo {
-  font-size: 26px;
-  font-weight: 900;
-  letter-spacing: -1px;
-  background: var(--lp-gradient-text);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
   text-decoration: none;
+}
+
+.landing-page .logo img {
+  height: 40px;
+  width: 40px;
+  object-fit: contain;
 }
 
 .landing-page .nav-links {
@@ -103,19 +105,6 @@
 .landing-page .header-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
-}
-
-.landing-page .btn-login-text {
-  color: var(--lp-text-muted);
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 15px;
-  transition: color 0.3s ease;
-}
-
-.landing-page .btn-login-text:hover {
-  color: var(--lp-text-main);
 }
 
 .landing-page .btn-nav {

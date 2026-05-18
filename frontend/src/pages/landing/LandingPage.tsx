@@ -1,6 +1,7 @@
 import gsap from 'gsap'
 import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { BaeshLogo } from '../../components/common/BaeshLogo'
 import './landing.css'
 import { useLandingBackground } from './useLandingBackground'
 
@@ -70,9 +71,7 @@ export function LandingPage() {
 
       <div className="ui-layer">
         <header className="lp-header">
-          <Link className="logo" to="/">
-            BAESH
-          </Link>
+          <BaeshLogo className="logo" imageClassName="h-10 w-10" to="/" />
           <nav className="nav-links">
             <button onClick={() => scrollToSection('intro')} type="button">
               서비스 소개
@@ -85,9 +84,6 @@ export function LandingPage() {
             </button>
           </nav>
           <div className="header-actions">
-            <Link className="btn-login-text" to="/auth/login">
-              로그인
-            </Link>
             <Link className="btn-nav" to="/auth/register">
               합류하기
             </Link>

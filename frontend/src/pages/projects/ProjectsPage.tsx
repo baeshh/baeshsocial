@@ -24,7 +24,7 @@ import { ProjectDeleteModal } from '../../components/projects/ProjectDeleteModal
 import { ProjectLeaveModal } from '../../components/projects/ProjectLeaveModal'
 import { ProjectRolesPanel } from '../../components/projects/ProjectRolesPanel'
 import { TeamInviteModal } from '../../components/projects/TeamInviteModal'
-import { hasProjectPermission } from '../../lib/projectPermissions'
+import { hasProjectPermission, isGuestProjectViewer } from '../../lib/projectPermissions'
 import type { ProjectPermission } from '../../types/projectRole'
 import { cn } from '../../lib/cn'
 import {
@@ -279,8 +279,14 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
   const project = projectQuery.data?.project
   const pendingInvites = projectQuery.data?.pendingInvites ?? []
   const myPermissions = projectQuery.data?.myPermissions ?? []
+  const isOwner = projectQuery.data?.isOwner ?? false
   const projectRoles = project?.roles ?? []
   const can = (permission: ProjectPermission) => hasProjectPermission(myPermissions, permission)
+  const guestViewer =
+    projectQuery.data?.isGuestViewer ?? isGuestProjectViewer(myPermissions, isOwner)
+  const canViewTasks = can('tasks.view')
+  const canViewFiles = can('files.view')
+  const canViewActivities = can('activities.create')
   const [editForm, setEditForm] = useState({ progress: 0, status: 'planning' })
   const [taskForm, setTaskForm] = useState({ title: '', description: '', dueDate: '' })
   const [activityForm, setActivityForm] = useState({ title: '', description: '' })
@@ -292,6 +298,10 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
       setEditForm({ progress: project.progress, status: project.status.toLowerCase() })
     }
   }, [project])
+
+  useEffect(() => {
+    setDetailTab('overview')
+  }, [projectId])
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['projects', projectId] })
@@ -389,12 +399,22 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
 
   const doneTaskCount = project.tasks.filter((task) => task.status === 'DONE').length
 
+  const showSettingsTab =
+    can('project.settings') ||
+    can('roles.manage') ||
+    can('members.invite') ||
+    can('members.assign_role') ||
+    can('project.delete') ||
+    isMember
+
   const detailTabs: Array<{ id: string; label: string; count?: number }> = [
     { id: 'overview', label: 'Overview' },
-    { id: 'tasks', label: 'Tasks', count: project.tasks.length },
-    { id: 'files', label: 'Files', count: project.files.length },
-    { id: 'settings', label: 'Settings' },
+    ...(canViewTasks ? [{ id: 'tasks', label: 'Tasks', count: project.tasks.length }] : []),
+    ...(canViewFiles ? [{ id: 'files', label: 'Files', count: project.files.length }] : []),
+    ...(showSettingsTab ? [{ id: 'settings', label: 'Settings' }] : []),
   ]
+
+  const effectiveDetailTab = detailTabs.some((tab) => tab.id === detailTab) ? detailTab : 'overview'
 
   return (
     <AppLayout>
@@ -438,7 +458,7 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
               <button
                 className={cn(
                   'relative shrink-0 px-4 py-3 text-sm font-semibold transition',
-                  detailTab === tab.id ? 'text-brand-600' : 'text-ink-muted hover:text-ink-strong',
+                  effectiveDetailTab === tab.id ? 'text-brand-600' : 'text-ink-muted hover:text-ink-strong',
                 )}
                 key={tab.id}
                 onClick={() => setDetailTab(tab.id)}
@@ -453,7 +473,7 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                     </span>
                   ) : null}
                 </span>
-                {detailTab === tab.id ? (
+                {effectiveDetailTab === tab.id ? (
                   <span className="absolute inset-x-2 bottom-0 block h-0.5 rounded-full bg-brand-600" />
                 ) : null}
               </button>
@@ -463,7 +483,7 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
 
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
           <div className="min-w-0 space-y-6">
-            {detailTab === 'overview' ? (
+            {effectiveDetailTab === 'overview' ? (
               <>
                 <Card className="rounded-2xl border-surface-border shadow-sm">
                   <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
@@ -490,44 +510,62 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                   </div>
                 </Card>
 
-                <Card className="rounded-2xl border-surface-border shadow-sm">
-                  <CardHeader>
-                    <CardTitle>Recent Activity</CardTitle>
-                  </CardHeader>
-                  <form
-                    className="mb-4 grid gap-3 border-b border-surface-border pb-4"
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      activityMutation.mutate()
-                    }}
-                  >
-                    <Input
-                      label="활동 제목"
-                      onChange={(event) => setActivityForm((prev) => ({ ...prev, title: event.target.value }))}
-                      required
-                      value={activityForm.title}
+                {canViewActivities ? (
+                  <Card className="rounded-2xl border-surface-border shadow-sm">
+                    <CardHeader>
+                      <CardTitle>Recent Activity</CardTitle>
+                    </CardHeader>
+                    {can('activities.create') ? (
+                      <form
+                        className="mb-4 grid gap-3 border-b border-surface-border pb-4"
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          activityMutation.mutate()
+                        }}
+                      >
+                        <Input
+                          label="활동 제목"
+                          onChange={(event) =>
+                            setActivityForm((prev) => ({ ...prev, title: event.target.value }))
+                          }
+                          required
+                          value={activityForm.title}
+                        />
+                        <Textarea
+                          label="설명"
+                          onChange={(event) =>
+                            setActivityForm((prev) => ({ ...prev, description: event.target.value }))
+                          }
+                          value={activityForm.description}
+                        />
+                        <Button className="w-fit rounded-full" type="submit">
+                          활동 추가
+                        </Button>
+                      </form>
+                    ) : null}
+                    <List
+                      items={project.activities.map((activity) => ({
+                        id: activity.id,
+                        title: activity.title,
+                        meta: `${activity.type} · ${activity.user?.name ?? 'unknown'}`,
+                      }))}
                     />
-                    <Textarea
-                      label="설명"
-                      onChange={(event) => setActivityForm((prev) => ({ ...prev, description: event.target.value }))}
-                      value={activityForm.description}
-                    />
-                    <Button className="w-fit rounded-full" type="submit">
-                      활동 추가
-                    </Button>
-                  </form>
-                  <List
-                    items={project.activities.map((activity) => ({
-                      id: activity.id,
-                      title: activity.title,
-                      meta: `${activity.type} · ${activity.user?.name ?? 'unknown'}`,
-                    }))}
-                  />
-                </Card>
+                  </Card>
+                ) : guestViewer ? (
+                  <Card className="rounded-2xl border-surface-border bg-surface-muted/30 shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="text-base">공개 프로젝트</CardTitle>
+                      <CardDescription>
+                        팀 멤버가 아니면 활동·파일·태스크는 볼 수 없습니다. 초대를 받으면 전체 내용을 확인할 수
+                        있습니다.
+                      </CardDescription>
+                    </CardHeader>
+                  </Card>
+                ) : null}
               </>
             ) : null}
 
-            {detailTab === 'tasks' ? (
+            {effectiveDetailTab === 'tasks' ? (
               <Panel icon={<ListChecks size={20} />} title="Tasks">
                 {can('tasks.create') ? (
                 <form
@@ -599,39 +637,43 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
               </Panel>
             ) : null}
 
-            {detailTab === 'files' ? (
+            {effectiveDetailTab === 'files' && canViewFiles ? (
               <Panel icon={<FileText size={20} />} title="Files">
-                <form
-                  className="grid gap-4 md:grid-cols-2"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    fileMutation.mutate()
-                  }}
-                >
-                  <Input
-                    label="파일명"
-                    onChange={(event) => setFileForm((prev) => ({ ...prev, name: event.target.value }))}
-                    required
-                    value={fileForm.name}
-                  />
-                  <Input
-                    label="파일 타입"
-                    onChange={(event) => setFileForm((prev) => ({ ...prev, fileType: event.target.value }))}
-                    required
-                    value={fileForm.fileType}
-                  />
-                  <Input
-                    className="md:col-span-2"
-                    label="URL"
-                    onChange={(event) => setFileForm((prev) => ({ ...prev, url: event.target.value }))}
-                    required
-                    type="url"
-                    value={fileForm.url}
-                  />
-                  <Button className="rounded-full" type="submit">
-                    파일 추가
-                  </Button>
-                </form>
+                {can('files.upload') ? (
+                  <form
+                    className="grid gap-4 md:grid-cols-2"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      fileMutation.mutate()
+                    }}
+                  >
+                    <Input
+                      label="파일명"
+                      onChange={(event) => setFileForm((prev) => ({ ...prev, name: event.target.value }))}
+                      required
+                      value={fileForm.name}
+                    />
+                    <Input
+                      label="파일 타입"
+                      onChange={(event) => setFileForm((prev) => ({ ...prev, fileType: event.target.value }))}
+                      required
+                      value={fileForm.fileType}
+                    />
+                    <Input
+                      className="md:col-span-2"
+                      label="URL"
+                      onChange={(event) => setFileForm((prev) => ({ ...prev, url: event.target.value }))}
+                      required
+                      type="url"
+                      value={fileForm.url}
+                    />
+                    <Button className="rounded-full" type="submit">
+                      파일 추가
+                    </Button>
+                  </form>
+                ) : (
+                  <p className="mb-4 text-sm text-ink-muted">파일을 업로드할 권한이 없습니다.</p>
+                )}
                 <List
                   items={project.files.map((file) => ({
                     id: file.id,
@@ -642,7 +684,7 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
               </Panel>
             ) : null}
 
-            {detailTab === 'settings' ? (
+            {effectiveDetailTab === 'settings' ? (
               <div className="space-y-6">
                 {can('roles.manage') ? (
                   <ProjectRolesPanel
@@ -831,35 +873,45 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                     />
                   </div>
                 </div>
-                <p className="text-sm text-ink-body">
-                  <span className="font-semibold text-ink-strong">Tasks Completed:</span>{' '}
-                  {doneTaskCount}/{project.tasks.length || 0}
-                </p>
+                {canViewTasks ? (
+                  <p className="text-sm text-ink-body">
+                    <span className="font-semibold text-ink-strong">Tasks Completed:</span>{' '}
+                    {doneTaskCount}/{project.tasks.length || 0}
+                  </p>
+                ) : null}
               </div>
             </Card>
 
-            <Card className="rounded-2xl border-surface-border shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-base">Resources</CardTitle>
-                <button className="text-ink-muted hover:text-ink-strong" onClick={() => setDetailTab('files')} type="button">
-                  <Plus size={18} />
-                </button>
-              </CardHeader>
-              <div className="px-5 pb-5">
-                {project.files.length === 0 ? (
-                  <p className="text-sm text-ink-muted">연결된 리소스가 없습니다.</p>
-                ) : (
-                  <ul className="space-y-2 text-sm">
-                    {project.files.slice(0, 5).map((file) => (
-                      <li className="truncate text-ink-body" key={file.id}>
-                        <span className="font-semibold text-ink-strong">{file.name}</span>
-                        <span className="text-ink-muted"> · {file.fileType}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </Card>
+            {canViewFiles ? (
+              <Card className="rounded-2xl border-surface-border shadow-sm">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="text-base">Resources</CardTitle>
+                  {can('files.upload') ? (
+                    <button
+                      className="text-ink-muted hover:text-ink-strong"
+                      onClick={() => setDetailTab('files')}
+                      type="button"
+                    >
+                      <Plus size={18} />
+                    </button>
+                  ) : null}
+                </CardHeader>
+                <div className="px-5 pb-5">
+                  {project.files.length === 0 ? (
+                    <p className="text-sm text-ink-muted">연결된 리소스가 없습니다.</p>
+                  ) : (
+                    <ul className="space-y-2 text-sm">
+                      {project.files.slice(0, 5).map((file) => (
+                        <li className="truncate text-ink-body" key={file.id}>
+                          <span className="font-semibold text-ink-strong">{file.name}</span>
+                          <span className="text-ink-muted"> · {file.fileType}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </Card>
+            ) : null}
           </aside>
         </div>
       </div>

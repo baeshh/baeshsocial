@@ -61,6 +61,7 @@ export function getProject(token: string, projectId: string) {
     pendingInvites: ProjectInvite[]
     myPermissions: ProjectPermission[]
     isOwner: boolean
+    isGuestViewer?: boolean
   }>(`/projects/${projectId}`, {
     token,
   })

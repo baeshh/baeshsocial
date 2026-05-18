@@ -1,19 +1,12 @@
 import { NavLink } from 'react-router-dom'
+import { BaeshLogo } from '../common/BaeshLogo'
 import { cn } from '../../lib/cn'
 import { generalNavItems } from './navigation'
 
 export function Sidebar() {
   return (
     <aside className="hidden min-h-screen w-72 shrink-0 border-r border-surface-border bg-white px-4 py-5 lg:block">
-      <NavLink className="flex items-center gap-3 px-2" to="/">
-        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink-strong text-sm font-bold text-white">
-          B
-        </span>
-        <div>
-          <p className="text-base font-bold tracking-tight text-ink-strong">BAESH</p>
-          <p className="text-xs font-medium text-ink-muted">Career Data Platform</p>
-        </div>
-      </NavLink>
+      <BaeshLogo className="px-2" imageClassName="h-10 w-10" to="/dashboard" />
 
       <nav className="mt-8 space-y-1">
         {generalNavItems.map(({ label, to, icon: Icon }) => (

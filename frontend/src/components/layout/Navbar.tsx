@@ -4,6 +4,7 @@ import { Link, NavLink } from 'react-router-dom'
 import { LogOut, Menu, Search, X } from 'lucide-react'
 import { NotificationBell } from '../notifications/NotificationBell'
 import { Avatar } from '../common/Avatar'
+import { BaeshLogo } from '../common/BaeshLogo'
 import { Button } from '../common/Button'
 import { cn } from '../../lib/cn'
 import type { AuthUser } from '../../types/auth'
@@ -38,12 +39,7 @@ export function Navbar({ user }: NavbarProps) {
           >
             <Menu size={20} />
           </Button>
-          <Link className="flex items-center gap-2" to="/dashboard">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-sm font-bold text-white shadow-sm">
-              B
-            </span>
-            <span className="hidden text-lg font-bold tracking-tight text-ink-strong sm:inline">BAESH</span>
-          </Link>
+          <BaeshLogo to="/dashboard" />
         </div>
 
         <nav className="ml-2 hidden flex-1 items-center gap-1 overflow-x-auto lg:flex lg:gap-0.5">
@@ -124,12 +120,7 @@ export function Navbar({ user }: NavbarProps) {
           />
           <aside className="relative h-full w-[min(100vw-3rem,20rem)] max-w-[86vw] border-r border-surface-border bg-white p-5 shadow-card">
             <div className="flex items-center justify-between gap-3">
-              <Link className="flex items-center gap-3" onClick={() => setDrawerOpen(false)} to="/dashboard">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-accent-600 text-sm font-bold text-white">
-                  B
-                </span>
-                <span className="font-bold text-ink-strong">BAESH</span>
-              </Link>
+              <BaeshLogo imageClassName="h-10 w-10" onClick={() => setDrawerOpen(false)} to="/dashboard" />
               <Button
                 aria-label="닫기"
                 className="h-10 min-h-10 w-10 px-0"
