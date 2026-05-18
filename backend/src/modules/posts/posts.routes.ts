@@ -66,9 +66,14 @@ const postInclude = {
   },
 } as const
 
+const publicLinkedProjectSelect = {
+  ...linkedProjectSelect,
+  visibility: true,
+} as const
+
 const publicNestedPostInclude = {
   author: { select: publicAuthorSelect },
-  linkedProject: { select: linkedProjectSelect },
+  linkedProject: { select: publicLinkedProjectSelect },
   likes: {
     select: {
       id: true,
@@ -200,16 +205,18 @@ function sanitizePublicLinkedProject<T extends { visibility?: string } | null>(p
   return project
 }
 
-type PublicPostRecord = {
+/** Prisma public include는 repostOf 1단계만 로드하므로 repostOf는 선택 필드로 둡니다. */
+type SanitizablePublicPost = {
   linkedProject: { visibility?: string } | null
-  repostOf: PublicPostRecord | null
+  repostOf?: SanitizablePublicPost | null
 }
 
-function sanitizePublicPost<T extends PublicPostRecord>(post: T): T {
+function sanitizePublicPost<T extends SanitizablePublicPost>(post: T): T {
+  const sanitizedRepost = post.repostOf ? sanitizePublicPost(post.repostOf) : null
   return {
     ...post,
     linkedProject: sanitizePublicLinkedProject(post.linkedProject),
-    repostOf: post.repostOf ? sanitizePublicPost(post.repostOf) : null,
+    repostOf: sanitizedRepost,
   }
 }
 
@@ -491,7 +498,7 @@ postsRouter.get('/public/by-user/:userId', async (req, res, next) => {
     for (const post of posts) {
       const accessible = await isPostPubliclyAccessible(post.id)
       if (accessible) {
-        visiblePosts.push(sanitizePublicPost(post as PublicPostRecord))
+        visiblePosts.push(sanitizePublicPost(post))
       }
     }
 
@@ -521,20 +528,8 @@ postsRouter.get('/public/:id', async (req, res, next) => {
       return
     }
 
-    const project =
-      post.linkedProjectId &&
-      (await prisma.project.findUnique({
-        where: { id: post.linkedProjectId },
-        select: { visibility: true },
-      }))
-
     res.status(200).json({
-      post: sanitizePublicPost({
-        ...post,
-        linkedProject: post.linkedProject
-          ? { ...post.linkedProject, visibility: project?.visibility }
-          : null,
-      }),
+      post: sanitizePublicPost(post),
     })
   } catch (error) {
     next(error)
