@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import { LogOut, Menu, Search, X } from 'lucide-react'
 import { NotificationBell } from '../notifications/NotificationBell'
 import { Avatar } from '../common/Avatar'
