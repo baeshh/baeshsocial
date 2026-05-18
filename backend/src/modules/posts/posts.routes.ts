@@ -21,6 +21,12 @@ const authorSelect = {
   avatarUrl: true,
 } as const
 
+const publicAuthorSelect = {
+  id: true,
+  name: true,
+  avatarUrl: true,
+} as const
+
 const linkedProjectSelect = {
   id: true,
   title: true,
@@ -57,6 +63,35 @@ const postInclude = {
   ...nestedPostInclude,
   repostOf: {
     include: nestedPostInclude,
+  },
+} as const
+
+const publicNestedPostInclude = {
+  author: { select: publicAuthorSelect },
+  linkedProject: { select: linkedProjectSelect },
+  likes: {
+    select: {
+      id: true,
+      userId: true,
+      createdAt: true,
+    },
+  },
+  comments: {
+    include: {
+      author: {
+        select: publicAuthorSelect,
+      },
+    },
+    orderBy: {
+      createdAt: 'asc' as const,
+    },
+  },
+} as const
+
+const publicPostInclude = {
+  ...publicNestedPostInclude,
+  repostOf: {
+    include: publicNestedPostInclude,
   },
 } as const
 
@@ -139,6 +174,43 @@ function handlePostError(error: unknown, res: Response) {
   }
 
   return false
+}
+
+async function isPostPubliclyAccessible(postId: string): Promise<boolean> {
+  const post = await prisma.post.findUnique({
+    where: { id: postId },
+    select: { visibility: true, repostOfId: true },
+  })
+
+  if (!post || post.visibility !== PostVisibility.PUBLIC) {
+    return false
+  }
+
+  if (post.repostOfId) {
+    return isPostPubliclyAccessible(post.repostOfId)
+  }
+
+  return true
+}
+
+function sanitizePublicLinkedProject<T extends { visibility?: string } | null>(project: T): T | null {
+  if (!project || project.visibility !== 'PUBLIC') {
+    return null
+  }
+  return project
+}
+
+type PublicPostRecord = {
+  linkedProject: { visibility?: string } | null
+  repostOf: PublicPostRecord | null
+}
+
+function sanitizePublicPost<T extends PublicPostRecord>(post: T): T {
+  return {
+    ...post,
+    linkedProject: sanitizePublicLinkedProject(post.linkedProject),
+    repostOf: post.repostOf ? sanitizePublicPost(post.repostOf) : null,
+  }
 }
 
 /** 게시물이 viewer에게 피드/목록에서 보일 수 있는지 (단일 행 기준) */
@@ -357,6 +429,13 @@ postsRouter.post('/', authenticate, async (req, res, next) => {
         res.status(403).json({ message: 'Cannot repost this post' })
         return
       }
+      const existingRepost = await prisma.post.findFirst({
+        where: { authorId: authUser.id, repostOfId: input.repostOfId },
+      })
+      if (existingRepost) {
+        res.status(409).json({ message: '이미 퍼간 게시물입니다.' })
+        return
+      }
     }
 
     const post = await prisma.post.create({
@@ -383,6 +462,80 @@ postsRouter.get('/me', authenticate, async (_req, res, next) => {
     })
 
     res.status(200).json({ posts })
+  } catch (error) {
+    next(error)
+  }
+})
+
+postsRouter.get('/public/by-user/:userId', async (req, res, next) => {
+  try {
+    const targetUserId = String(req.params.userId)
+    const user = await prisma.user.findUnique({ where: { id: targetUserId } })
+
+    if (!user) {
+      res.status(404).json({ message: 'User not found' })
+      return
+    }
+
+    const posts = await prisma.post.findMany({
+      where: {
+        authorId: targetUserId,
+        visibility: PostVisibility.PUBLIC,
+      },
+      include: publicPostInclude,
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    })
+
+    const visiblePosts = []
+    for (const post of posts) {
+      const accessible = await isPostPubliclyAccessible(post.id)
+      if (accessible) {
+        visiblePosts.push(sanitizePublicPost(post as PublicPostRecord))
+      }
+    }
+
+    res.status(200).json({ posts: visiblePosts })
+  } catch (error) {
+    next(error)
+  }
+})
+
+postsRouter.get('/public/:id', async (req, res, next) => {
+  try {
+    const postId = String(req.params.id)
+    const accessible = await isPostPubliclyAccessible(postId)
+
+    if (!accessible) {
+      res.status(404).json({ message: 'Post not found' })
+      return
+    }
+
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      include: publicPostInclude,
+    })
+
+    if (!post) {
+      res.status(404).json({ message: 'Post not found' })
+      return
+    }
+
+    const project =
+      post.linkedProjectId &&
+      (await prisma.project.findUnique({
+        where: { id: post.linkedProjectId },
+        select: { visibility: true },
+      }))
+
+    res.status(200).json({
+      post: sanitizePublicPost({
+        ...post,
+        linkedProject: post.linkedProject
+          ? { ...post.linkedProject, visibility: project?.visibility }
+          : null,
+      }),
+    })
   } catch (error) {
     next(error)
   }

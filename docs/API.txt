@@ -1,0 +1,465 @@
+================================================================================
+BAESH Social — REST API 목록
+================================================================================
+문서 버전: 2026-05-19
+기준 코드: backend/src (Express + Prisma)
+
+--------------------------------------------------------------------------------
+1. 기본 정보
+--------------------------------------------------------------------------------
+
+Base URL (로컬)
+  http://localhost:4000/api
+
+Base URL (배포)
+  https://{배포-도메인}/api
+
+Content-Type
+  application/json
+
+인증 헤더 (대부분의 엔드포인트)
+  Authorization: Bearer <JWT>
+
+JWT 발급
+  POST /api/auth/register 또는 POST /api/auth/login 응답의 token 필드
+
+사용자 역할 (role)
+  user | company | institution | admin
+
+공통 오류 응답
+  400  Validation failed (Zod issues 포함)
+  401  Authentication required / Invalid or expired token
+  403  Insufficient role permission / 프로젝트 권한 부족
+  404  Route not found / 리소스 없음
+  409  Email is already registered 등
+  500  Internal server error
+
+참고 (외부 연동 시)
+  - 파트너용 API 키, OAuth, OpenAPI, API 버전(/v1), Rate limit, Webhook 은 미구현
+  - CORS는 FRONTEND_URL(및 FRONTEND_URLS)에 등록된 출처만 허용
+  - 이미지는 data URL(base64) 또는 https URL 형태로 전달
+
+================================================================================
+2. 헬스체크
+================================================================================
+
+[인증 불필요]
+
+GET  /health
+     서버 상태 확인
+
+================================================================================
+3. 인증 (Auth) — /api/auth
+================================================================================
+
+POST /register
+     회원가입 → JWT + user 반환
+     Body: { email, password (min 8), name (2~80), role? (기본 user) }
+
+POST /login
+     로그인 → JWT + user 반환
+     Body: { email, password }
+
+POST /logout
+     로그아웃 (클라이언트에서 토큰 삭제용, 서버 토큰 무효화 없음)
+
+GET  /me
+     [인증] 현재 로그인 사용자 정보
+
+================================================================================
+4. 사용자 (Users) — /api/users
+================================================================================
+
+[전체 인증 필요]
+
+GET    /me
+       내 계정 정보
+
+PATCH  /me
+       내 계정 수정 (name, avatarUrl, coverUrl)
+       avatarUrl/coverUrl: data:image/... 또는 https:// URL
+
+GET    /:id
+       사용자 ID로 조회
+
+POST   /:id/follow
+       해당 사용자 팔로우
+
+DELETE /:id/follow
+       팔로우 취소
+
+GET    /:id/followers
+       팔로워 목록
+
+GET    /:id/following
+       팔로잉 목록
+
+================================================================================
+5. 프로필 (Profiles) — /api/profiles
+================================================================================
+
+[전체 인증 필요]
+
+GET   /me
+      내 프로필 (스킬, 소개, 자격·경력·수상·포트폴리오, 프로젝트 요약 등)
+
+PATCH /me
+      내 프로필 수정
+
+GET   /public/:userId
+      공개 프로필 [인증 불필요, 이메일 제외·공개 프로젝트만]
+
+GET   /:userId
+      다른 사용자 프로필 (공개 범위에 따름)
+
+POST  /me/certificates
+      자격·수료 항목 추가
+
+PATCH /me/certificates/:id
+      자격·수료 항목 수정
+
+POST  /me/careers
+      경력 항목 추가
+
+PATCH /me/careers/:id
+      경력 항목 수정
+
+POST  /me/awards
+      수상·성과 항목 추가
+
+PATCH /me/awards/:id
+      수상·성과 항목 수정
+
+POST  /me/portfolios
+      포트폴리오 항목 추가
+
+================================================================================
+6. 프로젝트 (Projects) — /api/projects
+================================================================================
+
+[전체 인증 필요]
+프로젝트 내부 동작은 RBAC(역할·권한)에 따라 403 가능
+
+--- 목록·생성 ---
+
+GET   /
+      내가 참여 중이거나 공개된 프로젝트 목록
+
+POST  /
+      프로젝트 생성
+
+--- 초대 (전역 경로) ---
+
+POST  /invites/:inviteId/accept
+      프로젝트 초대 수락
+
+POST  /invites/:inviteId/decline
+      프로젝트 초대 거절
+
+--- 권한 카탈로그 ---
+
+GET   /permission-catalog
+      프로젝트에서 사용 가능한 권한 목록 (16종)
+
+--- 단일 프로젝트 ---
+
+GET    /:id
+       프로젝트 상세
+       비멤버 + 공개 프로젝트: 요약만 (tasks/files/activities/roles 미포함, isGuestViewer)
+
+PATCH  /:id
+       프로젝트 수정 (권한: project.edit 등)
+
+DELETE /:id
+       프로젝트 삭제 (권한: project.delete)
+
+--- 팀 ---
+
+GET    /:id/team-candidates
+       초대 가능한 사용자 후보 (팔로우 관계 기반)
+
+POST   /:id/invites
+       팀원 초대 (권한: members.invite)
+
+POST   /:id/members
+       멤버 직접 추가
+
+DELETE /:id/members/me
+       프로젝트에서 나가기
+
+--- 태스크 ---
+
+POST   /:id/tasks
+       태스크 생성 (권한: tasks.create)
+
+PATCH  /:id/tasks/:taskId
+       태스크 수정 (권한: tasks.edit)
+
+--- 활동·파일 ---
+
+POST   /:id/activities
+       활동 기록 추가 (권한: activities.create)
+
+POST   /:id/files
+       파일 메타 추가 (권한: files.upload)
+
+--- 역할(RBAC) ---
+
+GET    /:id/roles
+       프로젝트 역할 목록
+
+POST   /:id/roles
+       역할 생성 (권한: roles.manage)
+
+PATCH  /:id/roles/:roleId
+       역할 수정 (권한: roles.manage)
+
+DELETE /:id/roles/:roleId
+       역할 삭제 (권한: roles.manage, 시스템 역할 제외)
+
+PATCH  /:id/members/:memberId/role
+       멤버 역할 변경 (권한: members.assign_role)
+
+프로젝트 권한 ID 목록 (permission-catalog / 역할 설정 시 사용)
+  project.view, project.edit, project.delete, project.settings
+  roles.manage
+  members.invite, members.remove, members.assign_role
+  tasks.view, tasks.create, tasks.edit, tasks.delete
+  files.view, files.upload, files.delete
+  activities.create
+
+기본 시스템 역할 (프로젝트 생성 시 시드)
+  owner, admin, member, viewer
+
+================================================================================
+7. 게시물 (Posts) — /api/posts
+================================================================================
+
+[전체 인증 필요]
+
+GET    /
+       전체 피드
+
+GET    /recommended
+       추천 피드 (관심·스킬·프로젝트 기반)
+
+GET    /by-user/:userId
+       특정 사용자 게시물
+
+GET    /me
+       내 게시물
+
+POST   /
+       게시물 작성 (텍스트, 이미지, 프로젝트 연결, 공개범위, 리포스트 등)
+
+GET    /public/by-user/:userId
+       사용자 공개 게시물 목록 [인증 불필요]
+
+GET    /public/:id
+       공개 게시물 상세 [인증 불필요, PUBLIC만]
+
+GET    /:id
+       게시물 상세
+
+PATCH  /:id
+       게시물 수정 (작성자만)
+
+DELETE /:id
+       게시물 삭제 (작성자만)
+
+POST   /:id/like
+       좋아요
+
+DELETE /:id/like
+       좋아요 취소
+
+POST   /:id/comments
+       댓글 작성
+
+================================================================================
+8. 기회 (Opportunities) — /api/opportunities
+================================================================================
+
+[전체 인증 필요]
+생성·수정·삭제는 role 이 admin 또는 institution 만 가능
+
+GET    /
+       기회 목록 (필터·매칭 점수 포함)
+
+POST   /
+       기회 생성 [admin, institution]
+
+GET    /enrollments/me
+       내 신청(수강) 목록
+
+GET    /enrollments/managed
+       기관·관리자가 관리하는 수강 목록
+
+PATCH  /enrollments/:enrollmentId
+       수강 상태 변경 (승인·거절 등)
+
+GET    /:id
+       기회 상세
+
+PATCH  /:id
+       기회 수정 [admin, institution]
+
+DELETE /:id
+       기회 삭제 [admin, institution]
+
+POST   /:id/enroll
+       프로그램 신청
+
+POST   /:id/save
+       기회 저장(북마크)
+
+DELETE /:id/save
+       저장 취소
+
+================================================================================
+9. 알림 (Notifications) — /api/notifications
+================================================================================
+
+[전체 인증 필요]
+
+GET    /
+       알림 목록
+
+GET    /unread-count
+       미읽음 알림 수
+
+PATCH  /read-all
+       전체 읽음 처리
+
+PATCH  /:id/read
+       단일 알림 읽음 처리
+
+알림 유형 예: 팔로우, 프로젝트 초대 등 (앱 내에서 자동 생성)
+
+================================================================================
+10. AI — /api/ai
+================================================================================
+
+[전체 인증 필요]
+환경변수 AI_PROVIDER: mock (기본) | openai | upstage
+
+POST /profile-insight
+     내 프로필 기반 스킬·성장 인사이트
+
+POST /project-insight
+     프로젝트 분석
+     Body: { projectId }
+
+POST /opportunity-match
+     기회 매칭 분석
+
+POST /portfolio-generator
+     포트폴리오 초안 생성
+
+GET  /analyses/me
+     내 AI 분석 이력 목록
+
+================================================================================
+11. 엔드포인트 요약 (메서드 + 경로)
+================================================================================
+
+GET    /api/health
+
+POST   /api/auth/register
+POST   /api/auth/login
+POST   /api/auth/logout
+GET    /api/auth/me
+
+GET    /api/users/me
+PATCH  /api/users/me
+GET    /api/users/:id
+POST   /api/users/:id/follow
+DELETE /api/users/:id/follow
+GET    /api/users/:id/followers
+GET    /api/users/:id/following
+
+GET    /api/profiles/me
+PATCH  /api/profiles/me
+GET    /api/profiles/:userId
+POST   /api/profiles/me/certificates
+PATCH  /api/profiles/me/certificates/:id
+POST   /api/profiles/me/careers
+PATCH  /api/profiles/me/careers/:id
+POST   /api/profiles/me/awards
+PATCH  /api/profiles/me/awards/:id
+POST   /api/profiles/me/portfolios
+
+GET    /api/projects
+POST   /api/projects
+POST   /api/projects/invites/:inviteId/accept
+POST   /api/projects/invites/:inviteId/decline
+GET    /api/projects/permission-catalog
+GET    /api/projects/:id
+PATCH  /api/projects/:id
+DELETE /api/projects/:id
+GET    /api/projects/:id/team-candidates
+POST   /api/projects/:id/invites
+POST   /api/projects/:id/members
+DELETE /api/projects/:id/members/me
+POST   /api/projects/:id/tasks
+PATCH  /api/projects/:id/tasks/:taskId
+POST   /api/projects/:id/activities
+POST   /api/projects/:id/files
+GET    /api/projects/:id/roles
+POST   /api/projects/:id/roles
+PATCH  /api/projects/:id/roles/:roleId
+DELETE /api/projects/:id/roles/:roleId
+PATCH  /api/projects/:id/members/:memberId/role
+
+GET    /api/posts
+GET    /api/posts/recommended
+GET    /api/posts/by-user/:userId
+GET    /api/posts/me
+POST   /api/posts
+GET    /api/posts/public/:id
+GET    /api/posts/:id
+PATCH  /api/posts/:id
+DELETE /api/posts/:id
+POST   /api/posts/:id/like
+DELETE /api/posts/:id/like
+POST   /api/posts/:id/comments
+
+GET    /api/opportunities
+POST   /api/opportunities
+GET    /api/opportunities/enrollments/me
+GET    /api/opportunities/enrollments/managed
+PATCH  /api/opportunities/enrollments/:enrollmentId
+GET    /api/opportunities/:id
+PATCH  /api/opportunities/:id
+DELETE /api/opportunities/:id
+POST   /api/opportunities/:id/enroll
+POST   /api/opportunities/:id/save
+DELETE /api/opportunities/:id/save
+
+GET    /api/notifications
+GET    /api/notifications/unread-count
+PATCH  /api/notifications/read-all
+PATCH  /api/notifications/:id/read
+
+POST   /api/ai/profile-insight
+POST   /api/ai/project-insight
+POST   /api/ai/opportunity-match
+POST   /api/ai/portfolio-generator
+GET    /api/ai/analyses/me
+
+================================================================================
+12. 호출 예시
+================================================================================
+
+# 로그인
+curl -X POST https://{domain}/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"demo@baesh.dev","password":"password123"}'
+
+# 인증 API 호출
+curl https://{domain}/api/users/me \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+================================================================================
+끝
+================================================================================

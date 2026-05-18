@@ -298,6 +298,42 @@ profilesRouter.patch('/me', authenticate, async (req, res, next) => {
   }
 })
 
+profilesRouter.get('/public/:userId', async (req, res, next) => {
+  try {
+    const userId = String(req.params.userId)
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+
+    if (!user) {
+      res.status(404).json({ message: 'User not found' })
+      return
+    }
+
+    const payload = await getProfilePayload(userId)
+    const publicProjectRows = await prisma.project.findMany({
+      where: {
+        visibility: ProjectVisibility.PUBLIC,
+        OR: [{ ownerId: userId }, { members: { some: { userId } } }],
+      },
+      select: { id: true },
+    })
+    const publicProjectIds = new Set(publicProjectRows.map((row) => row.id))
+    const { email: _email, ...publicUser } = payload.profile.user
+
+    res.status(200).json({
+      ...payload,
+      profile: {
+        ...payload.profile,
+        user: publicUser,
+      },
+      projects: payload.projects.filter((project) => publicProjectIds.has(project.id)),
+      isFollowing: false,
+      isOwnProfile: false,
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
 profilesRouter.get('/:userId', authenticate, async (req, res, next) => {
   try {
     const userId = String(req.params.userId)

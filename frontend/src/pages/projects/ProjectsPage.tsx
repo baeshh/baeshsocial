@@ -20,6 +20,7 @@ import { EmptyState } from '../../components/common/EmptyState'
 import { Input, Select, Textarea } from '../../components/common/Input'
 import { LoadingState } from '../../components/common/LoadingState'
 import { AppLayout } from '../../components/layout/AppLayout'
+import { Modal } from '../../components/common/Modal'
 import { ProjectDeleteModal } from '../../components/projects/ProjectDeleteModal'
 import { ProjectLeaveModal } from '../../components/projects/ProjectLeaveModal'
 import { ProjectRolesPanel } from '../../components/projects/ProjectRolesPanel'
@@ -67,6 +68,28 @@ function projectHealth(project: Project) {
   return Math.round((project.progress + taskScore + activityScore + fileScore) / 4)
 }
 
+const emptyCreateForm = {
+  title: '',
+  description: '',
+  objective: '',
+  readme: '',
+  skills: '',
+  visibility: 'private',
+}
+
+function projectStatusTone(status: Project['status']) {
+  if (status === 'ACTIVE') {
+    return 'green' as const
+  }
+  if (status === 'PLANNING') {
+    return 'purple' as const
+  }
+  if (status === 'COMPLETED') {
+    return 'blue' as const
+  }
+  return 'gray' as const
+}
+
 export function ProjectsPage() {
   const { projectId } = useParams()
   const token = useAuthStore((state) => state.token)
@@ -80,14 +103,8 @@ export function ProjectsPage() {
 
 function ProjectList({ token }: { token: string }) {
   const queryClient = useQueryClient()
-  const [form, setForm] = useState({
-    title: '',
-    description: '',
-    objective: '',
-    readme: '',
-    skills: '',
-    visibility: 'private',
-  })
+  const [createOpen, setCreateOpen] = useState(false)
+  const [form, setForm] = useState(emptyCreateForm)
   const projectsQuery = useQuery({
     queryKey: ['projects'],
     queryFn: () => getProjects(token),
@@ -104,92 +121,119 @@ function ProjectList({ token }: { token: string }) {
         skills: splitTags(form.skills),
       }),
     onSuccess: () => {
-      setForm({ title: '', description: '', objective: '', readme: '', skills: '', visibility: 'private' })
+      setForm(emptyCreateForm)
+      setCreateOpen(false)
       void queryClient.invalidateQueries({ queryKey: ['projects'] })
       void queryClient.invalidateQueries({ queryKey: ['profiles'] })
     },
   })
 
+  const projects = projectsQuery.data?.projects ?? []
+
   return (
     <AppLayout>
-      <div className="space-y-6">
-        <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-          <Card className="rounded-2xl border-surface-border shadow-sm">
-            <CardHeader>
-              <CardTitle>프로젝트 생성</CardTitle>
-              <CardDescription>새 프로젝트를 만들고 팀 컨텍스트를 구조화합니다.</CardDescription>
-            </CardHeader>
-            <form
-              className="grid gap-4"
-              onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                event.preventDefault()
-                createMutation.mutate()
-              }}
-            >
-              <Input
-                label="프로젝트명"
-                onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-                required
-                value={form.title}
-              />
-              <Textarea
-                label="설명"
-                onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-                value={form.description}
-              />
-              <Textarea
-                label="목표"
-                onChange={(event) => setForm((prev) => ({ ...prev, objective: event.target.value }))}
-                value={form.objective}
-              />
-              <Input
-                label="기술스택"
-                onChange={(event) => setForm((prev) => ({ ...prev, skills: event.target.value }))}
-                placeholder="React, Node.js, PostgreSQL"
-                value={form.skills}
-              />
-              <Select
-                label="공개 범위"
-                onChange={(event) => setForm((prev) => ({ ...prev, visibility: event.target.value }))}
-                value={form.visibility}
-              >
-                <option value="private">Private</option>
-                <option value="team">Team</option>
-                <option value="public">Public</option>
-              </Select>
-              <Textarea
-                label="Project Readme"
-                onChange={(event) => setForm((prev) => ({ ...prev, readme: event.target.value }))}
-                value={form.readme}
-              />
-              {createMutation.error ? (
-                <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-                  {createMutation.error.message}
-                </p>
-              ) : null}
-              <Button disabled={createMutation.isPending} type="submit">
-                {createMutation.isPending ? '생성 중' : '프로젝트 생성'}
-              </Button>
-            </form>
-          </Card>
+      <div className="mx-auto max-w-5xl space-y-8">
+        <header className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">프로젝트 목록</h2>
+            <p className="mt-2 text-sm text-slate-500">소유·참여·공개 프로젝트를 한곳에서 관리합니다.</p>
+          </div>
+          <Button
+            className="w-full rounded-lg px-5 shadow-sm sm:w-auto"
+            onClick={() => setCreateOpen(true)}
+            type="button"
+          >
+            <Plus className="mr-2" size={20} />
+            새 프로젝트
+          </Button>
+        </header>
 
-          <Card className="rounded-2xl border-surface-border shadow-sm">
-            <CardHeader>
-              <CardTitle>프로젝트 목록</CardTitle>
-              <CardDescription>소유·참여·공개 프로젝트를 한곳에서 관리합니다.</CardDescription>
-            </CardHeader>
-            {projectsQuery.isLoading ? <LoadingState /> : null}
-            {projectsQuery.data?.projects.length === 0 ? (
-              <EmptyState description="첫 프로젝트를 생성하면 이곳에 표시됩니다." title="프로젝트가 없습니다" />
-            ) : null}
-            <div className="grid gap-4">
-              {projectsQuery.data?.projects.map((project) => (
-                <ProjectCard key={project.id} project={project} />
-              ))}
-            </div>
-          </Card>
-        </div>
+        {projectsQuery.isLoading ? <LoadingState /> : null}
+
+        {!projectsQuery.isLoading && projects.length === 0 ? (
+          <EmptyState description="첫 프로젝트를 생성하면 이곳에 표시됩니다." title="프로젝트가 없습니다" />
+        ) : null}
+
+        {!projectsQuery.isLoading && projects.length > 0 ? (
+          <main className="grid grid-cols-1 gap-6 sm:grid-cols-[repeat(auto-fill,minmax(300px,1fr))]">
+            {projects.map((project) => (
+              <ProjectCard key={project.id} project={project} />
+            ))}
+          </main>
+        ) : null}
       </div>
+
+      <Modal onClose={() => setCreateOpen(false)} open={createOpen} title="프로젝트 생성">
+        <form
+          className="space-y-5"
+          onSubmit={(event: FormEvent<HTMLFormElement>) => {
+            event.preventDefault()
+            createMutation.mutate()
+          }}
+        >
+          <Input
+            label="프로젝트명"
+            onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+            placeholder="예: BAESH 플랫폼 리뉴얼"
+            required
+            value={form.title}
+          />
+          <Textarea
+            label="설명"
+            onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
+            placeholder="프로젝트에 대한 간단한 설명을 입력해주세요."
+            rows={2}
+            value={form.description}
+          />
+          <Textarea
+            label="목표"
+            onChange={(event) => setForm((prev) => ({ ...prev, objective: event.target.value }))}
+            placeholder="프로젝트의 주요 목표를 적어주세요."
+            rows={2}
+            value={form.objective}
+          />
+          <Input
+            label="기술스택"
+            onChange={(event) => setForm((prev) => ({ ...prev, skills: event.target.value }))}
+            placeholder="React, Node.js, PostgreSQL"
+            value={form.skills}
+          />
+          <Select
+            label="공개 범위"
+            onChange={(event) => setForm((prev) => ({ ...prev, visibility: event.target.value }))}
+            value={form.visibility}
+          >
+            <option value="private">Private</option>
+            <option value="team">Team</option>
+            <option value="public">Public</option>
+          </Select>
+          <Textarea
+            label="Project Readme"
+            onChange={(event) => setForm((prev) => ({ ...prev, readme: event.target.value }))}
+            placeholder="팀원과 공유할 상세 문서 (선택)"
+            rows={3}
+            value={form.readme}
+          />
+          {createMutation.error ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {createMutation.error.message}
+            </p>
+          ) : null}
+          <div className="flex gap-3 pt-2">
+            <Button
+              className="min-h-11 flex-1 rounded-lg"
+              onClick={() => setCreateOpen(false)}
+              type="button"
+              variant="secondary"
+            >
+              취소
+            </Button>
+            <Button className="min-h-11 flex-[2] rounded-lg" disabled={createMutation.isPending} type="submit">
+              {createMutation.isPending ? '생성 중…' : '생성하기'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </AppLayout>
   )
 }
@@ -234,32 +278,41 @@ function ProjectCard({ project }: { project: Project }) {
   const health = projectHealth(project)
 
   return (
-    <Link
-      className="block rounded-2xl border border-surface-border bg-white p-5 shadow-sm transition hover:border-brand-200 hover:shadow-md"
-      to={`/projects/${project.id}`}
-    >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-ink-strong">{project.title}</h2>
-          <p className="mt-2 line-clamp-2 text-sm leading-6 text-ink-muted">
-            {project.description ?? '프로젝트 설명이 없습니다.'}
-          </p>
-        </div>
-        <Badge tone={project.status === 'ACTIVE' ? 'green' : 'purple'}>{project.status}</Badge>
+    <article className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:border-slate-300 hover:shadow-lg">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <h3 className="text-lg font-bold leading-snug text-slate-900">{project.title}</h3>
+        <Badge
+          className="shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-bold uppercase tracking-wide"
+          tone={projectStatusTone(project.status)}
+        >
+          {project.status}
+        </Badge>
       </div>
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <Metric label="Progress" value={`${project.progress}%`} />
-        <Metric label="Tasks" value={`${project.tasks.length}`} />
-        <Metric label="Health" value={`${health}`} />
+      <p className="mb-6 flex-grow text-sm leading-relaxed text-slate-500 line-clamp-3">
+        {project.description ?? '프로젝트 설명이 없습니다.'}
+      </p>
+      <div className="mb-4 flex gap-2">
+        <ProjectMetricBox label="Progress" value={`${project.progress}%`} />
+        <ProjectMetricBox label="Tasks" value={String(project.tasks.length)} />
+        <ProjectMetricBox label="Health" value={String(health)} />
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {project.skills.slice(0, 5).map((skill) => (
-          <Badge key={skill} tone="blue">
-            {skill}
-          </Badge>
-        ))}
-      </div>
-    </Link>
+      <Button
+        className="w-full rounded-lg border-slate-300 text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+        to={`/projects/${project.id}`}
+        variant="secondary"
+      >
+        상세 보기
+      </Button>
+    </article>
+  )
+}
+
+function ProjectMetricBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex-1 rounded-lg border border-slate-100 bg-slate-50 px-2 py-2 text-center">
+      <span className="mb-0.5 block text-[0.7rem] text-slate-500">{label}</span>
+      <span className="block text-base font-bold text-slate-800">{value}</span>
+    </div>
   )
 }
 
@@ -945,15 +998,6 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
         />
       ) : null}
     </AppLayout>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-surface-muted p-4">
-      <p className="text-sm font-semibold text-ink-muted">{label}</p>
-      <p className="mt-1 text-2xl font-bold text-ink-strong">{value}</p>
-    </div>
   )
 }
 

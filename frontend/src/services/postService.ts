@@ -25,6 +25,18 @@ export function getMyPosts(token: string) {
   return apiRequest<{ posts: Post[] }>('/posts/me', { token })
 }
 
+export function getPost(token: string, postId: string) {
+  return apiRequest<{ post: Post }>(`/posts/${postId}`, { token })
+}
+
+export function getPublicPost(postId: string) {
+  return apiRequest<{ post: Post }>(`/posts/public/${postId}`)
+}
+
+export function getPublicPostsByUser(userId: string) {
+  return apiRequest<{ posts: Post[] }>(`/posts/public/by-user/${userId}`)
+}
+
 export function createPost(token: string, payload: PostPayload) {
   return apiRequest<{ post: Post }>('/posts', {
     method: 'POST',

@@ -1,0 +1,266 @@
+import { useMutation } from '@tanstack/react-query'
+import { MessageSquare, Repeat2, ThumbsUp } from 'lucide-react'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Avatar } from '../common/Avatar'
+import { Button } from '../common/Button'
+import { Textarea } from '../common/Input'
+import { cn } from '../../lib/cn'
+import {
+  addComment,
+  createPost,
+  deletePost,
+  likePost,
+  unlikePost,
+  updatePost,
+} from '../../services/postService'
+import type { Post } from '../../types/post'
+import { EmbeddedPostPreview } from './EmbeddedPostPreview'
+import { PostMediaGrid } from './PostMediaGrid'
+import { PostShareButton } from './PostShareButton'
+
+function extractHashtags(content: string) {
+  return Array.from(content.matchAll(/#[\p{L}\p{N}_-]+/gu)).map((match) => match[0])
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('ko-KR', {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).format(new Date(value))
+}
+
+export type PostCardProps = {
+  post: Post
+  token: string
+  userId?: string
+  onChanged: () => void
+  repostedSourceIds?: Set<string>
+  showComments?: boolean
+}
+
+export function PostCard({
+  post,
+  token,
+  userId,
+  onChanged,
+  repostedSourceIds,
+  showComments = true,
+}: PostCardProps) {
+  const [comment, setComment] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [editContent, setEditContent] = useState(post.content)
+  const liked = post.likes.some((like) => like.userId === userId)
+  const isAuthor = post.authorId === userId
+  const hashtags = extractHashtags(post.content)
+  const alreadyReposted = Boolean(userId && repostedSourceIds?.has(post.id))
+
+  const likeMutation = useMutation({
+    mutationFn: () => (liked ? unlikePost(token, post.id) : likePost(token, post.id)),
+    onSuccess: onChanged,
+  })
+  const commentMutation = useMutation({
+    mutationFn: () => addComment(token, post.id, comment),
+    onSuccess: () => {
+      setComment('')
+      onChanged()
+    },
+  })
+  const updateMutation = useMutation({
+    mutationFn: () => updatePost(token, post.id, { content: editContent }),
+    onSuccess: () => {
+      setEditing(false)
+      onChanged()
+    },
+  })
+  const deleteMutation = useMutation({
+    mutationFn: () => deletePost(token, post.id),
+    onSuccess: onChanged,
+  })
+  const repostMutation = useMutation({
+    mutationFn: () =>
+      createPost(token, {
+        content: '',
+        repostOfId: post.id,
+        visibility: 'public',
+      }),
+    onSuccess: onChanged,
+  })
+
+  const canRepost = Boolean(userId && !isAuthor)
+
+  return (
+    <article className="rounded-2xl border border-surface-border bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Link className="shrink-0 rounded-full ring-2 ring-white shadow-sm" to={`/profile/${post.author.id}`}>
+            <Avatar name={post.author.name} src={post.author.avatarUrl} />
+          </Link>
+          <div>
+            <Link className="font-bold text-ink-strong hover:text-brand-600" to={`/profile/${post.author.id}`}>
+              {post.author.name}
+            </Link>
+            <p className="text-sm text-ink-muted">
+              {formatDate(post.createdAt)} · {post.visibility === 'PUBLIC' ? '공개' : post.visibility === 'CONNECTIONS' ? '연결 공개' : '비공개'}
+            </p>
+          </div>
+        </div>
+        <Link className="text-xs font-semibold text-brand-600 hover:text-brand-700" to={`/p/${post.id}`}>
+          게시물 보기
+        </Link>
+      </div>
+
+      {post.repostOf ? (
+        <div className="mt-3">
+          <p className="flex items-center gap-1 text-xs font-semibold text-ink-muted">
+            <Repeat2 size={14} />
+            퍼온 게시물
+          </p>
+          <div className="mt-2">
+            <EmbeddedPostPreview post={post.repostOf} />
+          </div>
+        </div>
+      ) : null}
+
+      {editing ? (
+        <form
+          className="mt-4 space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            updateMutation.mutate()
+          }}
+        >
+          <Textarea label="게시글 수정" onChange={(event) => setEditContent(event.target.value)} value={editContent} />
+          <Button disabled={updateMutation.isPending} type="submit">
+            수정 저장
+          </Button>
+        </form>
+      ) : post.content.trim() ? (
+        <p className="mt-4 whitespace-pre-wrap leading-relaxed text-ink-body">{post.content}</p>
+      ) : post.repostOf ? null : (
+        <p className="mt-4 text-sm text-ink-muted">내용 없음</p>
+      )}
+
+      <PostMediaGrid urls={post.mediaUrls ?? []} />
+
+      {hashtags.length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {hashtags.map((hashtag) => (
+            <span
+              className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-100"
+              key={hashtag}
+            >
+              {hashtag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {!post.repostOf && post.linkedProject ? (
+        <Link
+          className="mt-4 block rounded-xl border border-brand-100 bg-brand-50/50 p-4 transition hover:bg-brand-50"
+          to={`/projects/${post.linkedProject.id}`}
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">Linked Project</p>
+          <p className="mt-1 font-bold text-ink-strong">{post.linkedProject.title}</p>
+          <p className="mt-1 line-clamp-2 text-sm text-ink-muted">{post.linkedProject.description ?? '설명 없음'}</p>
+        </Link>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-surface-border pt-4">
+        <div className="flex flex-wrap items-start gap-1">
+          <button
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition',
+              liked ? 'bg-brand-50 text-brand-700' : 'text-ink-muted hover:bg-surface-muted',
+            )}
+            onClick={() => likeMutation.mutate()}
+            type="button"
+          >
+            <ThumbsUp size={18} />
+            좋아요 {post.likes.length}
+          </button>
+          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-ink-muted">
+            <MessageSquare size={18} />
+            댓글 {post.comments.length}
+          </span>
+          {canRepost ? (
+            <button
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-ink-muted transition hover:bg-surface-muted disabled:opacity-40"
+              disabled={repostMutation.isPending || alreadyReposted}
+              onClick={() => repostMutation.mutate()}
+              type="button"
+            >
+              <Repeat2 size={18} />
+              {alreadyReposted ? '퍼감' : '퍼가기'}
+            </button>
+          ) : null}
+          <PostShareButton postId={post.id} visibility={post.visibility} />
+        </div>
+        {isAuthor ? (
+          <div className="flex w-full flex-shrink-0 justify-end gap-2 sm:w-auto">
+            <Button className="rounded-full text-xs" onClick={() => setEditing((value) => !value)} variant="ghost">
+              수정
+            </Button>
+            <Button
+              className="rounded-full text-xs text-red-700 hover:bg-red-50"
+              onClick={() => deleteMutation.mutate()}
+              variant="ghost"
+            >
+              삭제
+            </Button>
+          </div>
+        ) : null}
+      </div>
+      {repostMutation.error ? (
+        <p className="mt-2 text-xs text-red-600">{repostMutation.error.message}</p>
+      ) : null}
+
+      {showComments ? (
+        <>
+          <div className="mt-4 space-y-3">
+            {post.comments.map((item) => (
+              <div className="rounded-xl bg-surface-muted/80 p-4" key={item.id}>
+                <div className="flex items-center gap-2">
+                  <Link className="shrink-0" to={`/profile/${item.author.id}`}>
+                    <Avatar name={item.author.name} size="sm" src={item.author.avatarUrl} />
+                  </Link>
+                  <Link
+                    className="text-sm font-bold text-ink-strong hover:text-brand-600"
+                    to={`/profile/${item.author.id}`}
+                  >
+                    {item.author.name}
+                  </Link>
+                </div>
+                <p className="mt-1 text-sm leading-relaxed text-ink-body">{item.content}</p>
+              </div>
+            ))}
+          </div>
+
+          <form
+            className="mt-4 flex flex-col gap-3 sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault()
+              commentMutation.mutate()
+            }}
+          >
+            <div className="flex-1">
+              <Textarea
+                className="min-h-20 rounded-xl"
+                label="댓글"
+                onChange={(event) => setComment(event.target.value)}
+                placeholder="댓글을 입력하세요"
+                required
+                value={comment}
+              />
+            </div>
+            <Button className="self-end rounded-full" disabled={commentMutation.isPending} type="submit">
+              댓글 작성
+            </Button>
+          </form>
+        </>
+      ) : null}
+    </article>
+  )
+}

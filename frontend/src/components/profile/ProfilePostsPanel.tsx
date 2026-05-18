@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Repeat2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Avatar } from '../common/Avatar'
@@ -6,7 +7,15 @@ import { Button } from '../common/Button'
 import { LoadingState } from '../common/LoadingState'
 import { Select, Textarea } from '../common/Input'
 import { PostMediaGrid } from '../posts/PostMediaGrid'
-import { deletePost, getPostsByUser, updatePost, type PostPayload } from '../../services/postService'
+import { PostShareButton } from '../posts/PostShareButton'
+import { EmbeddedPostPreview } from '../posts/EmbeddedPostPreview'
+import {
+  createPost,
+  deletePost,
+  getPostsByUser,
+  updatePost,
+  type PostPayload,
+} from '../../services/postService'
 import { getProjects } from '../../services/projectService'
 import type { Post, PostVisibility } from '../../types/post'
 import { useAuthStore } from '../../stores/authStore'
@@ -70,6 +79,7 @@ type ProfilePostCardProps = {
   avatarUrl: string | null
   isOwnProfile: boolean
   onChanged: () => void
+  canRepost: boolean
 }
 
 function ProfilePostCard({
@@ -79,6 +89,7 @@ function ProfilePostCard({
   avatarUrl,
   isOwnProfile,
   onChanged,
+  canRepost,
 }: ProfilePostCardProps) {
   const currentUserId = useAuthStore((state) => state.user?.id)
   const canManage = Boolean(isOwnProfile && currentUserId && post.authorId === currentUserId)
@@ -115,6 +126,17 @@ function ProfilePostCard({
       setError(null)
       onChanged()
     },
+    onError: (err: Error) => setError(err.message),
+  })
+
+  const repostMutation = useMutation({
+    mutationFn: () =>
+      createPost(token, {
+        content: '',
+        repostOfId: post.id,
+        visibility: 'public',
+      }),
+    onSuccess: onChanged,
     onError: (err: Error) => setError(err.message),
   })
 
@@ -223,7 +245,12 @@ function ProfilePostCard({
       ) : (
         <>
           {post.repostOf ? (
-            <p className="mt-3 text-xs font-semibold text-ink-muted">퍼온 게시물</p>
+            <div className="mt-3">
+              <p className="text-xs font-semibold text-ink-muted">퍼온 게시물</p>
+              <div className="mt-2">
+                <EmbeddedPostPreview post={post.repostOf} />
+              </div>
+            </div>
           ) : null}
           {post.content.trim() ? (
             <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-ink-body">{post.content}</p>
@@ -245,9 +272,26 @@ function ProfilePostCard({
       ) : null}
 
       {!editing ? (
-        <p className="mt-3 text-xs text-ink-muted">
-          좋아요 {post.likes.length} · 댓글 {post.comments.length}
-        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-surface-border pt-4">
+          <p className="text-xs text-ink-muted">
+            좋아요 {post.likes.length} · 댓글 {post.comments.length}
+          </p>
+          <PostShareButton postId={post.id} visibility={post.visibility} />
+          {canRepost ? (
+            <button
+              className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold text-ink-muted transition hover:bg-surface-muted disabled:opacity-40"
+              disabled={repostMutation.isPending}
+              onClick={() => repostMutation.mutate()}
+              type="button"
+            >
+              <Repeat2 size={14} />
+              퍼가기
+            </button>
+          ) : null}
+          <Link className="text-xs font-semibold text-brand-600 hover:text-brand-700" to={`/p/${post.id}`}>
+            게시물 보기
+          </Link>
+        </div>
       ) : null}
 
       {canManage && !editing && !confirmDelete ? (
@@ -279,6 +323,7 @@ export function ProfilePostsPanel({
   isOwnProfile,
 }: ProfilePostsPanelProps) {
   const queryClient = useQueryClient()
+  const currentUserId = useAuthStore((state) => state.user?.id)
 
   const postsQuery = useQuery({
     queryKey: ['posts', 'by-user', userId],
@@ -327,6 +372,12 @@ export function ProfilePostsPanel({
       {posts.map((post) => (
         <ProfilePostCard
           avatarUrl={avatarUrl}
+          canRepost={Boolean(
+            !isOwnProfile &&
+              currentUserId &&
+              post.authorId !== currentUserId &&
+              post.visibility === 'PUBLIC',
+          )}
           isOwnProfile={isOwnProfile}
           key={post.id}
           onChanged={handleChanged}

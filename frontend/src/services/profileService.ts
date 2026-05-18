@@ -50,6 +50,10 @@ export function getProfileByUserId(token: string, userId: string) {
   return apiRequest<ProfilePayload>(`/profiles/${userId}`, { token })
 }
 
+export function getPublicProfile(userId: string) {
+  return apiRequest<ProfilePayload>(`/profiles/public/${userId}`)
+}
+
 export function updateMyProfile(token: string, payload: UpdateProfilePayload) {
   return apiRequest<{ profile: ProfilePayload['profile'] }>('/profiles/me', {
     method: 'PATCH',

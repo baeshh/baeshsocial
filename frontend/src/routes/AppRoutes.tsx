@@ -7,12 +7,16 @@ import { LandingPage } from '../pages/LandingPage'
 import { NetworkPage } from '../pages/network/NetworkPage'
 import { OpportunitiesPage } from '../pages/opportunities/OpportunitiesPage'
 import { ProfilePage } from '../pages/profile/ProfilePage'
+import { PublicProfilePage } from '../pages/profile/PublicProfilePage'
 import { ProjectsPage } from '../pages/projects/ProjectsPage'
+import { PublicPostPage } from '../pages/posts/PublicPostPage'
 
 export function AppRoutes() {
   return (
     <Routes>
       <Route element={<LandingPage />} path="/" />
+      <Route element={<PublicPostPage />} path="/p/:postId" />
+      <Route element={<PublicProfilePage />} path="/u/:userId" />
       <Route element={<AuthEntryPage />} path="/auth/:mode" />
       <Route element={<DashboardPage />} path="/dashboard" />
       <Route element={<ProfilePage />} path="/profile" />

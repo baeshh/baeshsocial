@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
-import { GraduationCap, Share2, ShieldCheck, Sparkles } from 'lucide-react'
+import { GraduationCap, ShieldCheck, Sparkles } from 'lucide-react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
@@ -17,6 +17,7 @@ import { ProfileHistoryPanel } from '../../components/profile/ProfileHistoryPane
 import { ProfilePostsPanel } from '../../components/profile/ProfilePostsPanel'
 import { ProfileProjectsPanel } from '../../components/profile/ProfileProjectsPanel'
 import { ProfileFollowListModal } from '../../components/profile/ProfileFollowListModal'
+import { ProfileShareButton } from '../../components/profile/ProfileShareButton'
 import { ProfileGrowthTimeline } from '../../components/profile/ProfileGrowthTimeline'
 import { ProfileUpdatesHighlight } from '../../components/profile/ProfileUpdatesHighlight'
 import { getMyProfile, getProfileByUserId, updateMyProfile } from '../../services/profileService'
@@ -93,7 +94,6 @@ export function ProfilePage() {
   const sessionUser = useAuthStore((state) => state.user)
   const setSession = useAuthStore((state) => state.setSession)
   const queryClient = useQueryClient()
-  const [shareHint, setShareHint] = useState<string | null>(null)
   const [profileTab, setProfileTab] = useState('history')
   const [editOpen, setEditOpen] = useState(false)
   const [followListKind, setFollowListKind] = useState<'followers' | 'following' | null>(null)
@@ -223,21 +223,6 @@ export function ProfilePage() {
   const isOwnProfile = data?.isOwnProfile ?? isOwnRoute
   const donuts = data?.aiSkillInsights.skillBreakdown ?? []
 
-  const handleShareProfile = async () => {
-    const profileId = data?.profile.user.id
-    if (!profileId) {
-      return
-    }
-    const url = `${window.location.origin}/profile/${profileId}`
-    try {
-      await navigator.clipboard.writeText(url)
-      setShareHint('프로필 링크를 복사했습니다.')
-    } catch {
-      setShareHint(url)
-    }
-    window.setTimeout(() => setShareHint(null), 2500)
-  }
-
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -290,15 +275,7 @@ export function ProfilePage() {
                       src={data.profile.user.avatarUrl}
                     />
                     <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                      <Button
-                        className="rounded-full border-surface-border"
-                        onClick={() => void handleShareProfile()}
-                        type="button"
-                        variant="secondary"
-                      >
-                        <Share2 className="mr-2" size={16} />
-                        공유
-                      </Button>
+                      <ProfileShareButton userId={data.profile.user.id} />
                       {isOwnProfile ? (
                         <Button
                           className="rounded-full bg-gradient-to-r from-brand-600 to-accent-600 text-white shadow-md hover:from-brand-700 hover:to-accent-700"
@@ -360,8 +337,6 @@ export function ProfilePage() {
                         <span className="text-sm text-ink-muted">기술 태그를 추가해보세요.</span>
                       ) : null}
                     </div>
-
-                    {shareHint ? <p className="mt-3 text-xs font-medium text-brand-600">{shareHint}</p> : null}
 
                     <div className="mt-6 flex flex-wrap items-center gap-6 text-sm">
                       <button

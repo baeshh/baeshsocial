@@ -33,6 +33,7 @@ export type PostCore = {
   authorId: string
   content: string
   linkedProjectId: string | null
+  repostOfId?: string | null
   visibility: PostVisibility
   createdAt: string
   updatedAt: string
