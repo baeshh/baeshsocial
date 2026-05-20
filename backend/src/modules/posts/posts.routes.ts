@@ -4,7 +4,7 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { commentSchema, postSchema, updatePostSchema } from '../../validators/post.validator.js'
-import { createSocialNotification } from '../../utils/notifications.js'
+import { createSocialNotification, notifyCommentCreated } from '../../utils/notifications.js'
 
 export const postsRouter = Router()
 
@@ -631,6 +631,7 @@ postsRouter.post('/:id/like', authenticate, async (req, res, next) => {
         userId: post.authorId,
         actorId: authUser.id,
         type: 'POST_LIKE',
+        postId,
       })
     }
 
@@ -746,10 +747,28 @@ postsRouter.post('/:id/comments', authenticate, async (req, res, next) => {
       return
     }
 
+    let parentAuthorId: string | null = null
+    if (input.parentId) {
+      const parentComment = await prisma.comment.findFirst({
+        where: { id: input.parentId, postId },
+        select: { id: true, parentId: true, authorId: true },
+      })
+      if (!parentComment) {
+        res.status(404).json({ message: 'Parent comment not found' })
+        return
+      }
+      if (parentComment.parentId) {
+        res.status(400).json({ message: '답글에는 대댓글을 달 수 없습니다.' })
+        return
+      }
+      parentAuthorId = parentComment.authorId
+    }
+
     const comment = await prisma.comment.create({
       data: {
         postId,
         authorId: authUser.id,
+        parentId: input.parentId ?? null,
         content: input.content,
       },
       include: {
@@ -758,10 +777,12 @@ postsRouter.post('/:id/comments', authenticate, async (req, res, next) => {
       },
     })
 
-    await createSocialNotification({
-      userId: post.authorId,
+    await notifyCommentCreated({
       actorId: authUser.id,
-      type: 'POST_COMMENT',
+      postId,
+      postAuthorId: post.authorId,
+      commentId: comment.id,
+      parentAuthorId,
     })
 
     res.status(201).json({ comment })

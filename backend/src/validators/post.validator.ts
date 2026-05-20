@@ -12,4 +12,5 @@ export const updatePostSchema = postSchema.partial()
 
 export const commentSchema = z.object({
   content: z.string().min(1).max(1000),
+  parentId: z.string().min(1).optional(),
 })

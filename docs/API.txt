@@ -296,7 +296,7 @@ DELETE /:id/like
        좋아요 취소
 
 POST   /:id/comments
-       댓글 작성
+       댓글 작성 (body: content, 선택 parentId — 최상위 댓글에만 대댓글 가능)
 
 POST   /:id/comments/:commentId/like
        댓글 좋아요
@@ -367,7 +367,8 @@ PATCH  /read-all
 PATCH  /:id/read
        단일 알림 읽음 처리
 
-알림 유형 예: 팔로우, 프로젝트 초대 등 (앱 내에서 자동 생성)
+알림 유형 예: POST_LIKE, POST_COMMENT, COMMENT_REPLY, FOLLOW, 프로젝트 초대 등
+       좋아요·댓글·답글 알림 link: /p/{postId} 또는 /p/{postId}?comment={commentId}
 
 ================================================================================
 10. AI — /api/ai

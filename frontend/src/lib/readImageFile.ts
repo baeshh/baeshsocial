@@ -1,4 +1,4 @@
-const MAX_SOURCE_BYTES = 8 * 1024 * 1024
+const MAX_SOURCE_BYTES = 16 * 1024 * 1024
 
 export type ImageUploadPreset = 'avatar' | 'cover' | 'post'
 
@@ -6,8 +6,8 @@ const PRESETS: Record<
   ImageUploadPreset,
   { maxWidth: number; maxHeight: number; maxOutputBytes: number }
 > = {
-  avatar: { maxWidth: 400, maxHeight: 400, maxOutputBytes: 80_000 },
-  cover: { maxWidth: 1280, maxHeight: 720, maxOutputBytes: 180_000 },
+  avatar: { maxWidth: 512, maxHeight: 512, maxOutputBytes: 120_000 },
+  cover: { maxWidth: 1280, maxHeight: 720, maxOutputBytes: 200_000 },
   post: { maxWidth: 1080, maxHeight: 1080, maxOutputBytes: 420_000 },
 }
 
@@ -82,7 +82,7 @@ export async function readImageFile(file: File, preset: ImageUploadPreset = 'ava
   }
 
   if (file.size > MAX_SOURCE_BYTES) {
-    throw new Error('8MB 이하 이미지만 업로드할 수 있습니다.')
+    throw new Error('16MB 이하 이미지만 업로드할 수 있습니다.')
   }
 
   return compressImageFile(file, preset)

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { BaeshLogo } from '../../components/common/BaeshLogo'
 import { Button } from '../../components/common/Button'
 import { LoadingState } from '../../components/common/LoadingState'
@@ -13,6 +13,8 @@ import { useAuthStore } from '../../stores/authStore'
 
 export function PublicPostPage() {
   const { postId } = useParams<{ postId: string }>()
+  const [searchParams] = useSearchParams()
+  const highlightCommentId = searchParams.get('comment')
   const token = useAuthStore((state) => state.token)
   const user = useAuthStore((state) => state.user)
 
@@ -34,6 +36,17 @@ export function PublicPostPage() {
       document.title = 'BAESH'
     }
   }, [post])
+
+  useEffect(() => {
+    if (!highlightCommentId || !post) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      const element = document.getElementById(`comment-${highlightCommentId}`)
+      element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [highlightCommentId, post?.id, post?.comments.length])
 
   if (postQuery.isLoading) {
     return (
@@ -61,6 +74,7 @@ export function PublicPostPage() {
         <div className="mx-auto max-w-2xl">
           <PostCard
             commentsMode="full"
+            highlightCommentId={highlightCommentId}
             onChanged={() => void postQuery.refetch()}
             post={post}
             showViewPostLink={false}

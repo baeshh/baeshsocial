@@ -1,6 +1,7 @@
 import type { ImageUploadPreset } from './readImageFile'
 
-const MAX_SOURCE_BYTES = 8 * 1024 * 1024
+/** 원본 선택 허용 (적용 시 JPEG로 리사이즈·압축) */
+const MAX_SOURCE_BYTES = 16 * 1024 * 1024
 
 export const CROP_VIEWPORT: Record<ImageUploadPreset, { width: number; height: number }> = {
   avatar: { width: 320, height: 320 },
@@ -18,8 +19,8 @@ export const CROP_OUTPUT: Record<
   ImageUploadPreset,
   { width: number; height: number; maxOutputBytes: number }
 > = {
-  avatar: { width: 400, height: 400, maxOutputBytes: 80_000 },
-  cover: { width: 1280, height: 320, maxOutputBytes: 180_000 },
+  avatar: { width: 512, height: 512, maxOutputBytes: 120_000 },
+  cover: { width: 1280, height: 320, maxOutputBytes: 200_000 },
   post: { width: 1080, height: 1080, maxOutputBytes: 420_000 },
 }
 
@@ -32,6 +33,7 @@ export type CropTransform = {
 export type LoadedCropImage = {
   image: HTMLImageElement
   src: string
+  revoke?: () => void
 }
 
 export function validateImageFile(file: File) {
@@ -40,31 +42,29 @@ export function validateImageFile(file: File) {
   }
 
   if (file.size > MAX_SOURCE_BYTES) {
-    throw new Error('8MB 이하 이미지만 업로드할 수 있습니다.')
+    throw new Error('16MB 이하 이미지만 업로드할 수 있습니다.')
   }
 }
 
-export function loadImageFromFile(file: File): Promise<LoadedCropImage> {
+export function loadImageFromFile(file: File): Promise<LoadedCropImage & { revoke?: () => void }> {
   validateImageFile(file)
 
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
+    const objectUrl = URL.createObjectURL(file)
+    const image = new Image()
 
-    reader.onload = () => {
-      const src = typeof reader.result === 'string' ? reader.result : ''
-      if (!src) {
-        reject(new Error('이미지를 읽지 못했습니다.'))
-        return
-      }
-
-      const image = new Image()
-      image.onload = () => resolve({ image, src })
-      image.onerror = () => reject(new Error('이미지를 읽지 못했습니다.'))
-      image.src = src
+    image.onload = () => {
+      resolve({
+        image,
+        src: objectUrl,
+        revoke: () => URL.revokeObjectURL(objectUrl),
+      })
     }
-
-    reader.onerror = () => reject(new Error('이미지를 읽지 못했습니다.'))
-    reader.readAsDataURL(file)
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('이미지를 읽지 못했습니다.'))
+    }
+    image.src = objectUrl
   })
 }
 

@@ -148,6 +148,14 @@ export function ProfilePage() {
   }, [profileQuery.data])
 
   useEffect(() => {
+    if (focusUpdates) {
+      return
+    }
+    setProfileTab('history')
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+  }, [routeUserId, focusUpdates])
+
+  useEffect(() => {
     if (!focusUpdates || !profileQuery.data) {
       return
     }
@@ -243,12 +251,21 @@ export function ProfilePage() {
         {data ? (
           <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
             <div className="space-y-6 lg:col-span-8">
+              {(() => {
+                const previewCoverUrl =
+                  isOwnProfile && editOpen ? (draftCoverUrl ?? data.profile.user.coverUrl) : data.profile.user.coverUrl
+                const previewAvatarUrl =
+                  isOwnProfile && editOpen
+                    ? (draftAvatarUrl ?? data.profile.user.avatarUrl)
+                    : data.profile.user.avatarUrl
+
+                return (
               <div className="overflow-hidden rounded-2xl border border-surface-border bg-white shadow-sm">
                 <div
                   className="relative bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 bg-cover bg-center px-5 pb-16 pt-5 sm:px-6"
                   style={
-                    data.profile.user.coverUrl
-                      ? { backgroundImage: `url(${data.profile.user.coverUrl})` }
+                    previewCoverUrl
+                      ? { backgroundImage: `url(${previewCoverUrl})` }
                       : undefined
                   }
                 >
@@ -276,9 +293,10 @@ export function ProfilePage() {
                   <div className="-mt-14 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                     <Avatar
                       className="ring-4 ring-white"
+                      key={previewAvatarUrl ?? 'no-avatar'}
                       name={data.profile.user.name}
                       size="xl"
-                      src={data.profile.user.avatarUrl}
+                      src={previewAvatarUrl}
                     />
                     <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                       <ProfileShareButton userId={data.profile.user.id} />
@@ -373,6 +391,8 @@ export function ProfilePage() {
                   </div>
                 </div>
               </div>
+                )
+              })()}
 
               <Card className="overflow-hidden rounded-2xl border-surface-border shadow-sm">
                 <Tabs

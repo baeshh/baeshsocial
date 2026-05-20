@@ -6,6 +6,7 @@ export type NotificationType =
   | 'AI'
   | 'POST_LIKE'
   | 'POST_COMMENT'
+  | 'COMMENT_REPLY'
   | 'FOLLOW'
   | 'PROJECT_INVITE'
 

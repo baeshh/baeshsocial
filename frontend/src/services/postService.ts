@@ -74,11 +74,11 @@ export function unlikePost(token: string, postId: string) {
   })
 }
 
-export function addComment(token: string, postId: string, content: string) {
+export function addComment(token: string, postId: string, content: string, parentId?: string) {
   return apiRequest(`/posts/${postId}/comments`, {
     method: 'POST',
     token,
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(parentId ? { content, parentId } : { content }),
   })
 }
 

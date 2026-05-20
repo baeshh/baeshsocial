@@ -1,4 +1,5 @@
 import type { PostComment } from '../types/post'
+import { topLevelComments } from './buildCommentTree'
 
 type PickHighlightCommentOptions = {
   comments: PostComment[]
@@ -15,11 +16,12 @@ export function pickHighlightComment({
   followingIds,
   followerIds,
 }: PickHighlightCommentOptions): PostComment | null {
-  if (comments.length === 0) {
+  const roots = topLevelComments(comments)
+  if (roots.length === 0) {
     return null
   }
 
-  const ranked = [...comments].map((comment) => {
+  const ranked = [...roots].map((comment) => {
     const authorId = comment.authorId
     const isFollowing = followingIds.has(authorId)
     const isFollower = followerIds.has(authorId)

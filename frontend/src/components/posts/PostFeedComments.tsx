@@ -37,7 +37,7 @@ export function PostFeedComments({
     <div className={variant === 'compact' ? 'mt-2' : 'mt-4'}>
       {highlight ? (
         <PostCommentItem
-          comment={highlight}
+          comment={{ ...highlight, replies: [] }}
           onChanged={onChanged}
           postId={post.id}
           token={token}

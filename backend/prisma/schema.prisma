@@ -98,6 +98,7 @@ enum NotificationType {
   AI
   POST_LIKE
   POST_COMMENT
+  COMMENT_REPLY
   FOLLOW
 }
 
@@ -386,12 +387,17 @@ model Comment {
   id        String        @id @default(cuid())
   postId    String
   authorId  String
+  parentId  String?
   content   String
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
   author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent    Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[]     @relation("CommentReplies")
   likes     CommentLike[]
+
+  @@index([parentId])
 }
 
 model CommentLike {

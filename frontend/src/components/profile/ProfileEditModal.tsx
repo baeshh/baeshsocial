@@ -61,6 +61,9 @@ export function ProfileEditModal({
 
   useEffect(() => {
     if (!open) {
+      setCropTarget(null)
+      setCropFile(null)
+      setImageError(null)
       return
     }
     const previousOverflow = document.body.style.overflow
@@ -164,6 +167,7 @@ export function ProfileEditModal({
                   <img
                     alt={`${userName} 프로필`}
                     className="h-20 w-20 rounded-full border-4 border-white object-cover shadow-md sm:h-[110px] sm:w-[110px]"
+                    key={avatarUrl}
                     src={avatarUrl}
                   />
                 ) : (

@@ -14,7 +14,7 @@ import type { Post } from '../../types/post'
 import { EmbeddedPostPreview } from './EmbeddedPostPreview'
 import { PostMediaGrid } from './PostMediaGrid'
 import { PostCommentComposer } from './PostCommentComposer'
-import { PostCommentItem } from './PostCommentItem'
+import { PostCommentThread } from './PostCommentThread'
 import { PostFeedComments } from './PostFeedComments'
 import { PostLikeBar } from './PostLikeBar'
 import { notifyRepostAlreadyDone, notifyRepostError, notifyRepostSuccess } from '../../lib/repostPost'
@@ -45,6 +45,8 @@ export type PostCardProps = {
   followerIds?: Set<string>
   /** 게시물 상세(/p/:id)에서는 false */
   showViewPostLink?: boolean
+  /** 알림 등에서 ?comment= 로 스크롤·강조할 댓글 ID */
+  highlightCommentId?: string | null
 }
 
 export function PostCard({
@@ -58,6 +60,7 @@ export function PostCard({
   followingIds = new Set(),
   followerIds = new Set(),
   showViewPostLink = true,
+  highlightCommentId = null,
 }: PostCardProps) {
   const [editing, setEditing] = useState(false)
   const [editContent, setEditContent] = useState(post.content)
@@ -232,18 +235,14 @@ export function PostCard({
 
       {showComments && commentsMode === 'full' ? (
         <>
-          <div className="mt-4 space-y-3">
-            {post.comments.map((item) => (
-              <PostCommentItem
-                comment={item}
-                key={item.id}
-                onChanged={onChanged}
-                postId={post.id}
-                token={token}
-                userId={userId}
-              />
-            ))}
-          </div>
+          <PostCommentThread
+            comments={post.comments}
+            highlightId={highlightCommentId}
+            onChanged={onChanged}
+            postId={post.id}
+            token={token}
+            userId={userId}
+          />
 
           <PostCommentComposer onSuccess={onChanged} postId={post.id} token={token} />
         </>

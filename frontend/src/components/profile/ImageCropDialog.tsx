@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ZoomIn } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { X, ZoomIn } from 'lucide-react'
 import {
   CROP_VIEWPORT,
   clampCropTransform,
@@ -80,6 +81,7 @@ export function ImageCropDialog({
     void loadImageFromFile(file)
       .then((result) => {
         if (cancelled) {
+          result.revoke?.()
           return
         }
         setLoaded(result)
@@ -100,6 +102,23 @@ export function ImageCropDialog({
       cancelled = true
     }
   }, [open, file, viewport])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [open])
+
+  useEffect(() => {
+    return () => {
+      loaded?.revoke?.()
+    }
+  }, [loaded])
 
   if (!open || !file) {
     return null
@@ -179,21 +198,35 @@ export function ImageCropDialog({
   const visualPanX = transform.panX / panScaleX
   const visualPanY = transform.panY / panScaleY
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[90] flex flex-col justify-end bg-slate-900/60 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4"
       role="dialog"
       aria-modal="true"
+      onClick={onCancel}
     >
-      <section className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h3 className="text-lg font-bold text-slate-800">{title}</h3>
-          <p className="mt-1 text-sm text-slate-500">
-            {presetLabels[preset]} 영역에 맞게 드래그해 위치를 조정하고, 슬라이더로 확대/축소하세요.
-          </p>
+      <section
+        className="flex max-h-[min(92dvh,100%)] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:max-w-lg sm:rounded-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:px-5">
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-slate-800">{title}</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {presetLabels[preset]} 영역에 맞게 드래그하고 슬라이더로 확대/축소하세요.
+            </p>
+          </div>
+          <button
+            aria-label="닫기"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"
+            onClick={onCancel}
+            type="button"
+          >
+            <X size={18} />
+          </button>
         </div>
 
-        <div className="px-5 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
           <div
             className={cn(
               'relative mx-auto w-full overflow-hidden rounded-xl bg-slate-800 ring-2 ring-slate-200',
@@ -262,16 +295,16 @@ export function ImageCropDialog({
           ) : null}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5 sm:py-4">
           <button
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            className="min-h-11 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
             onClick={onCancel}
             type="button"
           >
             취소
           </button>
           <button
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="min-h-11 rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             disabled={!image || applying || loading}
             onClick={handleApply}
             type="button"
@@ -280,6 +313,7 @@ export function ImageCropDialog({
           </button>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }

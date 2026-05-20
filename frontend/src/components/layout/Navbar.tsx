@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { dispatchNetworkScrollTop } from '../../lib/feedScroll'
 import { LogOut, Search } from 'lucide-react'
 import { NotificationBell } from '../notifications/NotificationBell'
 import { Avatar } from '../common/Avatar'
@@ -17,6 +18,7 @@ type NavbarProps = {
 }
 
 export function Navbar({ user }: NavbarProps) {
+  const location = useLocation()
   const navigate = useNavigate()
   const token = useAuthStore((state) => state.token)
   const clearSession = useAuthStore((state) => state.clearSession)
@@ -51,6 +53,12 @@ export function Navbar({ user }: NavbarProps) {
                 )
               }
               key={to}
+              onClick={(event) => {
+                if (to === '/network' && location.pathname === '/network') {
+                  event.preventDefault()
+                  dispatchNetworkScrollTop()
+                }
+              }}
               to={to}
             >
               {({ isActive }) => (

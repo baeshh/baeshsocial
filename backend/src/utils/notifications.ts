@@ -1,12 +1,26 @@
 import type { NotificationType } from '@prisma/client'
 import { prisma } from '../config/prisma.js'
 
-type SocialNotificationType = Extract<NotificationType, 'POST_LIKE' | 'POST_COMMENT' | 'FOLLOW'>
+type SocialNotificationType = Extract<
+  NotificationType,
+  'POST_LIKE' | 'POST_COMMENT' | 'COMMENT_REPLY' | 'FOLLOW'
+>
+
+function buildPostLink(postId: string, commentId?: string) {
+  if (commentId) {
+    return `/p/${postId}?comment=${commentId}`
+  }
+  return `/p/${postId}`
+}
 
 export async function createSocialNotification(params: {
   userId: string
   actorId: string
   type: SocialNotificationType
+  postId?: string
+  commentId?: string
+  /** 게시물 작성자에게 보낼 때: 타인 댓글에 대한 답글 */
+  postCommentKind?: 'comment' | 'reply'
 }) {
   if (params.userId === params.actorId) {
     return
@@ -29,12 +43,22 @@ export async function createSocialNotification(params: {
     case 'POST_LIKE':
       title = '새 좋아요'
       body = `${actor.name}님이 회원님의 게시물에 좋아요를 눌렀습니다.`
-      link = '/network'
+      link = params.postId ? buildPostLink(params.postId) : '/network'
       break
     case 'POST_COMMENT':
-      title = '새 댓글'
-      body = `${actor.name}님이 회원님의 게시물에 댓글을 남겼습니다.`
-      link = '/network'
+      if (params.postCommentKind === 'reply') {
+        title = '게시물에 새 답글'
+        body = `${actor.name}님이 회원님의 게시물에 답글을 남겼습니다.`
+      } else {
+        title = '새 댓글'
+        body = `${actor.name}님이 회원님의 게시물에 댓글을 남겼습니다.`
+      }
+      link = params.postId ? buildPostLink(params.postId, params.commentId) : '/network'
+      break
+    case 'COMMENT_REPLY':
+      title = '새 답글'
+      body = `${actor.name}님이 회원님의 댓글에 답글을 남겼습니다.`
+      link = params.postId ? buildPostLink(params.postId, params.commentId) : '/network'
       break
     case 'FOLLOW':
       title = '새 팔로워'
@@ -54,6 +78,58 @@ export async function createSocialNotification(params: {
       type: params.type,
       link,
     },
+  })
+}
+
+async function safeCreateSocialNotification(
+  params: Parameters<typeof createSocialNotification>[0],
+) {
+  try {
+    await createSocialNotification(params)
+  } catch (error) {
+    console.error(`Notification failed (${params.type} → ${params.userId}):`, error)
+  }
+}
+
+/** 댓글·대댓글 작성 시 관련 사용자에게 알림 (한 건 실패해도 나머지는 시도) */
+export async function notifyCommentCreated(params: {
+  actorId: string
+  postId: string
+  postAuthorId: string
+  commentId: string
+  parentAuthorId?: string | null
+}) {
+  const { actorId, postId, postAuthorId, commentId, parentAuthorId } = params
+
+  if (parentAuthorId) {
+    await safeCreateSocialNotification({
+      userId: parentAuthorId,
+      actorId,
+      type: 'COMMENT_REPLY',
+      postId,
+      commentId,
+    })
+
+    if (postAuthorId !== parentAuthorId) {
+      await safeCreateSocialNotification({
+        userId: postAuthorId,
+        actorId,
+        type: 'POST_COMMENT',
+        postId,
+        commentId,
+        postCommentKind: 'reply',
+      })
+    }
+    return
+  }
+
+  await safeCreateSocialNotification({
+    userId: postAuthorId,
+    actorId,
+    type: 'POST_COMMENT',
+    postId,
+    commentId,
+    postCommentKind: 'comment',
   })
 }
 

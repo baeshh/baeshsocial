@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Briefcase, Globe, Plus, Sparkles, Upload } from 'lucide-react'
 import { Avatar } from '../../components/common/Avatar'
@@ -11,8 +11,16 @@ import { LoadingState } from '../../components/common/LoadingState'
 import { readMediaFile } from '../../lib/readMediaFile'
 import { PostMediaGrid } from '../../components/posts/PostMediaGrid'
 import { PostCard } from '../../components/posts/PostCard'
+import { FeedRefreshFab } from '../../components/network/FeedRefreshFab'
 import { MobileFeedPostCard } from '../../components/network/MobileFeedPostCard'
 import { PostComposerModal } from '../../components/network/PostComposerModal'
+import {
+  NETWORK_SCROLL_TOP_EVENT,
+  forceScrollFeedToTop,
+  withPreservedScroll,
+} from '../../lib/feedScroll'
+
+type FeedMode = 'timeline' | 'recommended'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { createPost, getPosts, getRecommendedPosts } from '../../services/postService'
 import { getProjects } from '../../services/projectService'
@@ -33,16 +41,24 @@ export function NetworkPage() {
   const [visibility, setVisibility] = useState('public')
   const [mediaUrls, setMediaUrls] = useState<string[]>([])
   const [composerOpen, setComposerOpen] = useState(false)
+  const [feedMode, setFeedMode] = useState<FeedMode>('timeline')
+  const [showRefreshFab, setShowRefreshFab] = useState(false)
+  const [refreshingFeed, setRefreshingFeed] = useState(false)
+  const suppressRefreshFabUntil = useRef(0)
 
   const postsQuery = useQuery({
     queryKey: ['posts'],
     queryFn: () => getPosts(token ?? ''),
     enabled: Boolean(token),
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
   })
   const recommendedQuery = useQuery({
     queryKey: ['posts', 'recommended'],
-    queryFn: () => getRecommendedPosts(token ?? '', 10),
+    queryFn: () => getRecommendedPosts(token ?? '', 20),
     enabled: Boolean(token),
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
   })
   const projectsQuery = useQuery({
     queryKey: ['projects'],
@@ -72,12 +88,70 @@ export function NetworkPage() {
     [followersQuery.data],
   )
 
-  const invalidateFeed = () => {
-    void queryClient.invalidateQueries({ queryKey: ['posts'] })
-    void queryClient.invalidateQueries({ queryKey: ['posts', 'me'] })
-    void queryClient.invalidateQueries({ queryKey: ['posts', 'by-user'] })
-    void queryClient.invalidateQueries({ queryKey: ['profiles'] })
-  }
+  const invalidateFeed = useCallback(() => {
+    void withPreservedScroll(async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['posts'] }),
+        queryClient.invalidateQueries({ queryKey: ['posts', 'recommended'] }),
+        queryClient.invalidateQueries({ queryKey: ['posts', 'me'] }),
+        queryClient.invalidateQueries({ queryKey: ['posts', 'by-user'] }),
+        queryClient.invalidateQueries({ queryKey: ['profiles'] }),
+      ])
+    })
+  }, [queryClient])
+
+  const refreshFeed = useCallback(async () => {
+    setShowRefreshFab(false)
+    setRefreshingFeed(true)
+    setFeedMode('recommended')
+    suppressRefreshFabUntil.current = Date.now() + 2000
+    forceScrollFeedToTop()
+
+    try {
+      await queryClient.refetchQueries({ queryKey: ['posts', 'recommended'], type: 'active' })
+    } finally {
+      setRefreshingFeed(false)
+      suppressRefreshFabUntil.current = Date.now() + 600
+      forceScrollFeedToTop()
+      requestAnimationFrame(() => forceScrollFeedToTop())
+    }
+  }, [queryClient])
+
+  const showTimelineFeed = useCallback(() => {
+    setFeedMode('timeline')
+    forceScrollFeedToTop()
+  }, [])
+
+  const timelinePosts = postsQuery.data?.posts ?? []
+  const recommendedPosts = recommendedQuery.data?.posts ?? []
+  const feedPosts = feedMode === 'recommended' ? recommendedPosts : timelinePosts
+  const feedLoading =
+    feedMode === 'recommended'
+      ? recommendedQuery.isLoading || (refreshingFeed && recommendedPosts.length === 0)
+      : postsQuery.isLoading
+  const feedEmpty =
+    feedMode === 'recommended'
+      ? !feedLoading && !recommendedQuery.isFetching && recommendedPosts.length === 0
+      : !postsQuery.isLoading && timelinePosts.length === 0
+
+  useEffect(() => {
+    const onScroll = () => {
+      if (refreshingFeed || Date.now() < suppressRefreshFabUntil.current) {
+        setShowRefreshFab(false)
+        return
+      }
+      setShowRefreshFab(window.scrollY > 280)
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [refreshingFeed])
+
+  useEffect(() => {
+    const onScrollTop = () => forceScrollFeedToTop()
+    window.addEventListener(NETWORK_SCROLL_TOP_EVENT, onScrollTop)
+    return () => window.removeEventListener(NETWORK_SCROLL_TOP_EVENT, onScrollTop)
+  }, [])
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -289,14 +363,49 @@ export function NetworkPage() {
             </form>
           </Card>
 
-          {postsQuery.isLoading ? <LoadingState /> : null}
-          {postsQuery.data?.posts.length === 0 ? (
+          {feedMode === 'recommended' ? (
+            <Card className="rounded-2xl border-brand-100 bg-brand-50/60 p-4 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-bold text-brand-800">
+                    <Sparkles className="shrink-0 text-accent-600" size={18} />
+                    추천 게시물
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-brand-900/80">
+                    팔로우·해시태그·반응 패턴을 바탕으로 골라 보여 드립니다.
+                  </p>
+                </div>
+                <Button className="shrink-0 rounded-full text-xs" onClick={showTimelineFeed} type="button" variant="secondary">
+                  전체 피드
+                </Button>
+              </div>
+            </Card>
+          ) : null}
+
+          {feedLoading ? <LoadingState /> : null}
+
+          {feedEmpty && feedMode === 'timeline' ? (
             <Card className="rounded-2xl border-surface-border p-8 shadow-sm">
               <EmptyState description="첫 게시글을 작성하면 이곳에 표시됩니다." title="게시글이 없습니다" />
             </Card>
           ) : null}
+
+          {feedEmpty && feedMode === 'recommended' ? (
+            <Card className="rounded-2xl border-surface-border p-8 shadow-sm">
+              <EmptyState
+                description="게시물에 좋아요·댓글·퍼가기를 남기거나 팔로우를 늘리면 맞춤 추천이 채워집니다. 잠시 후 다시 새로고침해 보세요."
+                title="추천할 게시물이 없습니다"
+              />
+              <div className="mt-4 flex justify-center">
+                <Button className="rounded-full" onClick={showTimelineFeed} type="button" variant="secondary">
+                  전체 피드 보기
+                </Button>
+              </div>
+            </Card>
+          ) : null}
+
           <div className="space-y-3 md:hidden">
-            {postsQuery.data?.posts.map((post) => (
+            {feedPosts.map((post) => (
               <MobileFeedPostCard
                 key={post.id}
                 followerIds={followerIds}
@@ -311,7 +420,7 @@ export function NetworkPage() {
           </div>
 
           <div className="hidden space-y-4 md:block">
-            {postsQuery.data?.posts.map((post) => (
+            {feedPosts.map((post) => (
               <PostCard
                 key={post.id}
                 commentsMode="feed"
@@ -383,6 +492,12 @@ export function NetworkPage() {
       >
         <Plus size={28} strokeWidth={2.5} />
       </button>
+
+      <FeedRefreshFab
+        loading={refreshingFeed}
+        onRefresh={() => void refreshFeed()}
+        visible={showRefreshFab}
+      />
 
       <PostComposerModal
         avatarUrl={user?.avatarUrl ?? null}
