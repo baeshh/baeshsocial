@@ -1,6 +1,6 @@
 import { Search, SlidersHorizontal } from 'lucide-react'
 import { Modal } from '../common/Modal'
-import { Input, Select } from '../common/Input'
+import { Input } from '../common/Input'
 import type { Dispatch, SetStateAction } from 'react'
 
 export type OpportunityFilters = {

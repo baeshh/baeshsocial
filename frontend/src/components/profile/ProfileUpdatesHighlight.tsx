@@ -22,7 +22,7 @@ function formatDate(value: string | null) {
   }).format(new Date(value))
 }
 
-function programHighlight(enrollment: ProgramEnrollment): HighlightItem {
+function programHighlight(enrollment: ProgramEnrollment): HighlightItem | null {
   const date = enrollment.completedAt ?? enrollment.enrolledAt ?? enrollment.appliedAt
   const category = classifyOpportunityType(enrollment.opportunity.type)
   const typeLabel = HISTORY_CATEGORY_META[category].label
