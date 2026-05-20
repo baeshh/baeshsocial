@@ -298,6 +298,24 @@ export async function getRecommendedPeople(viewerId: string, limit: number): Pro
     }
   }
 
+  const discoveryPool = await prisma.profile.findMany({
+    where: { userId: { notIn: [...excluded] } },
+    select: { userId: true, skills: true, interests: true, school: true, company: true },
+    orderBy: { updatedAt: 'desc' },
+    take: Math.max(limit * 4, 24),
+  })
+  for (const profile of discoveryPool) {
+    addFlag(profile.userId, {
+      sharedSkills: viewerSkills.length > 0 ? overlapCount(viewerSkills, profile.skills) : 0,
+      sharedInterests:
+        viewerInterests.length > 0 ? overlapCount(viewerInterests, profile.interests) : 0,
+      sameSchool: Boolean(viewerSchool && profile.school && normalize(profile.school) === viewerSchool),
+      sameCompany:
+        Boolean(viewerCompany && profile.company && normalize(profile.company) === viewerCompany) ||
+        (profile.company ? viewerCareerCompanies.has(normalize(profile.company)) : false),
+    })
+  }
+
   const candidateIds = [...candidateFlags.keys()]
   if (candidateIds.length === 0) {
     const fallback = await prisma.profile.findMany({
@@ -330,7 +348,14 @@ export async function getRecommendedPeople(viewerId: string, limit: number): Pro
     },
   })
 
-  const ranked = profiles
+  type RankedRow = {
+    score: number
+    signals: CandidateSignals
+    matchReasons: string[]
+    person: RecommendedPerson
+  }
+
+  const ranked: RankedRow[] = profiles
     .map((profile) => {
       const flags = candidateFlags.get(profile.userId) ?? {}
       const careerCompanies = profile.careers.map((c) => normalize(c.company))
@@ -357,12 +382,15 @@ export async function getRecommendedPeople(viewerId: string, limit: number): Pro
               careerCompanies.some((company) => viewerCareerCompanies.has(company)),
           ),
       }
-      const score = scoreCandidate(signals)
+      const rawScore = scoreCandidate(signals)
+      const score = rawScore > 0 ? rawScore : 1
       const matchReasons = buildMatchReasons(signals)
       const latestCareer = profile.careers[0]
+      const reasons = matchReasons.length > 0 ? matchReasons : ['추천 연결']
       return {
         score,
-        matchReasons: matchReasons.length > 0 ? matchReasons : ['추천 연결'],
+        signals,
+        matchReasons: reasons,
         person: {
           userId: profile.user.id,
           name: profile.user.name,
@@ -372,15 +400,95 @@ export async function getRecommendedPeople(viewerId: string, limit: number): Pro
           company: profile.company ?? latestCareer?.company ?? null,
           school: profile.school,
           skills: profile.skills.slice(0, 6),
-          matchReasons: matchReasons.length > 0 ? matchReasons : ['추천 연결'],
+          matchReasons: reasons,
         },
       }
     })
     .filter((row) => row.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
 
-  return ranked.map((row) => row.person)
+  const hasOtherSignals = (signals: CandidateSignals) =>
+    signals.mutualFollow ||
+    signals.networkHop ||
+    signals.projectMate ||
+    signals.engagedAuthor ||
+    signals.coLiker ||
+    signals.sharedSkills > 0 ||
+    signals.sharedInterests > 0 ||
+    signals.sameSchool ||
+    signals.sameCompany
+
+  const viewedHeavy = ranked.filter((row) => row.signals.viewedScore > 0 && !hasOtherSignals(row.signals))
+  const others = ranked.filter((row) => row.signals.viewedScore === 0 || hasOtherSignals(row.signals))
+
+  const maxViewedOnlySlots = Math.min(2, Math.max(0, limit - 1))
+  const picked: RankedRow[] = []
+  const pickedIds = new Set<string>()
+
+  const pushRow = (row: RankedRow) => {
+    if (picked.length >= limit || pickedIds.has(row.person.userId)) {
+      return
+    }
+    pickedIds.add(row.person.userId)
+    picked.push(row)
+  }
+
+  for (const row of viewedHeavy.slice(0, maxViewedOnlySlots)) {
+    pushRow(row)
+  }
+  for (const row of others) {
+    pushRow(row)
+  }
+  for (const row of viewedHeavy.slice(maxViewedOnlySlots)) {
+    pushRow(row)
+  }
+
+  if (picked.length < limit) {
+    const backfill = await prisma.profile.findMany({
+      where: {
+        userId: {
+          notIn: [viewerId, ...pickedIds, ...excluded],
+        },
+      },
+      include: {
+        user: { select: userSelect },
+        careers: { orderBy: { startDate: 'desc' }, take: 1, select: { company: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: limit - picked.length,
+    })
+    for (const profile of backfill) {
+      pushRow({
+        score: 1,
+        signals: {
+          viewedScore: 0,
+          mutualFollow: false,
+          networkHop: false,
+          projectMate: false,
+          engagedAuthor: false,
+          coLiker: false,
+          sharedSkills: 0,
+          sharedInterests: 0,
+          sameSchool: false,
+          sameCompany: false,
+        },
+        matchReasons: ['새로운 연결'],
+        person: {
+          userId: profile.user.id,
+          name: profile.user.name,
+          avatarUrl: profile.user.avatarUrl,
+          role: profile.user.role,
+          headline: profile.headline,
+          company: profile.company ?? profile.careers[0]?.company ?? null,
+          school: profile.school,
+          skills: profile.skills.slice(0, 6),
+          matchReasons: ['새로운 연결'],
+        },
+      })
+    }
+  }
+
+  return picked.map((row) => row.person)
 }
 
 export async function recordProfileView(viewerId: string, profileUserId: string) {
