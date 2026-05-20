@@ -1,4 +1,5 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { Camera, X } from 'lucide-react'
 import { ImageCropDialog } from './ImageCropDialog'
 import { Avatar } from '../common/Avatar'
@@ -58,9 +59,16 @@ export function ProfileEditModal({
   const [cropTarget, setCropTarget] = useState<'avatar' | 'cover' | null>(null)
   const [cropFile, setCropFile] = useState<File | null>(null)
 
-  if (!open) {
-    return null
-  }
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [open])
 
   const openCrop = (file: File | undefined, target: 'avatar' | 'cover') => {
     if (!file || !file.type.startsWith('image/')) {
@@ -76,21 +84,34 @@ export function ProfileEditModal({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 backdrop-blur-sm sm:items-center">
-        <section className="relative w-full max-w-[640px] overflow-hidden rounded-2xl bg-white shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
-          <button
-            aria-label="닫기"
-            className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition hover:bg-black/60"
-            onClick={onClose}
-            type="button"
+      {open
+        ? createPortal(
+        <div
+          className="fixed inset-0 z-[70] flex flex-col justify-end bg-slate-900/50 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4"
+          onClick={onClose}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="profile-edit-title"
+            aria-modal="true"
+            className="flex max-h-[100dvh] w-full max-w-[640px] flex-col overflow-hidden rounded-t-2xl bg-white shadow-[0_10px_25px_rgba(0,0,0,0.12)] sm:max-h-[min(92dvh,900px)] sm:rounded-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
           >
-            <X size={18} />
-          </button>
+            <div className="relative shrink-0">
+              <button
+                aria-label="닫기"
+                className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm transition hover:bg-black/60"
+                onClick={onClose}
+                type="button"
+              >
+                <X size={18} />
+              </button>
 
-          <div className="relative mb-[60px] max-sm:mb-[50px]">
+          <div className="relative mb-12 sm:mb-[60px]">
             <div
               className={cn(
-                'relative flex h-40 w-full items-center justify-center transition hover:brightness-95 max-sm:h-36',
+                'relative flex h-28 w-full items-center justify-center transition hover:brightness-95 sm:h-40',
                 !coverUrl && 'bg-slate-200',
               )}
               style={
@@ -127,7 +148,7 @@ export function ProfileEditModal({
               </button>
             </div>
 
-            <div className="absolute -bottom-[55px] left-8 max-sm:-bottom-[45px] max-sm:left-5">
+            <div className="absolute -bottom-10 left-5 sm:-bottom-[55px] sm:left-8">
               <div className="relative">
                 <input
                   accept="image/*"
@@ -142,11 +163,11 @@ export function ProfileEditModal({
                 {avatarUrl ? (
                   <img
                     alt={`${userName} 프로필`}
-                    className="h-[110px] w-[110px] rounded-full border-4 border-white object-cover shadow-md max-sm:h-[90px] max-sm:w-[90px]"
+                    className="h-20 w-20 rounded-full border-4 border-white object-cover shadow-md sm:h-[110px] sm:w-[110px]"
                     src={avatarUrl}
                   />
                 ) : (
-                  <Avatar className="!h-[110px] !w-[110px] !text-3xl max-sm:!h-[90px] max-sm:!w-[90px]" name={userName} size="xl" />
+                  <Avatar className="!h-20 !w-20 !text-2xl sm:!h-[110px] sm:!w-[110px] sm:!text-3xl" name={userName} size="xl" />
                 )}
                 <button
                   className="absolute inset-0 m-auto flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition hover:bg-black/70"
@@ -158,21 +179,25 @@ export function ProfileEditModal({
               </div>
             </div>
           </div>
-
-          <div className="px-8 pb-8 max-sm:px-5 max-sm:pb-5">
-            <div className="mb-6">
-              <h2 className="text-xl font-bold text-slate-800">프로필 편집</h2>
-              <p className="mt-1.5 text-[13px] text-slate-500">
-                기본 정보와 링크를 지정합니다. 기술스택은 쉼표로 구분합니다.
-              </p>
             </div>
 
             <form
+              className="flex min-h-0 flex-1 flex-col"
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault()
                 onSubmit()
               }}
             >
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 pt-2 sm:px-8 sm:pb-6 sm:pt-0">
+            <div className="mb-5 sm:mb-6">
+              <h2 className="text-lg font-bold text-slate-800 sm:text-xl" id="profile-edit-title">
+                프로필 편집
+              </h2>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
+                기본 정보와 링크를 지정합니다. 기술스택은 쉼표로 구분합니다.
+              </p>
+            </div>
+
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-x-5">
                 <Field label="직무 헤드라인">
                   <input
@@ -269,17 +294,11 @@ export function ProfileEditModal({
                   {errorMessage}
                 </p>
               ) : null}
+              </div>
 
-              <div className="mt-8 flex justify-end gap-3 border-t border-slate-100 pt-5">
+              <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8 sm:py-5">
                 <button
-                  className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
-                  onClick={onClose}
-                  type="button"
-                >
-                  취소
-                </button>
-                <button
-                  className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+                  className="min-h-11 w-full rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60 sm:ml-auto sm:block sm:w-auto"
                   disabled={isSaving}
                   type="submit"
                 >
@@ -287,9 +306,11 @@ export function ProfileEditModal({
                 </button>
               </div>
             </form>
-          </div>
-        </section>
-      </div>
+          </section>
+        </div>,
+        document.body,
+      )
+        : null}
 
       <ImageCropDialog
         file={cropFile}

@@ -1,13 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import { Search } from 'lucide-react'
+import { Search, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Avatar } from '../../components/common/Avatar'
-import { Badge } from '../../components/common/Badge'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../../components/common/EmptyState'
 import { LoadingState } from '../../components/common/LoadingState'
+import { PersonResultCard } from '../../components/find/PersonResultCard'
 import { AppLayout } from '../../components/layout/AppLayout'
-import { searchPeople } from '../../services/searchService'
+import { getRecommendedPeople, searchPeople } from '../../services/searchService'
 import { useAuthStore } from '../../stores/authStore'
 
 export function FindPage() {
@@ -42,6 +41,12 @@ export function FindPage() {
     }
   }, [debouncedQuery, searchParams, setSearchParams])
 
+  const recommendedQuery = useQuery({
+    queryKey: ['search', 'recommended'],
+    queryFn: () => getRecommendedPeople(token ?? '', 12),
+    enabled: Boolean(token) && !debouncedQuery,
+  })
+
   const searchQuery = useQuery({
     queryKey: ['search', 'people', debouncedQuery],
     queryFn: () => searchPeople(token ?? '', debouncedQuery),
@@ -58,19 +63,23 @@ export function FindPage() {
     }
   }
 
-  const results = searchQuery.data?.results ?? []
+  const searchResults = searchQuery.data?.results ?? []
+  const recommended = recommendedQuery.data?.results ?? []
 
   return (
     <AppLayout>
       <div className="mx-auto max-w-2xl space-y-6">
-        <div>
+        <div className="hidden md:block">
           <h1 className="text-2xl font-bold text-ink-strong">Find</h1>
           <p className="mt-2 text-sm text-ink-muted">
             이름, 직무, 회사, 학교, 스킬로 사람을 검색할 수 있습니다.
           </p>
         </div>
 
-        <form className="sticky top-16 z-20 -mx-1 rounded-2xl bg-surface-canvas/95 px-1 py-2 backdrop-blur lg:top-20" onSubmit={handleSubmit}>
+        <form
+          className="sticky top-16 z-20 -mx-1 rounded-2xl bg-surface-canvas/95 px-1 py-2 backdrop-blur md:top-20"
+          onSubmit={handleSubmit}
+        >
           <label className="sr-only" htmlFor="find-search">
             사람 검색
           </label>
@@ -82,6 +91,7 @@ export function FindPage() {
             />
             <input
               autoComplete="off"
+              autoFocus={!debouncedQuery}
               className="h-12 w-full rounded-full border border-surface-border bg-white pl-11 pr-4 text-sm text-ink-strong shadow-sm outline-none ring-brand-600/20 transition placeholder:text-ink-muted focus:border-brand-200 focus:ring-2"
               id="find-search"
               onChange={(event) => setInput(event.target.value)}
@@ -93,10 +103,37 @@ export function FindPage() {
         </form>
 
         {!debouncedQuery ? (
-          <EmptyState
-            description="검색어를 입력하면 BAESH 사용자 프로필을 찾아 드립니다."
-            title="검색어를 입력해 주세요"
-          />
+          <section className="space-y-3 pb-4">
+            <div className="flex items-center gap-2 px-0.5">
+              <Sparkles className="text-brand-600" size={18} />
+              <h2 className="text-base font-bold text-ink-strong">추천 친구</h2>
+            </div>
+
+            {recommendedQuery.isLoading ? <LoadingState /> : null}
+
+            {recommendedQuery.error ? (
+              <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {recommendedQuery.error.message}
+              </p>
+            ) : null}
+
+            {!recommendedQuery.isLoading && recommended.length === 0 ? (
+              <EmptyState
+                description="프로필을 채우고 다른 사람 프로필을 둘러보면 맞춤 추천이 쌓입니다."
+                title="아직 추천할 친구가 없어요"
+              />
+            ) : null}
+
+            {recommended.length > 0 ? (
+              <ul className="space-y-3">
+                {recommended.map((person) => (
+                  <li key={person.userId}>
+                    <PersonResultCard person={person} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
         ) : null}
 
         {debouncedQuery && searchQuery.isLoading ? <LoadingState /> : null}
@@ -107,48 +144,18 @@ export function FindPage() {
           </p>
         ) : null}
 
-        {debouncedQuery && !searchQuery.isLoading && results.length === 0 ? (
+        {debouncedQuery && !searchQuery.isLoading && searchResults.length === 0 ? (
           <EmptyState
             description={`"${debouncedQuery}"에 맞는 프로필이 없습니다. 다른 키워드로 시도해 보세요.`}
             title="검색 결과 없음"
           />
         ) : null}
 
-        {results.length > 0 ? (
+        {debouncedQuery && searchResults.length > 0 ? (
           <ul className="space-y-3 pb-4">
-            {results.map((person) => (
+            {searchResults.map((person) => (
               <li key={person.userId}>
-                <Link
-                  className="flex gap-3 rounded-2xl border border-surface-border bg-white p-4 shadow-sm transition hover:border-brand-200 hover:shadow-md"
-                  to={`/profile/${person.userId}`}
-                >
-                  <Avatar className="shrink-0" name={person.name} src={person.avatarUrl} />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-ink-strong">{person.name}</p>
-                    {person.headline ? (
-                      <p className="mt-0.5 truncate text-sm text-ink-body">{person.headline}</p>
-                    ) : null}
-                    {(person.company || person.school) && (
-                      <p className="mt-1 truncate text-xs text-ink-muted">
-                        {[person.company, person.school].filter(Boolean).join(' · ')}
-                      </p>
-                    )}
-                    {person.skills.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {person.skills.slice(0, 4).map((skill) => (
-                          <Badge key={skill} tone="blue">
-                            {skill}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : null}
-                    {person.matchReasons.length > 0 ? (
-                      <p className="mt-2 text-xs text-brand-600">
-                        매칭: {person.matchReasons.join(', ')}
-                      </p>
-                    ) : null}
-                  </div>
-                </Link>
+                <PersonResultCard person={person} />
               </li>
             ))}
           </ul>

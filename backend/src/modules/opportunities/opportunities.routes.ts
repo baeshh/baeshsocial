@@ -336,7 +336,14 @@ opportunitiesRouter.post('/:id/enroll', authenticate, async (req, res, next) => 
         opportunityId,
         status: OpportunityEnrollmentStatus.APPLIED,
       },
-      update: {},
+      update: {
+        status: OpportunityEnrollmentStatus.APPLIED,
+        appliedAt: new Date(),
+        enrolledAt: null,
+        completedAt: null,
+        approvedById: null,
+        certificateId: null,
+      },
       include: {
         opportunity: {
           select: { id: true, title: true, organization: true, type: true },
@@ -345,6 +352,58 @@ opportunitiesRouter.post('/:id/enroll', authenticate, async (req, res, next) => 
     })
 
     res.status(201).json({ enrollment })
+  } catch (error) {
+    if (handleOpportunityError(error, res)) {
+      return
+    }
+    next(error)
+  }
+})
+
+opportunitiesRouter.delete('/:id/enroll', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const opportunityId = String(req.params.id)
+
+    const enrollment = await prisma.opportunityEnrollment.findUnique({
+      where: {
+        userId_opportunityId: { userId: authUser.id, opportunityId },
+      },
+    })
+
+    if (!enrollment) {
+      res.status(404).json({ message: 'Enrollment not found' })
+      return
+    }
+
+    if (enrollment.status === OpportunityEnrollmentStatus.COMPLETED) {
+      res.status(400).json({ message: 'Completed programs cannot be cancelled' })
+      return
+    }
+
+    if (enrollment.status === OpportunityEnrollmentStatus.WITHDRAWN) {
+      res.status(200).json({ enrollment })
+      return
+    }
+
+    const updated = await prisma.opportunityEnrollment.update({
+      where: { id: enrollment.id },
+      data: {
+        status: OpportunityEnrollmentStatus.WITHDRAWN,
+        enrolledAt: null,
+        approvedById: null,
+      },
+      include: {
+        opportunity: {
+          select: { id: true, title: true, organization: true, type: true },
+        },
+        certificate: {
+          select: { id: true, verified: true, issuedAt: true },
+        },
+      },
+    })
+
+    res.status(200).json({ enrollment: updated })
   } catch (error) {
     if (handleOpportunityError(error, res)) {
       return

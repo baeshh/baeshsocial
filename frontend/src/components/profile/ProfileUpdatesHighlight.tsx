@@ -1,5 +1,6 @@
 import { GraduationCap, Sparkles, Trophy } from 'lucide-react'
 import { Badge } from '../common/Badge'
+import { classifyOpportunityType, HISTORY_CATEGORY_META } from '../../lib/profileHistory'
 import type { GrowthTimelineItem, ProfilePayload, ProgramEnrollment } from '../../types/profile'
 
 type HighlightItem = {
@@ -23,11 +24,13 @@ function formatDate(value: string | null) {
 
 function programHighlight(enrollment: ProgramEnrollment): HighlightItem {
   const date = enrollment.completedAt ?? enrollment.enrolledAt ?? enrollment.appliedAt
+  const category = classifyOpportunityType(enrollment.opportunity.type)
+  const typeLabel = HISTORY_CATEGORY_META[category].label
 
   if (enrollment.status === 'COMPLETED') {
     return {
       id: `program-${enrollment.id}`,
-      title: `「${enrollment.opportunity.title}」 프로그램 수료`,
+      title: `「${enrollment.opportunity.title}」 ${typeLabel} 수료`,
       description: `${enrollment.opportunity.organization} · 수료 완료`,
       date,
       tone: 'program',
@@ -37,30 +40,14 @@ function programHighlight(enrollment: ProgramEnrollment): HighlightItem {
   if (enrollment.status === 'ENROLLED') {
     return {
       id: `program-${enrollment.id}`,
-      title: `「${enrollment.opportunity.title}」 프로그램에 선정`,
-      description: `${enrollment.opportunity.organization} · 현재 수강 중`,
+      title: `「${enrollment.opportunity.title}」 ${typeLabel} 선정`,
+      description: `${enrollment.opportunity.organization} · 선정 · 수강 중`,
       date,
       tone: 'program',
     }
   }
 
-  if (enrollment.status === 'APPLIED') {
-    return {
-      id: `program-${enrollment.id}`,
-      title: `「${enrollment.opportunity.title}」 프로그램 지원`,
-      description: `${enrollment.opportunity.organization} · 선발 결과 대기`,
-      date,
-      tone: 'program',
-    }
-  }
-
-  return {
-    id: `program-${enrollment.id}`,
-    title: `「${enrollment.opportunity.title}」 프로그램`,
-    description: `${enrollment.opportunity.organization} · ${enrollment.status}`,
-    date,
-    tone: 'program',
-  }
+  return null
 }
 
 function timelineHighlight(item: GrowthTimelineItem): HighlightItem | null {
@@ -98,7 +85,9 @@ function timelineHighlight(item: GrowthTimelineItem): HighlightItem | null {
 }
 
 function buildHighlights(data: ProfilePayload): HighlightItem[] {
-  const fromPrograms = data.programEnrollments.map(programHighlight)
+  const fromPrograms = data.programEnrollments
+    .map(programHighlight)
+    .filter((item): item is HighlightItem => item !== null)
   const fromTimeline = data.growthTimeline
     .map(timelineHighlight)
     .filter((item): item is HighlightItem => item !== null)

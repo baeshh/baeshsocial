@@ -12,11 +12,14 @@ export type PostProject = {
   skills: string[]
 }
 
-export type PostLike = {
+export type ContentLike = {
   id: string
   userId: string
   createdAt: string
+  user?: Pick<AuthUser, 'id' | 'name' | 'avatarUrl'>
 }
+
+export type PostLike = ContentLike
 
 export type PostComment = {
   id: string
@@ -26,6 +29,7 @@ export type PostComment = {
   createdAt: string
   updatedAt: string
   author: Pick<AuthUser, 'id' | 'name' | 'email' | 'avatarUrl'>
+  likes: ContentLike[]
 }
 
 export type PostCore = {

@@ -81,3 +81,17 @@ export function addComment(token: string, postId: string, content: string) {
     body: JSON.stringify({ content }),
   })
 }
+
+export function likeComment(token: string, postId: string, commentId: string) {
+  return apiRequest(`/posts/${postId}/comments/${commentId}/like`, {
+    method: 'POST',
+    token,
+  })
+}
+
+export function unlikeComment(token: string, postId: string, commentId: string) {
+  return apiRequest<void>(`/posts/${postId}/comments/${commentId}/like`, {
+    method: 'DELETE',
+    token,
+  })
+}

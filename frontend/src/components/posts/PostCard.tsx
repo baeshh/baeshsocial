@@ -1,22 +1,23 @@
 import { useMutation } from '@tanstack/react-query'
-import { MessageSquare, Repeat2, ThumbsUp } from 'lucide-react'
+import { MessageSquare, Repeat2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Avatar } from '../common/Avatar'
 import { Button } from '../common/Button'
 import { Textarea } from '../common/Input'
-import { cn } from '../../lib/cn'
 import {
-  addComment,
   createPost,
   deletePost,
-  likePost,
-  unlikePost,
   updatePost,
 } from '../../services/postService'
 import type { Post } from '../../types/post'
 import { EmbeddedPostPreview } from './EmbeddedPostPreview'
 import { PostMediaGrid } from './PostMediaGrid'
+import { PostCommentComposer } from './PostCommentComposer'
+import { PostCommentItem } from './PostCommentItem'
+import { PostFeedComments } from './PostFeedComments'
+import { PostLikeBar } from './PostLikeBar'
+import { notifyRepostAlreadyDone, notifyRepostError, notifyRepostSuccess } from '../../lib/repostPost'
 import { PostShareButton } from './PostShareButton'
 
 function extractHashtags(content: string) {
@@ -38,6 +39,12 @@ export type PostCardProps = {
   onChanged: () => void
   repostedSourceIds?: Set<string>
   showComments?: boolean
+  /** feed: 하이라이트 댓글 1개만, full: 전체(상세) */
+  commentsMode?: 'feed' | 'full'
+  followingIds?: Set<string>
+  followerIds?: Set<string>
+  /** 게시물 상세(/p/:id)에서는 false */
+  showViewPostLink?: boolean
 }
 
 export function PostCard({
@@ -47,26 +54,17 @@ export function PostCard({
   onChanged,
   repostedSourceIds,
   showComments = true,
+  commentsMode = 'full',
+  followingIds = new Set(),
+  followerIds = new Set(),
+  showViewPostLink = true,
 }: PostCardProps) {
-  const [comment, setComment] = useState('')
   const [editing, setEditing] = useState(false)
   const [editContent, setEditContent] = useState(post.content)
-  const liked = post.likes.some((like) => like.userId === userId)
   const isAuthor = post.authorId === userId
   const hashtags = extractHashtags(post.content)
   const alreadyReposted = Boolean(userId && repostedSourceIds?.has(post.id))
 
-  const likeMutation = useMutation({
-    mutationFn: () => (liked ? unlikePost(token, post.id) : likePost(token, post.id)),
-    onSuccess: onChanged,
-  })
-  const commentMutation = useMutation({
-    mutationFn: () => addComment(token, post.id, comment),
-    onSuccess: () => {
-      setComment('')
-      onChanged()
-    },
-  })
   const updateMutation = useMutation({
     mutationFn: () => updatePost(token, post.id, { content: editContent }),
     onSuccess: () => {
@@ -85,8 +83,22 @@ export function PostCard({
         repostOfId: post.id,
         visibility: 'public',
       }),
-    onSuccess: onChanged,
+    onSuccess: () => {
+      notifyRepostSuccess()
+      onChanged()
+    },
+    onError: (error: Error) => {
+      notifyRepostError(error.message)
+    },
   })
+
+  const handleRepost = () => {
+    if (alreadyReposted) {
+      notifyRepostAlreadyDone()
+      return
+    }
+    repostMutation.mutate()
+  }
 
   const canRepost = Boolean(userId && !isAuthor)
 
@@ -106,9 +118,11 @@ export function PostCard({
             </p>
           </div>
         </div>
-        <Link className="text-xs font-semibold text-brand-600 hover:text-brand-700" to={`/p/${post.id}`}>
-          게시물 보기
-        </Link>
+        {showViewPostLink ? (
+          <Link className="text-xs font-semibold text-brand-600 hover:text-brand-700" to={`/p/${post.id}`}>
+            게시물 보기
+          </Link>
+        ) : null}
       </div>
 
       {post.repostOf ? (
@@ -170,26 +184,18 @@ export function PostCard({
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-surface-border pt-4">
         <div className="flex flex-wrap items-start gap-1">
-          <button
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition',
-              liked ? 'bg-brand-50 text-brand-700' : 'text-ink-muted hover:bg-surface-muted',
-            )}
-            onClick={() => likeMutation.mutate()}
-            type="button"
-          >
-            <ThumbsUp size={18} />
-            좋아요 {post.likes.length}
-          </button>
+          <PostLikeBar onChanged={onChanged} post={post} token={token} userId={userId} />
           <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-ink-muted">
             <MessageSquare size={18} />
             댓글 {post.comments.length}
           </span>
           {canRepost ? (
             <button
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-ink-muted transition hover:bg-surface-muted disabled:opacity-40"
-              disabled={repostMutation.isPending || alreadyReposted}
-              onClick={() => repostMutation.mutate()}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition hover:bg-surface-muted disabled:opacity-50 ${
+                alreadyReposted ? 'text-ink-muted/70' : 'text-ink-muted'
+              }`}
+              disabled={repostMutation.isPending}
+              onClick={handleRepost}
               type="button"
             >
               <Repeat2 size={18} />
@@ -213,52 +219,33 @@ export function PostCard({
           </div>
         ) : null}
       </div>
-      {repostMutation.error ? (
-        <p className="mt-2 text-xs text-red-600">{repostMutation.error.message}</p>
+      {showComments && commentsMode === 'feed' ? (
+        <PostFeedComments
+          followerIds={followerIds}
+          followingIds={followingIds}
+          onChanged={onChanged}
+          post={post}
+          token={token}
+          userId={userId}
+        />
       ) : null}
 
-      {showComments ? (
+      {showComments && commentsMode === 'full' ? (
         <>
           <div className="mt-4 space-y-3">
             {post.comments.map((item) => (
-              <div className="rounded-xl bg-surface-muted/80 p-4" key={item.id}>
-                <div className="flex items-center gap-2">
-                  <Link className="shrink-0" to={`/profile/${item.author.id}`}>
-                    <Avatar name={item.author.name} size="sm" src={item.author.avatarUrl} />
-                  </Link>
-                  <Link
-                    className="text-sm font-bold text-ink-strong hover:text-brand-600"
-                    to={`/profile/${item.author.id}`}
-                  >
-                    {item.author.name}
-                  </Link>
-                </div>
-                <p className="mt-1 text-sm leading-relaxed text-ink-body">{item.content}</p>
-              </div>
+              <PostCommentItem
+                comment={item}
+                key={item.id}
+                onChanged={onChanged}
+                postId={post.id}
+                token={token}
+                userId={userId}
+              />
             ))}
           </div>
 
-          <form
-            className="mt-4 flex flex-col gap-3 sm:flex-row"
-            onSubmit={(event) => {
-              event.preventDefault()
-              commentMutation.mutate()
-            }}
-          >
-            <div className="flex-1">
-              <Textarea
-                className="min-h-20 rounded-xl"
-                label="댓글"
-                onChange={(event) => setComment(event.target.value)}
-                placeholder="댓글을 입력하세요"
-                required
-                value={comment}
-              />
-            </div>
-            <Button className="self-end rounded-full" disabled={commentMutation.isPending} type="submit">
-              댓글 작성
-            </Button>
-          </form>
+          <PostCommentComposer onSuccess={onChanged} postId={post.id} token={token} />
         </>
       ) : null}
     </article>

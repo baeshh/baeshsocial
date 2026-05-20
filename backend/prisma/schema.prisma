@@ -128,6 +128,7 @@ model User {
   uploadedFiles          ProjectFile[]      @relation("FileUploader")
   posts                  Post[]             @relation("PostAuthor")
   postLikes              PostLike[]
+  commentLikes           CommentLike[]
   comments               Comment[]
   opportunitiesCreated   Opportunity[]      @relation("OpportunityCreator")
   savedOpportunities     SavedOpportunity[]
@@ -138,6 +139,8 @@ model User {
   receivedMessages       Message[]          @relation("ReceivedMessages")
   following              UserFollow[]              @relation("UserFollowsFollower")
   followers              UserFollow[]              @relation("UserFollowsFollowing")
+  profileViewsMade       ProfileView[]             @relation("ProfileViewsAsViewer")
+  profileViewsReceived   ProfileView[]             @relation("ProfileViewsAsProfile")
   triggeredNotifications Notification[]            @relation("NotificationActor")
   opportunityEnrollments OpportunityEnrollment[]   @relation("EnrollmentUser")
   approvedEnrollments    OpportunityEnrollment[]   @relation("EnrollmentApprover")
@@ -355,6 +358,19 @@ model UserFollow {
   @@id([followerId, followingId])
 }
 
+model ProfileView {
+  viewerId      String
+  profileUserId String
+  viewCount     Int      @default(1)
+  firstViewedAt DateTime @default(now())
+  lastViewedAt  DateTime @updatedAt
+  viewer        User     @relation("ProfileViewsAsViewer", fields: [viewerId], references: [id], onDelete: Cascade)
+  profileUser   User     @relation("ProfileViewsAsProfile", fields: [profileUserId], references: [id], onDelete: Cascade)
+
+  @@id([viewerId, profileUserId])
+  @@index([viewerId, lastViewedAt(sort: Desc)])
+}
+
 model PostLike {
   id        String   @id @default(cuid())
   postId    String
@@ -367,14 +383,26 @@ model PostLike {
 }
 
 model Comment {
-  id        String   @id @default(cuid())
+  id        String        @id @default(cuid())
   postId    String
   authorId  String
   content   String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  post      Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  likes     CommentLike[]
+}
+
+model CommentLike {
+  id        String   @id @default(cuid())
+  commentId String
+  userId    String
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
 }
 
 model Opportunity {

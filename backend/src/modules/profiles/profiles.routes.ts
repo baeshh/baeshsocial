@@ -1,9 +1,10 @@
-import { Prisma, ProjectVisibility } from '@prisma/client'
+import { OpportunityEnrollmentStatus, Prisma, ProjectVisibility } from '@prisma/client'
 import { Router } from 'express'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { buildGrowthTimeline } from '../../utils/growthTimeline.js'
+import { recordProfileView } from '../../utils/peopleRecommendations.js'
 import { buildSkillInsights } from '../../utils/skillInsights.js'
 import {
   awardSchema,
@@ -225,15 +226,22 @@ async function getProfilePayload(userId: string, viewerId?: string) {
     }))
 
   const allProjects = [...ownedProjects, ...joinedProjects]
-  const completedPrograms = programEnrollments.filter(
-    (enrollment) => enrollment.status === 'COMPLETED',
+  const profileVisibleProgramStatuses: OpportunityEnrollmentStatus[] = [
+    OpportunityEnrollmentStatus.ENROLLED,
+    OpportunityEnrollmentStatus.COMPLETED,
+  ]
+  const publicProgramEnrollments = programEnrollments.filter((enrollment) =>
+    profileVisibleProgramStatuses.includes(enrollment.status),
+  )
+  const completedPrograms = publicProgramEnrollments.filter(
+    (enrollment) => enrollment.status === OpportunityEnrollmentStatus.COMPLETED,
   )
 
   return {
     profile,
     projects: allProjects,
     verifiedRecords,
-    programEnrollments,
+    programEnrollments: publicProgramEnrollments,
     stats: {
       followerCount,
       followingCount,
@@ -345,6 +353,11 @@ profilesRouter.get('/:userId', authenticate, async (req, res, next) => {
     }
 
     const authUser = res.locals.user as AuthTokenPayload
+    if (authUser.id !== userId) {
+      void recordProfileView(authUser.id, userId).catch((error) => {
+        console.error('Profile view tracking failed:', error)
+      })
+    }
     res.status(200).json(await getProfilePayload(userId, authUser.id))
   } catch (error) {
     next(error)

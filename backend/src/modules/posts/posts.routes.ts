@@ -27,6 +27,22 @@ const publicAuthorSelect = {
   avatarUrl: true,
 } as const
 
+const likeUserSelect = {
+  id: true,
+  name: true,
+  avatarUrl: true,
+} as const
+
+const likesInclude = {
+  select: {
+    id: true,
+    userId: true,
+    createdAt: true,
+    user: { select: likeUserSelect },
+  },
+  orderBy: { createdAt: 'desc' as const },
+} as const
+
 const linkedProjectSelect = {
   id: true,
   title: true,
@@ -40,18 +56,11 @@ const linkedProjectSelect = {
 const nestedPostInclude = {
   author: { select: authorSelect },
   linkedProject: { select: linkedProjectSelect },
-  likes: {
-    select: {
-      id: true,
-      userId: true,
-      createdAt: true,
-    },
-  },
+  likes: likesInclude,
   comments: {
     include: {
-      author: {
-        select: authorSelect,
-      },
+      author: { select: authorSelect },
+      likes: likesInclude,
     },
     orderBy: {
       createdAt: 'asc' as const,
@@ -74,18 +83,11 @@ const publicLinkedProjectSelect = {
 const publicNestedPostInclude = {
   author: { select: publicAuthorSelect },
   linkedProject: { select: publicLinkedProjectSelect },
-  likes: {
-    select: {
-      id: true,
-      userId: true,
-      createdAt: true,
-    },
-  },
+  likes: likesInclude,
   comments: {
     include: {
-      author: {
-        select: publicAuthorSelect,
-      },
+      author: { select: publicAuthorSelect },
+      likes: likesInclude,
     },
     orderBy: {
       createdAt: 'asc' as const,
@@ -652,6 +654,79 @@ postsRouter.delete('/:id/like', authenticate, async (req, res, next) => {
   }
 })
 
+postsRouter.post('/:id/comments/:commentId/like', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const postId = String(req.params.id)
+    const commentId = String(req.params.commentId)
+    const followingIds = await getFollowingIds(authUser.id)
+    const post = await prisma.post.findUnique({ where: { id: postId } })
+
+    if (!post) {
+      res.status(404).json({ message: 'Post not found' })
+      return
+    }
+
+    const visible = await canViewerSeePost(post, authUser.id, followingIds)
+    if (!visible) {
+      res.status(404).json({ message: 'Post not found' })
+      return
+    }
+
+    const comment = await prisma.comment.findFirst({
+      where: { id: commentId, postId },
+    })
+
+    if (!comment) {
+      res.status(404).json({ message: 'Comment not found' })
+      return
+    }
+
+    const existingLike = await prisma.commentLike.findUnique({
+      where: { commentId_userId: { commentId, userId: authUser.id } },
+    })
+
+    if (!existingLike) {
+      await prisma.commentLike.create({
+        data: { commentId, userId: authUser.id },
+      })
+    }
+
+    res.status(201).json({ ok: true })
+  } catch (error) {
+    next(error)
+  }
+})
+
+postsRouter.delete('/:id/comments/:commentId/like', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const postId = String(req.params.id)
+    const commentId = String(req.params.commentId)
+    const followingIds = await getFollowingIds(authUser.id)
+    const post = await prisma.post.findUnique({ where: { id: postId } })
+
+    if (!post) {
+      res.status(404).json({ message: 'Post not found' })
+      return
+    }
+
+    const visible = await canViewerSeePost(post, authUser.id, followingIds)
+    if (!visible) {
+      res.status(404).json({ message: 'Post not found' })
+      return
+    }
+
+    await prisma.commentLike.deleteMany({
+      where: { commentId, userId: authUser.id },
+    })
+
+    res.status(204).send()
+  } catch (error) {
+    next(error)
+  }
+})
+
 postsRouter.post('/:id/comments', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
@@ -679,6 +754,7 @@ postsRouter.post('/:id/comments', authenticate, async (req, res, next) => {
       },
       include: {
         author: { select: authorSelect },
+        likes: likesInclude,
       },
     })
 

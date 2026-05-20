@@ -122,6 +122,12 @@ export function ProfilePage() {
   })
 
   useEffect(() => {
+    if (!isOwnRoute && routeUserId && profileQuery.isSuccess) {
+      void queryClient.invalidateQueries({ queryKey: ['search', 'recommended'] })
+    }
+  }, [isOwnRoute, routeUserId, profileQuery.isSuccess, queryClient])
+
+  useEffect(() => {
     if (!profileQuery.data) {
       return
     }

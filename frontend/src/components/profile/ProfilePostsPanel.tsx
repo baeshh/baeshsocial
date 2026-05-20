@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Repeat2 } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Avatar } from '../common/Avatar'
 import { Button } from '../common/Button'
@@ -18,6 +18,7 @@ import {
 } from '../../services/postService'
 import { getProjects } from '../../services/projectService'
 import type { Post, PostVisibility } from '../../types/post'
+import { notifyRepostAlreadyDone, notifyRepostError, notifyRepostSuccess } from '../../lib/repostPost'
 import { useAuthStore } from '../../stores/authStore'
 
 function formatDate(value: string) {
@@ -80,6 +81,7 @@ type ProfilePostCardProps = {
   isOwnProfile: boolean
   onChanged: () => void
   canRepost: boolean
+  alreadyReposted: boolean
 }
 
 function ProfilePostCard({
@@ -90,6 +92,7 @@ function ProfilePostCard({
   isOwnProfile,
   onChanged,
   canRepost,
+  alreadyReposted,
 }: ProfilePostCardProps) {
   const currentUserId = useAuthStore((state) => state.user?.id)
   const canManage = Boolean(isOwnProfile && currentUserId && post.authorId === currentUserId)
@@ -136,9 +139,22 @@ function ProfilePostCard({
         repostOfId: post.id,
         visibility: 'public',
       }),
-    onSuccess: onChanged,
-    onError: (err: Error) => setError(err.message),
+    onSuccess: () => {
+      notifyRepostSuccess()
+      onChanged()
+    },
+    onError: (err: Error) => {
+      notifyRepostError(err.message)
+    },
   })
+
+  const handleRepost = () => {
+    if (alreadyReposted) {
+      notifyRepostAlreadyDone()
+      return
+    }
+    repostMutation.mutate()
+  }
 
   const startEdit = () => {
     setEditForm(buildEditForm(post))
@@ -279,13 +295,15 @@ function ProfilePostCard({
           <PostShareButton postId={post.id} visibility={post.visibility} />
           {canRepost ? (
             <button
-              className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold text-ink-muted transition hover:bg-surface-muted disabled:opacity-40"
+              className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition hover:bg-surface-muted disabled:opacity-50 ${
+                alreadyReposted ? 'text-ink-muted/70' : 'text-ink-muted'
+              }`}
               disabled={repostMutation.isPending}
-              onClick={() => repostMutation.mutate()}
+              onClick={handleRepost}
               type="button"
             >
               <Repeat2 size={14} />
-              퍼가기
+              {alreadyReposted ? '퍼감' : '퍼가기'}
             </button>
           ) : null}
           <Link className="text-xs font-semibold text-brand-600 hover:text-brand-700" to={`/p/${post.id}`}>
@@ -332,8 +350,30 @@ export function ProfilePostsPanel({
     refetchOnMount: 'always',
   })
 
+  const myPostsQuery = useQuery({
+    queryKey: ['posts', 'by-user', currentUserId, 'repost-tracker'],
+    queryFn: () => getPostsByUser(token, currentUserId!),
+    enabled: Boolean(token && currentUserId && currentUserId !== userId),
+  })
+
+  const repostedSourceIds = useMemo(() => {
+    const ids = new Set<string>()
+    const sourcePosts = isOwnProfile ? postsQuery.data?.posts : myPostsQuery.data?.posts
+    for (const item of sourcePosts ?? []) {
+      if (item.repostOfId) {
+        ids.add(item.repostOfId)
+      }
+    }
+    return ids
+  }, [isOwnProfile, myPostsQuery.data?.posts, postsQuery.data?.posts])
+
   const handleChanged = () => {
     void queryClient.invalidateQueries({ queryKey: ['posts', 'by-user', userId] })
+    if (currentUserId) {
+      void queryClient.invalidateQueries({
+        queryKey: ['posts', 'by-user', currentUserId, 'repost-tracker'],
+      })
+    }
     void queryClient.invalidateQueries({ queryKey: ['posts'] })
     void queryClient.invalidateQueries({ queryKey: ['profiles'] })
   }
@@ -371,6 +411,7 @@ export function ProfilePostsPanel({
     <div className="space-y-4">
       {posts.map((post) => (
         <ProfilePostCard
+          alreadyReposted={repostedSourceIds.has(post.id)}
           avatarUrl={avatarUrl}
           canRepost={Boolean(
             !isOwnProfile &&

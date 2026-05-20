@@ -139,6 +139,12 @@ POST  /me/portfolios
 
 [인증 필요]
 
+GET   /recommended
+      추천 친구 (비슷한 커리어·자주 본 프로필·프로젝트 팀·네트워크·관심 글 참여)
+      Query: limit? (1~30, 기본 12)
+      응답: { results[] } — matchReasons 예: 비슷한 커리어, 자주 본 프로필, 같은 프로젝트 등
+      이미 팔로우 중인 사용자·본인 제외
+
 GET   /
       사람·프로필 검색 (이름, 직무 headline, 회사, 학교, bio, 스킬, 경력)
       Query: q (1~80자, 필수), limit? (1~30, 기본 20)
@@ -146,6 +152,8 @@ GET   /
       results 항목: userId, name, avatarUrl, role, headline, company, school,
                     skills (최대 6), matchReasons (이름|직무|회사|스킬|학교)
       본인(userId)은 결과에서 제외
+
+프로필 조회 기록: GET /api/profiles/:userId 시 타인 프로필이면 ProfileView에 누적 (추천 반영)
 
 ================================================================================
 6. 프로젝트 (Projects) — /api/projects
@@ -290,6 +298,14 @@ DELETE /:id/like
 POST   /:id/comments
        댓글 작성
 
+POST   /:id/comments/:commentId/like
+       댓글 좋아요
+
+DELETE /:id/comments/:commentId/like
+       댓글 좋아요 취소
+
+게시물·댓글 응답의 likes[]: id, userId, createdAt, user { id, name, avatarUrl }
+
 ================================================================================
 8. 기회 (Opportunities) — /api/opportunities
 ================================================================================
@@ -322,7 +338,10 @@ DELETE /:id
        기회 삭제 [admin, institution]
 
 POST   /:id/enroll
-       프로그램 신청
+       프로그램 신청 (취소·거절 후 재신청 시 APPLIED로 갱신)
+
+DELETE /:id/enroll
+       프로그램 신청·수강 취소 (본인, APPLIED·ENROLLED → WITHDRAWN)
 
 POST   /:id/save
        기회 저장(북마크)
@@ -404,6 +423,7 @@ PATCH  /api/profiles/me/awards/:id
 POST   /api/profiles/me/portfolios
 GET    /api/profiles/public/:userId
 
+GET    /api/search/recommended
 GET    /api/search
 
 GET    /api/projects
@@ -440,6 +460,8 @@ DELETE /api/posts/:id
 POST   /api/posts/:id/like
 DELETE /api/posts/:id/like
 POST   /api/posts/:id/comments
+POST   /api/posts/:id/comments/:commentId/like
+DELETE /api/posts/:id/comments/:commentId/like
 
 GET    /api/opportunities
 POST   /api/opportunities
@@ -450,6 +472,7 @@ GET    /api/opportunities/:id
 PATCH  /api/opportunities/:id
 DELETE /api/opportunities/:id
 POST   /api/opportunities/:id/enroll
+DELETE /api/opportunities/:id/enroll
 POST   /api/opportunities/:id/save
 DELETE /api/opportunities/:id/save
 

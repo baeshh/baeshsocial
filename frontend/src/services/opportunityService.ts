@@ -67,6 +67,13 @@ export function enrollOpportunity(token: string, opportunityId: string) {
   })
 }
 
+export function withdrawOpportunityEnrollment(token: string, opportunityId: string) {
+  return apiRequest<{ enrollment: OpportunityEnrollment }>(`/opportunities/${opportunityId}/enroll`, {
+    method: 'DELETE',
+    token,
+  })
+}
+
 export function getMyEnrollments(token: string) {
   return apiRequest<{ enrollments: OpportunityEnrollment[] }>('/opportunities/enrollments/me', {
     token,

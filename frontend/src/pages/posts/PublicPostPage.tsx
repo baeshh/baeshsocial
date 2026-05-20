@@ -60,8 +60,10 @@ export function PublicPostPage() {
       <AppLayout>
         <div className="mx-auto max-w-2xl">
           <PostCard
+            commentsMode="full"
             onChanged={() => void postQuery.refetch()}
             post={post}
+            showViewPostLink={false}
             token={token}
             userId={user.id}
           />

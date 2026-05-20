@@ -14,22 +14,17 @@ import {
   updateCareer,
   updateCertificate,
 } from '../../services/profileService'
-import type { ProfilePayload, ProgramEnrollmentStatus } from '../../types/profile'
+import {
+  buildProfileHistoryItems,
+  filterHistoryByCategory,
+  groupProfileHistoryByCategory,
+  HISTORY_CATEGORY_META,
+  type HistoryCategory,
+  type ProfileHistoryItem,
+} from '../../lib/profileHistory'
+import type { ProfilePayload } from '../../types/profile'
 
-type HistoryKind = 'certificate' | 'career' | 'award' | 'program'
 type EditableHistoryKind = 'certificate' | 'career' | 'award'
-
-type HistoryItem = {
-  id: string
-  kind: HistoryKind
-  title: string
-  meta: string
-  date: string | null
-  verified?: boolean
-  program?: boolean
-  enrollmentStatus?: ProgramEnrollmentStatus
-  editable?: boolean
-}
 
 function emptyToNull(value: string) {
   const trimmed = value.trim()
@@ -51,98 +46,15 @@ function formatDate(value: string | null) {
   }).format(new Date(value))
 }
 
-function kindLabel(kind: HistoryKind) {
-  if (kind === 'certificate') {
-    return '자격/수료'
-  }
-  if (kind === 'career') {
-    return '경력'
-  }
-  if (kind === 'program') {
-    return '프로그램 참여'
-  }
-  return '수상/성과'
+function addKindLabel(kind: EditableHistoryKind) {
+  return HISTORY_CATEGORY_META[kind === 'award' ? 'award' : kind === 'career' ? 'career' : 'certificate']
+    .label
 }
 
-function enrollmentStatusLabel(status: ProgramEnrollmentStatus) {
-  switch (status) {
-    case 'APPLIED':
-      return '신청됨'
-    case 'ENROLLED':
-      return '수강 중'
-    case 'COMPLETED':
-      return '수료 완료'
-    case 'REJECTED':
-      return '반려'
-    case 'WITHDRAWN':
-      return '철회'
-    default:
-      return status
-  }
-}
-
-function buildHistoryItems(data: ProfilePayload): HistoryItem[] {
-  const programCertificateOpportunityIds = new Set(
-    data.profile.certificates
-      .filter((cert) => cert.source === 'PROGRAM' && cert.opportunityId)
-      .map((cert) => cert.opportunityId as string),
-  )
-
-  const items: HistoryItem[] = [
-    ...data.profile.certificates.map((item) => ({
-      id: item.id,
-      kind: 'certificate' as const,
-      title: item.title,
-      meta: item.issuer,
-      date: item.issuedAt,
-      verified: item.verified,
-      program: item.source === 'PROGRAM',
-      editable: item.source !== 'PROGRAM',
-    })),
-    ...data.profile.careers.map((item) => ({
-      id: item.id,
-      kind: 'career' as const,
-      title: `${item.position} · ${item.company}`,
-      meta: item.description ?? '경력 이력',
-      date: item.startDate,
-      editable: true,
-    })),
-    ...data.profile.awards.map((item) => ({
-      id: item.id,
-      kind: 'award' as const,
-      title: item.title,
-      meta: item.issuer ?? '수상 기록',
-      date: item.awardedAt,
-      editable: true,
-    })),
-    ...data.programEnrollments
-      .filter((enrollment) => {
-        if (enrollment.status !== 'COMPLETED') {
-          return true
-        }
-        return !(
-          enrollment.certificate?.verified ||
-          programCertificateOpportunityIds.has(enrollment.opportunityId)
-        )
-      })
-      .map((enrollment) => ({
-        id: enrollment.id,
-        kind: 'program' as const,
-        title: enrollment.opportunity.title,
-        meta: `${enrollment.opportunity.organization} · ${enrollmentStatusLabel(enrollment.status)}`,
-        date: enrollment.completedAt ?? enrollment.enrolledAt ?? enrollment.appliedAt,
-        program: true,
-        enrollmentStatus: enrollment.status,
-        verified: enrollment.status === 'COMPLETED' && Boolean(enrollment.certificate?.verified),
-        editable: false,
-      })),
-  ]
-
-  return items.sort((a, b) => {
-    const aTime = a.date ? new Date(a.date).getTime() : 0
-    const bTime = b.date ? new Date(b.date).getTime() : 0
-    return bTime - aTime
-  })
+function enrollmentStatusLabel(status: ProfileHistoryItem['enrollmentStatus']) {
+  if (status === 'ENROLLED') return '선정 · 수강 중'
+  if (status === 'COMPLETED') return '수료 완료'
+  return status ?? ''
 }
 
 type ProfileHistoryPanelProps = {
@@ -152,7 +64,66 @@ type ProfileHistoryPanelProps = {
   readOnly?: boolean
 }
 
+function HistoryItemCard({
+  item,
+  readOnly,
+  onEdit,
+}: {
+  item: ProfileHistoryItem
+  readOnly: boolean
+  onEdit: (kind: EditableHistoryKind, id: string) => void
+}) {
+  const meta = HISTORY_CATEGORY_META[item.category]
+
+  return (
+    <div
+      className="rounded-xl border border-surface-border bg-white p-4 shadow-sm"
+      key={`${item.sourceKind}-${item.id}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex flex-wrap gap-2">
+            <Badge tone={meta.badgeTone}>{item.categoryLabel}</Badge>
+            {item.sourceKind === 'program' && item.enrollmentStatus ? (
+              <Badge tone={item.enrollmentStatus === 'COMPLETED' ? 'green' : 'purple'}>
+                {enrollmentStatusLabel(item.enrollmentStatus)}
+              </Badge>
+            ) : null}
+            {item.program && item.sourceKind === 'certificate' ? (
+              <Badge tone="green">프로그램 수료</Badge>
+            ) : null}
+            {item.ongoing ? <Badge tone="green">현재 진행 중</Badge> : null}
+          </div>
+          <p className="font-bold text-ink-strong">{item.title}</p>
+          <p className="mt-1 text-sm text-ink-muted">{item.meta}</p>
+          <p className="mt-2 text-xs font-semibold text-brand-600">{formatDate(item.date)}</p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          {item.verified ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+              <CheckCircle2 size={14} />
+              Verified
+            </span>
+          ) : null}
+          {!readOnly && item.editable && item.editKind && item.editId ? (
+            <Button
+              className="h-8 rounded-full px-3 text-xs"
+              onClick={() => onEdit(item.editKind!, item.editId!)}
+              type="button"
+              variant="ghost"
+            >
+              <Pencil className="mr-1" size={14} />
+              수정
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }: ProfileHistoryPanelProps) {
+  const [categoryFilter, setCategoryFilter] = useState<HistoryCategory | 'all'>('all')
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add')
   const [editTarget, setEditTarget] = useState<{ kind: EditableHistoryKind; id: string } | null>(null)
@@ -162,6 +133,7 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
     issuer: '',
     issuedAt: '',
     credentialUrl: '',
+    isInProgress: false,
   })
   const [careerForm, setCareerForm] = useState({
     company: '',
@@ -169,6 +141,7 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
     startDate: '',
     endDate: '',
     description: '',
+    isCurrent: false,
   })
   const [awardForm, setAwardForm] = useState({
     title: '',
@@ -177,12 +150,30 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
     description: '',
   })
 
-  const historyItems = buildHistoryItems(data)
+  const historyItems = buildProfileHistoryItems(data)
+  const categoryGroups = groupProfileHistoryByCategory(historyItems)
+  const visibleItems = filterHistoryByCategory(historyItems, categoryFilter)
   const activeKind = modalMode === 'edit' && editTarget ? editTarget.kind : addKind
 
+  const filterChips: { id: HistoryCategory | 'all'; label: string; count: number }[] = [
+    { id: 'all', label: '전체', count: historyItems.length },
+    ...categoryGroups.map((group) => ({
+      id: group.category,
+      label: group.label,
+      count: group.items.length,
+    })),
+  ]
+
   const resetForms = () => {
-    setCertificateForm({ title: '', issuer: '', issuedAt: '', credentialUrl: '' })
-    setCareerForm({ company: '', position: '', startDate: '', endDate: '', description: '' })
+    setCertificateForm({ title: '', issuer: '', issuedAt: '', credentialUrl: '', isInProgress: false })
+    setCareerForm({
+      company: '',
+      position: '',
+      startDate: '',
+      endDate: '',
+      description: '',
+      isCurrent: false,
+    })
     setAwardForm({ title: '', issuer: '', awardedAt: '', description: '' })
   }
 
@@ -214,6 +205,7 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
         issuer: certificate.issuer,
         issuedAt: toFormDate(certificate.issuedAt),
         credentialUrl: certificate.credentialUrl ?? '',
+        isInProgress: !certificate.issuedAt,
       })
     } else if (kind === 'career') {
       const career = data.profile.careers.find((item) => item.id === id)
@@ -226,6 +218,7 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
         startDate: toFormDate(career.startDate),
         endDate: toFormDate(career.endDate),
         description: career.description ?? '',
+        isCurrent: !career.endDate,
       })
     } else {
       const award = data.profile.awards.find((item) => item.id === id)
@@ -253,7 +246,7 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
         const payload = {
           title: certificateForm.title,
           issuer: certificateForm.issuer,
-          issuedAt: emptyToNull(certificateForm.issuedAt),
+          issuedAt: certificateForm.isInProgress ? null : emptyToNull(certificateForm.issuedAt),
           credentialUrl: emptyToNull(certificateForm.credentialUrl),
         }
         if (modalMode === 'edit' && editTarget) {
@@ -269,7 +262,7 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
           company: careerForm.company,
           position: careerForm.position,
           startDate: emptyToNull(careerForm.startDate),
-          endDate: emptyToNull(careerForm.endDate),
+          endDate: careerForm.isCurrent ? null : emptyToNull(careerForm.endDate),
           description: emptyToNull(careerForm.description),
         }
         if (modalMode === 'edit' && editTarget) {
@@ -302,7 +295,8 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">
-          자격·경력·수상·Jobs 프로그램 참여를 하나의 이력으로 관리합니다. 프로그램 수료 시 인증 이력이 자동 반영됩니다.
+          수상·프로그램·사업·프로젝트·경력이 유형별로 자동 분류됩니다. Jobs 선정·수료와 검증된 프로젝트도
+          함께 반영됩니다.
         </p>
         {readOnly ? null : (
           <Button className="rounded-full" onClick={openAddModal} type="button" variant="secondary">
@@ -326,48 +320,61 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
           )}
         </div>
       ) : (
-        <div className="space-y-3">
-          {historyItems.map((item) => (
-            <div className="rounded-xl border border-surface-border bg-white p-4 shadow-sm" key={`${item.kind}-${item.id}`}>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="mb-2 flex flex-wrap gap-2">
-                    <Badge tone="blue">{kindLabel(item.kind)}</Badge>
-                    {item.kind === 'program' && item.enrollmentStatus ? (
-                      <Badge tone={item.enrollmentStatus === 'COMPLETED' ? 'green' : 'purple'}>
-                        {enrollmentStatusLabel(item.enrollmentStatus)}
-                      </Badge>
-                    ) : null}
-                    {item.program && item.kind === 'certificate' ? (
-                      <Badge tone="green">프로그램 수료</Badge>
-                    ) : null}
+        <div className="space-y-4">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {filterChips.map((chip) => (
+              <button
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  categoryFilter === chip.id
+                    ? 'border-brand-500 bg-brand-50 text-brand-700'
+                    : 'border-surface-border bg-white text-ink-body'
+                }`}
+                key={chip.id}
+                onClick={() => setCategoryFilter(chip.id)}
+                type="button"
+              >
+                {chip.label}
+                <span className="ml-1 text-ink-muted">({chip.count})</span>
+              </button>
+            ))}
+          </div>
+
+          {categoryFilter === 'all' ? (
+            <div className="space-y-6">
+              {categoryGroups.map((group) => (
+                <section key={group.category}>
+                  <div className="mb-3 border-b border-surface-border pb-2">
+                    <h3 className="text-sm font-bold text-ink-strong">{group.label}</h3>
+                    <p className="mt-0.5 text-xs text-ink-muted">{group.description}</p>
                   </div>
-                  <p className="font-bold text-ink-strong">{item.title}</p>
-                  <p className="mt-1 text-sm text-ink-muted">{item.meta}</p>
-                  <p className="mt-2 text-xs font-semibold text-brand-600">{formatDate(item.date)}</p>
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-2">
-                  {item.verified ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                      <CheckCircle2 size={14} />
-                      Verified
-                    </span>
-                  ) : null}
-                  {!readOnly && item.editable ? (
-                    <Button
-                      className="h-8 rounded-full px-3 text-xs"
-                      onClick={() => openEditModal(item.kind as EditableHistoryKind, item.id)}
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Pencil className="mr-1" size={14} />
-                      수정
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
+                  <div className="space-y-3">
+                    {group.items.map((item) => (
+                      <HistoryItemCard
+                        item={item}
+                        key={`${item.sourceKind}-${item.id}`}
+                        onEdit={openEditModal}
+                        readOnly={readOnly}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
             </div>
-          ))}
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-ink-muted">
+                {HISTORY_CATEGORY_META[categoryFilter].description}
+              </p>
+              {visibleItems.map((item) => (
+                <HistoryItemCard
+                  item={item}
+                  key={`${item.sourceKind}-${item.id}`}
+                  onEdit={openEditModal}
+                  readOnly={readOnly}
+                />
+              ))}
+            </div>
+          )}
           {!readOnly ? (
             <Link className="inline-block text-sm font-semibold text-brand-600 hover:underline" to="/opportunities">
               Jobs에서 프로그램 찾기 →
@@ -407,13 +414,13 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
                   onClick={() => setAddKind(kind)}
                   type="button"
                 >
-                  {kindLabel(kind)}
+                  {addKindLabel(kind)}
                 </button>
               ))}
             </div>
           ) : (
             <p className="rounded-lg bg-surface-muted px-3 py-2 text-sm font-semibold text-ink-strong">
-              {kindLabel(activeKind)}
+              {addKindLabel(activeKind)}
             </p>
           )}
 
@@ -431,7 +438,24 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
                 required
                 value={certificateForm.issuer}
               />
+              <label className="flex cursor-pointer items-center gap-2 md:col-span-2">
+                <input
+                  checked={certificateForm.isInProgress}
+                  className="h-4 w-4 rounded border-surface-border text-brand-600"
+                  onChange={(event) =>
+                    setCertificateForm((prev) => ({
+                      ...prev,
+                      isInProgress: event.target.checked,
+                      issuedAt: event.target.checked ? '' : prev.issuedAt,
+                    }))
+                  }
+                  type="checkbox"
+                />
+                <span className="text-sm font-medium text-ink-body">현재 진행 중 (취득 예정)</span>
+              </label>
               <Input
+                disabled={certificateForm.isInProgress}
+                helperText={certificateForm.isInProgress ? '진행 중이면 발급일을 비워 둡니다.' : undefined}
                 label="발급일"
                 onChange={(event) => setCertificateForm((prev) => ({ ...prev, issuedAt: event.target.value }))}
                 type="date"
@@ -468,7 +492,24 @@ export function ProfileHistoryPanel({ data, token, onUpdated, readOnly = false }
                 type="date"
                 value={careerForm.startDate}
               />
+              <label className="flex cursor-pointer items-center gap-2 md:col-span-2">
+                <input
+                  checked={careerForm.isCurrent}
+                  className="h-4 w-4 rounded border-surface-border text-brand-600"
+                  onChange={(event) =>
+                    setCareerForm((prev) => ({
+                      ...prev,
+                      isCurrent: event.target.checked,
+                      endDate: event.target.checked ? '' : prev.endDate,
+                    }))
+                  }
+                  type="checkbox"
+                />
+                <span className="text-sm font-medium text-ink-body">현재 진행 중 (재직 중)</span>
+              </label>
               <Input
+                disabled={careerForm.isCurrent}
+                helperText={careerForm.isCurrent ? '진행 중이면 종료일을 비워 둡니다.' : undefined}
                 label="종료일"
                 onChange={(event) => setCareerForm((prev) => ({ ...prev, endDate: event.target.value }))}
                 type="date"

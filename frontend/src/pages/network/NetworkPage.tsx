@@ -16,6 +16,7 @@ import { PostComposerModal } from '../../components/network/PostComposerModal'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { createPost, getPosts, getRecommendedPosts } from '../../services/postService'
 import { getProjects } from '../../services/projectService'
+import { getFollowers, getFollowing } from '../../services/userService'
 import { useAuthStore } from '../../stores/authStore'
 
 function extractHashtags(content: string) {
@@ -48,6 +49,28 @@ export function NetworkPage() {
     queryFn: () => getProjects(token ?? ''),
     enabled: Boolean(token),
   })
+
+  const followingQuery = useQuery({
+    queryKey: ['users', user?.id, 'following'],
+    queryFn: () => getFollowing(token ?? '', user!.id),
+    enabled: Boolean(token && user?.id),
+  })
+
+  const followersQuery = useQuery({
+    queryKey: ['users', user?.id, 'followers'],
+    queryFn: () => getFollowers(token ?? '', user!.id),
+    enabled: Boolean(token && user?.id),
+  })
+
+  const followingIds = useMemo(
+    () => new Set(followingQuery.data?.users.map((u) => u.id) ?? []),
+    [followingQuery.data],
+  )
+
+  const followerIds = useMemo(
+    () => new Set(followersQuery.data?.users.map((u) => u.id) ?? []),
+    [followersQuery.data],
+  )
 
   const invalidateFeed = () => {
     void queryClient.invalidateQueries({ queryKey: ['posts'] })
@@ -274,7 +297,16 @@ export function NetworkPage() {
           ) : null}
           <div className="space-y-3 md:hidden">
             {postsQuery.data?.posts.map((post) => (
-              <MobileFeedPostCard key={post.id} post={post} />
+              <MobileFeedPostCard
+                key={post.id}
+                followerIds={followerIds}
+                followingIds={followingIds}
+                onChanged={invalidateFeed}
+                post={post}
+                repostedSourceIds={repostedSourceIds}
+                token={token ?? ''}
+                userId={user?.id}
+              />
             ))}
           </div>
 
@@ -282,6 +314,9 @@ export function NetworkPage() {
             {postsQuery.data?.posts.map((post) => (
               <PostCard
                 key={post.id}
+                commentsMode="feed"
+                followerIds={followerIds}
+                followingIds={followingIds}
                 onChanged={invalidateFeed}
                 post={post}
                 repostedSourceIds={repostedSourceIds}
