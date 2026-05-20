@@ -1,7 +1,7 @@
 ================================================================================
 BAESH Social — REST API 목록
 ================================================================================
-문서 버전: 2026-05-19
+문서 버전: 2026-05-20
 기준 코드: backend/src (Express + Prisma)
 
 --------------------------------------------------------------------------------
@@ -132,6 +132,20 @@ PATCH /me/awards/:id
 
 POST  /me/portfolios
       포트폴리오 항목 추가
+
+================================================================================
+5-1. 검색 (Search) — /api/search
+================================================================================
+
+[인증 필요]
+
+GET   /
+      사람·프로필 검색 (이름, 직무 headline, 회사, 학교, bio, 스킬, 경력)
+      Query: q (1~80자, 필수), limit? (1~30, 기본 20)
+      응답: { query, results[] }
+      results 항목: userId, name, avatarUrl, role, headline, company, school,
+                    skills (최대 6), matchReasons (이름|직무|회사|스킬|학교)
+      본인(userId)은 결과에서 제외
 
 ================================================================================
 6. 프로젝트 (Projects) — /api/projects
@@ -388,6 +402,9 @@ PATCH  /api/profiles/me/careers/:id
 POST   /api/profiles/me/awards
 PATCH  /api/profiles/me/awards/:id
 POST   /api/profiles/me/portfolios
+GET    /api/profiles/public/:userId
+
+GET    /api/search
 
 GET    /api/projects
 POST   /api/projects

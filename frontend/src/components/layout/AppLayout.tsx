@@ -18,7 +18,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="min-h-screen bg-surface-canvas text-ink-body">
       <Navbar user={user} />
-      <main className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-10">{children}</main>
+      <main className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 md:pb-10 md:px-8">{children}</main>
       <BottomNav />
     </div>
   )

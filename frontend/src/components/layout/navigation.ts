@@ -18,15 +18,18 @@ export type NavItem = {
 export const generalNavItems: NavItem[] = [
   { label: 'Profile', to: '/profile', icon: UserRound },
   { label: 'Network', to: '/network', icon: Network },
-  { label: 'Projects', to: '/projects', icon: BriefcaseBusiness },
-  { label: 'Jobs', to: '/opportunities', icon: Search },
+  { label: 'Projects', to: '/projects', icon: LayoutGrid },
+  { label: 'Find', to: '/find', icon: Search },
+  { label: 'Jobs', to: '/opportunities', icon: BriefcaseBusiness },
   { label: '내 활동', to: '/dashboard', icon: Activity },
 ]
 
 /** 하단 탭 네비 */
 export const bottomNavItems: NavItem[] = [
   { label: 'Network', to: '/network', icon: Network },
-  { label: 'Projects', to: '/projects', icon: LayoutGrid },
-  { label: 'Jobs', to: '/opportunities', icon: Search },
+  { label: 'Project', to: '/projects', icon: LayoutGrid },
+  { label: 'Find', to: '/find', icon: Search },
+  { label: 'Jobs', to: '/opportunities', icon: BriefcaseBusiness },
   { label: 'Profile', to: '/profile', icon: UserRound },
 ]
+

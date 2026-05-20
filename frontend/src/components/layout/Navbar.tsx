@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { LogOut, Menu, Search, X } from 'lucide-react'
 import { NotificationBell } from '../notifications/NotificationBell'
 import { Avatar } from '../common/Avatar'
@@ -17,10 +17,21 @@ type NavbarProps = {
 }
 
 export function Navbar({ user }: NavbarProps) {
+  const navigate = useNavigate()
   const token = useAuthStore((state) => state.token)
   const clearSession = useAuthStore((state) => state.clearSession)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [search, setSearch] = useState('')
+
+  const submitSearch = () => {
+    const trimmed = search.trim()
+    setDrawerOpen(false)
+    if (trimmed) {
+      navigate(`/find?q=${encodeURIComponent(trimmed)}`)
+    } else {
+      navigate('/find')
+    }
+  }
 
   const logoutMutation = useMutation({
     mutationFn: () => logoutRequest(token),
@@ -66,7 +77,13 @@ export function Navbar({ user }: NavbarProps) {
           ))}
         </nav>
 
-        <div className="mx-auto hidden w-full max-w-md lg:block lg:mx-0 lg:max-w-xs xl:max-w-md">
+        <form
+          className="mx-auto hidden w-full max-w-md lg:block lg:mx-0 lg:max-w-xs xl:max-w-md"
+          onSubmit={(event) => {
+            event.preventDefault()
+            submitSearch()
+          }}
+        >
           <label className="sr-only" htmlFor="global-search">
             검색
           </label>
@@ -85,7 +102,7 @@ export function Navbar({ user }: NavbarProps) {
               value={search}
             />
           </div>
-        </div>
+        </form>
 
         <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
           <NotificationBell />
@@ -131,7 +148,13 @@ export function Navbar({ user }: NavbarProps) {
               </Button>
             </div>
 
-            <div className="mt-4">
+            <form
+              className="mt-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                submitSearch()
+              }}
+            >
               <div className="relative">
                 <Search
                   aria-hidden
@@ -146,7 +169,7 @@ export function Navbar({ user }: NavbarProps) {
                   value={search}
                 />
               </div>
-            </div>
+            </form>
 
             <nav className="mt-6 space-y-1">
               {generalNavItems.map(({ label, to, icon: Icon }) => (

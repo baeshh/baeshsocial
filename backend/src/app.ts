@@ -9,6 +9,7 @@ import { profilesRouter } from './modules/profiles/profiles.routes.js'
 import { postsRouter } from './modules/posts/posts.routes.js'
 import { projectsRouter } from './modules/projects/projects.routes.js'
 import { notificationsRouter } from './modules/notifications/notifications.routes.js'
+import { searchRouter } from './modules/search/search.routes.js'
 import { usersRouter } from './modules/users/users.routes.js'
 import { healthRouter } from './routes/health.route.js'
 
@@ -35,6 +36,7 @@ app.use(express.json({ limit: '25mb' }))
 app.use('/api', healthRouter)
 app.use('/api/auth', authRouter)
 app.use('/api/users', usersRouter)
+app.use('/api/search', searchRouter)
 app.use('/api/profiles', profilesRouter)
 app.use('/api/projects', projectsRouter)
 app.use('/api/posts', postsRouter)

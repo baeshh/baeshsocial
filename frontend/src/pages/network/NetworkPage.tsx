@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { Briefcase, Globe, Upload, Sparkles } from 'lucide-react'
+import { Briefcase, Globe, Plus, Sparkles, Upload } from 'lucide-react'
 import { Avatar } from '../../components/common/Avatar'
 import { Button } from '../../components/common/Button'
 import { Card } from '../../components/common/Card'
@@ -11,6 +11,8 @@ import { LoadingState } from '../../components/common/LoadingState'
 import { readMediaFile } from '../../lib/readMediaFile'
 import { PostMediaGrid } from '../../components/posts/PostMediaGrid'
 import { PostCard } from '../../components/posts/PostCard'
+import { MobileFeedPostCard } from '../../components/network/MobileFeedPostCard'
+import { PostComposerModal } from '../../components/network/PostComposerModal'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { createPost, getPosts, getRecommendedPosts } from '../../services/postService'
 import { getProjects } from '../../services/projectService'
@@ -29,6 +31,7 @@ export function NetworkPage() {
   const [linkedProjectId, setLinkedProjectId] = useState('')
   const [visibility, setVisibility] = useState('public')
   const [mediaUrls, setMediaUrls] = useState<string[]>([])
+  const [composerOpen, setComposerOpen] = useState(false)
 
   const postsQuery = useQuery({
     queryKey: ['posts'],
@@ -163,8 +166,8 @@ export function NetworkPage() {
           </Card>
         </aside>
 
-        <div className="min-w-0 space-y-4">
-          <Card className="rounded-2xl border-surface-border p-4 shadow-sm sm:p-5">
+        <div className="min-w-0 space-y-3 md:space-y-4">
+          <Card className="hidden rounded-2xl border-surface-border p-4 shadow-sm sm:p-5 md:block">
             <form className="space-y-4" onSubmit={handleComposerSubmit}>
               <div className="flex gap-3">
                 <Link className="hidden shrink-0 sm:inline-block" to="/profile">
@@ -269,7 +272,13 @@ export function NetworkPage() {
               <EmptyState description="첫 게시글을 작성하면 이곳에 표시됩니다." title="게시글이 없습니다" />
             </Card>
           ) : null}
-          <div className="space-y-4">
+          <div className="space-y-3 md:hidden">
+            {postsQuery.data?.posts.map((post) => (
+              <MobileFeedPostCard key={post.id} post={post} />
+            ))}
+          </div>
+
+          <div className="hidden space-y-4 md:block">
             {postsQuery.data?.posts.map((post) => (
               <PostCard
                 key={post.id}
@@ -330,6 +339,24 @@ export function NetworkPage() {
           <p className="px-1 text-xs text-ink-muted">BAESH © {new Date().getFullYear()}</p>
         </aside>
       </div>
+
+      <button
+        aria-label="새 게시물 작성"
+        className="fixed bottom-[5.5rem] right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg shadow-brand-600/40 transition hover:bg-brand-700 active:scale-95 md:hidden"
+        onClick={() => setComposerOpen(true)}
+        type="button"
+      >
+        <Plus size={28} strokeWidth={2.5} />
+      </button>
+
+      <PostComposerModal
+        avatarUrl={user?.avatarUrl ?? null}
+        onClose={() => setComposerOpen(false)}
+        onSuccess={invalidateFeed}
+        open={composerOpen}
+        token={token ?? ''}
+        userName={user?.name ?? 'User'}
+      />
     </AppLayout>
   )
 }

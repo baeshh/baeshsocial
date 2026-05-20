@@ -4,6 +4,7 @@ import { AuthEntryPage } from '../pages/auth/AuthEntryPage'
 import { ComingSoonPage } from '../pages/ComingSoonPage'
 import { DashboardPage } from '../pages/dashboard/DashboardPage'
 import { LandingPage } from '../pages/LandingPage'
+import { FindPage } from '../pages/find/FindPage'
 import { NetworkPage } from '../pages/network/NetworkPage'
 import { OpportunitiesPage } from '../pages/opportunities/OpportunitiesPage'
 import { ProfilePage } from '../pages/profile/ProfilePage'
@@ -24,6 +25,7 @@ export function AppRoutes() {
       <Route element={<ProjectsPage />} path="/projects" />
       <Route element={<ProjectsPage />} path="/projects/:projectId" />
       <Route element={<NetworkPage />} path="/network" />
+      <Route element={<FindPage />} path="/find" />
       <Route element={<OpportunitiesPage />} path="/opportunities" />
       <Route element={<AICopilotPage />} path="/ai-copilot" />
       <Route
