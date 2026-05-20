@@ -1,24 +1,18 @@
 import { useMutation } from '@tanstack/react-query'
-import { MessageSquare, Repeat2 } from 'lucide-react'
+import { Repeat2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Avatar } from '../common/Avatar'
 import { Button } from '../common/Button'
 import { Textarea } from '../common/Input'
-import {
-  createPost,
-  deletePost,
-  updatePost,
-} from '../../services/postService'
+import { deletePost, updatePost } from '../../services/postService'
 import type { Post } from '../../types/post'
 import { EmbeddedPostPreview } from './EmbeddedPostPreview'
 import { PostMediaGrid } from './PostMediaGrid'
 import { PostCommentComposer } from './PostCommentComposer'
 import { PostCommentThread } from './PostCommentThread'
+import { PostFeedActionBar } from './PostFeedActionBar'
 import { PostFeedComments } from './PostFeedComments'
-import { PostLikeBar } from './PostLikeBar'
-import { notifyRepostAlreadyDone, notifyRepostError, notifyRepostSuccess } from '../../lib/repostPost'
-import { PostShareButton } from './PostShareButton'
 
 function extractHashtags(content: string) {
   return Array.from(content.matchAll(/#[\p{L}\p{N}_-]+/gu)).map((match) => match[0])
@@ -66,7 +60,6 @@ export function PostCard({
   const [editContent, setEditContent] = useState(post.content)
   const isAuthor = post.authorId === userId
   const hashtags = extractHashtags(post.content)
-  const alreadyReposted = Boolean(userId && repostedSourceIds?.has(post.id))
 
   const updateMutation = useMutation({
     mutationFn: () => updatePost(token, post.id, { content: editContent }),
@@ -79,32 +72,6 @@ export function PostCard({
     mutationFn: () => deletePost(token, post.id),
     onSuccess: onChanged,
   })
-  const repostMutation = useMutation({
-    mutationFn: () =>
-      createPost(token, {
-        content: '',
-        repostOfId: post.id,
-        visibility: 'public',
-      }),
-    onSuccess: () => {
-      notifyRepostSuccess()
-      onChanged()
-    },
-    onError: (error: Error) => {
-      notifyRepostError(error.message)
-    },
-  })
-
-  const handleRepost = () => {
-    if (alreadyReposted) {
-      notifyRepostAlreadyDone()
-      return
-    }
-    repostMutation.mutate()
-  }
-
-  const canRepost = Boolean(userId && !isAuthor)
-
   return (
     <article className="rounded-2xl border border-surface-border bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
@@ -185,28 +152,15 @@ export function PostCard({
         </Link>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-surface-border pt-4">
-        <div className="flex flex-wrap items-start gap-1">
-          <PostLikeBar onChanged={onChanged} post={post} token={token} userId={userId} />
-          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-ink-muted">
-            <MessageSquare size={18} />
-            댓글 {post.comments.length}
-          </span>
-          {canRepost ? (
-            <button
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition hover:bg-surface-muted disabled:opacity-50 ${
-                alreadyReposted ? 'text-ink-muted/70' : 'text-ink-muted'
-              }`}
-              disabled={repostMutation.isPending}
-              onClick={handleRepost}
-              type="button"
-            >
-              <Repeat2 size={18} />
-              {alreadyReposted ? '퍼감' : '퍼가기'}
-            </button>
-          ) : null}
-          <PostShareButton postId={post.id} visibility={post.visibility} />
-        </div>
+      <div className="mt-4 flex flex-nowrap items-center justify-between gap-3 border-t border-surface-border pt-4">
+        <PostFeedActionBar
+          className="min-w-0 flex-1 border-t-0 pt-0"
+          onChanged={onChanged}
+          post={post}
+          repostedSourceIds={repostedSourceIds}
+          token={token}
+          userId={userId}
+        />
         {isAuthor ? (
           <div className="flex w-full flex-shrink-0 justify-end gap-2 sm:w-auto">
             <Button className="rounded-full text-xs" onClick={() => setEditing((value) => !value)} variant="ghost">

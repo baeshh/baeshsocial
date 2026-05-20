@@ -11,6 +11,7 @@ import { LoadingState } from '../../components/common/LoadingState'
 import { readMediaFile } from '../../lib/readMediaFile'
 import { PostMediaGrid } from '../../components/posts/PostMediaGrid'
 import { PostCard } from '../../components/posts/PostCard'
+import { FeedPullToRefresh } from '../../components/network/FeedPullToRefresh'
 import { FeedRefreshFab } from '../../components/network/FeedRefreshFab'
 import { MobileFeedPostCard } from '../../components/network/MobileFeedPostCard'
 import { PostComposerModal } from '../../components/network/PostComposerModal'
@@ -20,8 +21,9 @@ import {
   withPreservedScroll,
 } from '../../lib/feedScroll'
 
-type FeedMode = 'timeline' | 'recommended'
 import { AppLayout } from '../../components/layout/AppLayout'
+
+type FeedMode = 'timeline' | 'recommended'
 import { createPost, getPosts, getRecommendedPosts } from '../../services/postService'
 import { getProjects } from '../../services/projectService'
 import { getFollowers, getFollowing } from '../../services/userService'
@@ -363,6 +365,7 @@ export function NetworkPage() {
             </form>
           </Card>
 
+          <FeedPullToRefresh disabled={feedLoading} onRefresh={refreshFeed} refreshing={refreshingFeed}>
           {feedMode === 'recommended' ? (
             <Card className="rounded-2xl border-brand-100 bg-brand-50/60 p-4 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -434,6 +437,7 @@ export function NetworkPage() {
               />
             ))}
           </div>
+          </FeedPullToRefresh>
         </div>
 
         <aside className="hidden space-y-6 xl:block">

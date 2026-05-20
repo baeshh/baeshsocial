@@ -18,6 +18,11 @@ import {
 } from '../../services/postService'
 import { getProjects } from '../../services/projectService'
 import type { Post, PostVisibility } from '../../types/post'
+import {
+  canShowRepostButton,
+  getRepostTargetId,
+  isAlreadyReposted,
+} from '../../lib/repostRules'
 import { notifyRepostAlreadyDone, notifyRepostError, notifyRepostSuccess } from '../../lib/repostPost'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -136,7 +141,7 @@ function ProfilePostCard({
     mutationFn: () =>
       createPost(token, {
         content: '',
-        repostOfId: post.id,
+        repostOfId: getRepostTargetId(post),
         visibility: 'public',
       }),
     onSuccess: () => {
@@ -288,11 +293,11 @@ function ProfilePostCard({
       ) : null}
 
       {!editing ? (
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-surface-border pt-4">
-          <p className="text-xs text-ink-muted">
+        <div className="mt-4 flex flex-nowrap items-center gap-2 overflow-x-auto border-t border-surface-border pt-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <p className="shrink-0 text-xs text-ink-muted">
             좋아요 {post.likes.length} · 댓글 {post.comments.length}
           </p>
-          <PostShareButton postId={post.id} visibility={post.visibility} />
+          <PostShareButton className="shrink-0" compact postId={post.id} visibility={post.visibility} />
           {canRepost ? (
             <button
               className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition hover:bg-surface-muted disabled:opacity-50 ${
@@ -411,14 +416,9 @@ export function ProfilePostsPanel({
     <div className="space-y-4">
       {posts.map((post) => (
         <ProfilePostCard
-          alreadyReposted={repostedSourceIds.has(post.id)}
+          alreadyReposted={isAlreadyReposted(post, currentUserId, repostedSourceIds)}
           avatarUrl={avatarUrl}
-          canRepost={Boolean(
-            !isOwnProfile &&
-              currentUserId &&
-              post.authorId !== currentUserId &&
-              post.visibility === 'PUBLIC',
-          )}
+          canRepost={canShowRepostButton(post, currentUserId, repostedSourceIds)}
           isOwnProfile={isOwnProfile}
           key={post.id}
           onChanged={handleChanged}

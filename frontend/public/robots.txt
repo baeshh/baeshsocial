@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /u/
+Disallow: /p/
+Disallow: /network
+Disallow: /profile
+Disallow: /auth
+Disallow: /api/
+
+# sitemap.xml은 API 서버에서 동적으로 제공합니다. nginx에서 /sitemap.xml 을 백엔드로 프록시하세요.
+Sitemap: /sitemap.xml

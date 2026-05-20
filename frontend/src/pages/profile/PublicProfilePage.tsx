@@ -6,6 +6,8 @@ import { Button } from '../../components/common/Button'
 import { LoadingState } from '../../components/common/LoadingState'
 import { PublicProfileView } from '../../components/profile/PublicProfileView'
 import { PublicPostSignupCta } from '../../components/posts/PublicPostSignupCta'
+import { applyProfilePageMeta, clearProfilePageMeta } from '../../lib/profileSeo'
+import { buildProfileShareUrl } from '../../lib/profileShare'
 import { getPublicProfile } from '../../services/profileService'
 import { getPublicPostsByUser } from '../../services/postService'
 import { useAuthStore } from '../../stores/authStore'
@@ -29,13 +31,14 @@ export function PublicProfilePage() {
   })
 
   useEffect(() => {
-    if (profileQuery.data?.profile.user.name) {
-      document.title = `${profileQuery.data.profile.user.name} · BAESH`
+    const profile = profileQuery.data?.profile
+    if (profile && userId) {
+      applyProfilePageMeta(profile, buildProfileShareUrl(userId))
     }
     return () => {
-      document.title = 'BAESH'
+      clearProfilePageMeta()
     }
-  }, [profileQuery.data?.profile.user.name])
+  }, [profileQuery.data?.profile, userId])
 
   if (token && userId) {
     return <Navigate replace to={`/profile/${userId}`} />

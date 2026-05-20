@@ -433,6 +433,14 @@ postsRouter.post('/', authenticate, async (req, res, next) => {
         res.status(404).json({ message: 'Original post not found' })
         return
       }
+      if (original.repostOfId) {
+        res.status(400).json({ message: '퍼온 게시물은 다시 퍼갈 수 없습니다.' })
+        return
+      }
+      if (original.authorId === authUser.id) {
+        res.status(403).json({ message: '자신이 작성한 게시물은 퍼갈 수 없습니다.' })
+        return
+      }
       const visible = await canViewerSeePost(original, authUser.id, followingIds)
       if (!visible) {
         res.status(403).json({ message: 'Cannot repost this post' })
