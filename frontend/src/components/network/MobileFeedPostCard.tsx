@@ -202,7 +202,7 @@ export function MobileFeedPostCard({
           댓글 입력
         </label>
         <input
-          className="h-11 min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-200 focus:bg-white focus:ring-2 focus:ring-brand-600/20"
+          className="h-11 min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 px-4 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-200 focus:bg-white focus:ring-2 focus:ring-brand-600/20 md:text-sm"
           id={`comment-${post.id}`}
           onChange={(event) => setComment(event.target.value)}
           placeholder="댓글을 입력하세요…"

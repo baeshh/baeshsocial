@@ -1,6 +1,6 @@
 import { GraduationCap } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { Avatar } from '../common/Avatar'
+import { ClickableProfileAvatar } from './ProfileAvatarLightbox'
 import { EmbeddedPostPreview } from '../posts/EmbeddedPostPreview'
 import { PostMediaGrid } from '../posts/PostMediaGrid'
 import type { Post } from '../../types/post'
@@ -33,7 +33,7 @@ export function PublicProfileView({ data, posts }: PublicProfileViewProps) {
 
         <div className="relative px-5 pb-6 sm:px-6">
           <div className="-mt-14">
-            <Avatar
+            <ClickableProfileAvatar
               className="ring-4 ring-white"
               name={profile.user.name}
               size="xl"

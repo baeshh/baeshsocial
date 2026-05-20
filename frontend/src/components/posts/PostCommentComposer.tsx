@@ -47,7 +47,7 @@ export function PostCommentComposer({
           {parentId ? '답글' : '댓글'}
         </label>
         <input
-          className="h-11 min-w-0 flex-1 rounded-full border border-surface-border bg-surface-muted/50 px-4 text-sm text-ink-strong outline-none transition placeholder:text-ink-muted focus:border-brand-200 focus:bg-white focus:ring-2 focus:ring-brand-600/20"
+          className="h-11 min-w-0 flex-1 rounded-full border border-surface-border bg-surface-muted/50 px-4 text-base text-ink-strong outline-none transition placeholder:text-ink-muted focus:border-brand-200 focus:bg-white focus:ring-2 focus:ring-brand-600/20 md:text-sm"
           id={inputId}
           onChange={(event) => setComment(event.target.value)}
           placeholder={placeholder}

@@ -8,7 +8,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from '../../components/c
 import { LoadingState } from '../../components/common/LoadingState'
 import { Tabs } from '../../components/common/Tabs'
 import { AppLayout } from '../../components/layout/AppLayout'
-import { Avatar } from '../../components/common/Avatar'
+import { ClickableProfileAvatar } from '../../components/profile/ProfileAvatarLightbox'
 import {
   ProfileEditModal,
   type ProfileEditFormState,
@@ -291,9 +291,8 @@ export function ProfilePage() {
 
                 <div className="relative px-5 pb-6 sm:px-6">
                   <div className="-mt-14 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                    <Avatar
+                    <ClickableProfileAvatar
                       className="ring-4 ring-white"
-                      key={previewAvatarUrl ?? 'no-avatar'}
                       name={data.profile.user.name}
                       size="xl"
                       src={previewAvatarUrl}
