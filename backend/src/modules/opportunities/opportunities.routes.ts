@@ -102,8 +102,23 @@ function handleOpportunityError(error: unknown, res: Response) {
     res.status(404).json({ message: 'Opportunity not found' })
     return true
   }
+  if (error instanceof Error && error.message === 'FORBIDDEN') {
+    res.status(403).json({ message: '이 프로그램을 관리할 권한이 없습니다.' })
+    return true
+  }
 
   return false
+}
+
+async function assertCanManageOpportunity(authUser: AuthTokenPayload, opportunityId: string) {
+  const opportunity = await requireOpportunity(opportunityId)
+  if (authUser.role === UserRole.ADMIN) {
+    return opportunity
+  }
+  if (opportunity.createdBy !== authUser.id) {
+    throw new Error('FORBIDDEN')
+  }
+  return opportunity
 }
 
 async function requireOpportunity(id: string) {
@@ -420,7 +435,7 @@ opportunitiesRouter.patch(
     try {
       const authUser = res.locals.user as AuthTokenPayload
       const opportunityId = String(req.params.id)
-      await requireOpportunity(opportunityId)
+      await assertCanManageOpportunity(authUser, opportunityId)
       const input = updateOpportunitySchema.parse(req.body)
       const opportunity = await prisma.opportunity.update({
         where: { id: opportunityId },
@@ -446,8 +461,9 @@ opportunitiesRouter.delete(
   requireRoles(opportunityManagers),
   async (req, res, next) => {
     try {
+      const authUser = res.locals.user as AuthTokenPayload
       const opportunityId = String(req.params.id)
-      await requireOpportunity(opportunityId)
+      await assertCanManageOpportunity(authUser, opportunityId)
       await prisma.opportunity.delete({ where: { id: opportunityId } })
       res.status(204).send()
     } catch (error) {

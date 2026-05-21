@@ -100,6 +100,7 @@ export function ProfilePage() {
   const [draftAvatarUrl, setDraftAvatarUrl] = useState<string | null>(null)
   const [draftCoverUrl, setDraftCoverUrl] = useState<string | null>(null)
   const [profileForm, setProfileForm] = useState<ProfileEditFormState>({
+    name: '',
     headline: '',
     bio: '',
     school: '',
@@ -134,6 +135,7 @@ export function ProfilePage() {
 
     const { profile } = profileQuery.data
     setProfileForm({
+      name: profile.user.name,
       headline: profile.headline ?? '',
       bio: profile.bio ?? '',
       school: profile.school ?? '',
@@ -192,11 +194,18 @@ export function ProfilePage() {
       })
 
       const original = profileQuery.data?.profile.user
+      const nameTrimmed = profileForm.name.trim()
+      const nameChanged = original && nameTrimmed !== original.name
       const avatarChanged = original && draftAvatarUrl !== original.avatarUrl
       const coverChanged = original && draftCoverUrl !== original.coverUrl
 
-      if (avatarChanged || coverChanged) {
+      if (nameChanged && nameTrimmed.length < 2) {
+        throw new Error('이름은 2자 이상이어야 합니다.')
+      }
+
+      if (nameChanged || avatarChanged || coverChanged) {
         const { user } = await updateMe(authToken, {
+          ...(nameChanged ? { name: nameTrimmed } : {}),
           ...(avatarChanged ? { avatarUrl: draftAvatarUrl } : {}),
           ...(coverChanged ? { coverUrl: draftCoverUrl } : {}),
         })
@@ -540,7 +549,6 @@ export function ProfilePage() {
           onCoverChange={setDraftCoverUrl}
           onSubmit={() => updateProfileMutation.mutate()}
           open={editOpen}
-          userName={data.profile.user.name}
         />
       ) : null}
     </AppLayout>

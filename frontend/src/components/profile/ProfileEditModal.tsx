@@ -7,6 +7,7 @@ import { cn } from '../../lib/cn'
 import type { ImageUploadPreset } from '../../lib/readImageFile'
 
 export type ProfileEditFormState = {
+  name: string
   headline: string
   bio: string
   school: string
@@ -21,7 +22,6 @@ export type ProfileEditFormState = {
 
 type ProfileEditModalProps = {
   open: boolean
-  userName: string
   form: ProfileEditFormState
   avatarUrl: string | null
   coverUrl: string | null
@@ -41,7 +41,6 @@ const labelClass = 'text-[13px] font-semibold text-slate-600'
 
 export function ProfileEditModal({
   open,
-  userName,
   form,
   avatarUrl,
   coverUrl,
@@ -53,6 +52,7 @@ export function ProfileEditModal({
   onCoverChange,
   onSubmit,
 }: ProfileEditModalProps) {
+  const displayName = form.name.trim() || '이름'
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const coverInputRef = useRef<HTMLInputElement>(null)
   const [imageError, setImageError] = useState<string | null>(null)
@@ -165,13 +165,13 @@ export function ProfileEditModal({
                 />
                 {avatarUrl ? (
                   <img
-                    alt={`${userName} 프로필`}
+                    alt={`${displayName} 프로필`}
                     className="h-20 w-20 rounded-full border-4 border-white object-cover shadow-md sm:h-[110px] sm:w-[110px]"
                     key={avatarUrl}
                     src={avatarUrl}
                   />
                 ) : (
-                  <Avatar className="!h-20 !w-20 !text-2xl sm:!h-[110px] sm:!w-[110px] sm:!text-3xl" name={userName} size="xl" />
+                  <Avatar className="!h-20 !w-20 !text-2xl sm:!h-[110px] sm:!w-[110px] sm:!text-3xl" name={displayName} size="xl" />
                 )}
                 <button
                   className="absolute inset-0 m-auto flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm transition hover:bg-black/70"
@@ -203,6 +203,18 @@ export function ProfileEditModal({
             </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-x-5">
+                <Field className="sm:col-span-2" label="이름">
+                  <input
+                    autoComplete="name"
+                    className={fieldClass}
+                    maxLength={80}
+                    minLength={2}
+                    onChange={(event) => onChange({ name: event.target.value })}
+                    placeholder="표시 이름"
+                    required
+                    value={form.name}
+                  />
+                </Field>
                 <Field label="직무 헤드라인">
                   <input
                     className={fieldClass}

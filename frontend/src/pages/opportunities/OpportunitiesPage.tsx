@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState, type FormEvent } from 'react'
-import { ExternalLink, Star } from 'lucide-react'
+import { ExternalLink, Star, Trash2 } from 'lucide-react'
 import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
 import { Card, CardDescription, CardHeader, CardTitle } from '../../components/common/Card'
@@ -15,6 +15,7 @@ import {
 } from '../../components/opportunities/OpportunityBrowseControls'
 import {
   createOpportunity,
+  deleteOpportunity,
   enrollOpportunity,
   withdrawOpportunityEnrollment,
   getMyEnrollments,
@@ -22,6 +23,7 @@ import {
   saveOpportunity,
   unsaveOpportunity,
 } from '../../services/opportunityService'
+import { canManageOpportunity } from '../../lib/opportunityPermissions'
 import { isProgramOpportunityType } from '../../types/opportunity'
 import { useAuthStore } from '../../stores/authStore'
 import type { Opportunity, OpportunityEnrollment } from '../../types/opportunity'
@@ -316,6 +318,7 @@ export function OpportunitiesPage() {
             <div className="grid gap-3 sm:gap-4">
               {sortedOpportunities.map((opportunity) => (
                 <OpportunityCard
+                  canManage={canManageOpportunity(user?.role, user?.id, opportunity)}
                   enrollment={enrollmentByOpportunity.get(opportunity.id)}
                   key={opportunity.id}
                   opportunity={opportunity}
@@ -340,10 +343,11 @@ type OpportunityCardProps = {
   opportunity: Opportunity
   enrollment?: OpportunityEnrollment
   token: string
+  canManage?: boolean
   onChanged: () => void
 }
 
-function OpportunityCard({ opportunity, enrollment, token, onChanged }: OpportunityCardProps) {
+function OpportunityCard({ opportunity, enrollment, token, canManage = false, onChanged }: OpportunityCardProps) {
   const isProgram = isProgramOpportunityType(opportunity.type)
   const status = enrollment?.status
   const canCancelEnrollment = status === 'APPLIED' || status === 'ENROLLED'
@@ -365,6 +369,20 @@ function OpportunityCard({ opportunity, enrollment, token, onChanged }: Opportun
         : saveOpportunity(token, opportunity.id),
     onSuccess: onChanged,
   })
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteOpportunity(token, opportunity.id),
+    onSuccess: onChanged,
+  })
+
+  const handleDelete = () => {
+    const confirmed = window.confirm(
+      `「${opportunity.title}」 프로그램을 삭제할까요?\n연결된 수강 신청·저장 기록도 함께 제거됩니다.`,
+    )
+    if (!confirmed) {
+      return
+    }
+    deleteMutation.mutate()
+  }
 
   const mobileSkillLimit = 3
   const extraSkillCount = Math.max(0, opportunity.skills.length - mobileSkillLimit)
@@ -425,6 +443,18 @@ function OpportunityCard({ opportunity, enrollment, token, onChanged }: Opportun
         </p>
       </div>
       <div className="mt-3 flex flex-wrap gap-2 lg:mt-5">
+        {canManage ? (
+          <Button
+            className="gap-2 text-red-700 hover:bg-red-50"
+            disabled={deleteMutation.isPending}
+            onClick={handleDelete}
+            type="button"
+            variant="ghost"
+          >
+            <Trash2 size={16} />
+            {deleteMutation.isPending ? '삭제 중…' : '삭제'}
+          </Button>
+        ) : null}
         <Button className="gap-2" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()} variant={opportunity.saved ? 'primary' : 'secondary'}>
           <Star size={16} />
           {opportunity.saved ? '저장됨' : '저장'}
@@ -474,6 +504,9 @@ function OpportunityCard({ opportunity, enrollment, token, onChanged }: Opportun
       ) : null}
       {withdrawMutation.error ? (
         <p className="mt-3 text-sm text-red-600">{withdrawMutation.error.message}</p>
+      ) : null}
+      {deleteMutation.error ? (
+        <p className="mt-3 text-sm text-red-600">{deleteMutation.error.message}</p>
       ) : null}
     </Card>
   )

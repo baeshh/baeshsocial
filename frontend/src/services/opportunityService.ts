@@ -46,6 +46,13 @@ export function createOpportunity(token: string, payload: OpportunityPayload) {
   })
 }
 
+export function deleteOpportunity(token: string, opportunityId: string) {
+  return apiRequest<void>(`/opportunities/${opportunityId}`, {
+    method: 'DELETE',
+    token,
+  })
+}
+
 export function saveOpportunity(token: string, opportunityId: string) {
   return apiRequest(`/opportunities/${opportunityId}/save`, {
     method: 'POST',
