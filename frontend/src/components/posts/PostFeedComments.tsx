@@ -39,6 +39,7 @@ export function PostFeedComments({
         <PostCommentItem
           comment={{ ...highlight, replies: [] }}
           onChanged={onChanged}
+          postAuthorId={post.authorId}
           postId={post.id}
           token={token}
           userId={userId}

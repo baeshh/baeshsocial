@@ -1,14 +1,18 @@
+import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Avatar } from '../common/Avatar'
 import type { CommentTreeNode } from '../../lib/buildCommentTree'
+import { canDeleteComment } from '../../lib/commentPermissions'
 import { cn } from '../../lib/cn'
+import { deleteComment } from '../../services/postService'
 import { CommentLikeBar } from './CommentLikeBar'
 import { PostCommentComposer } from './PostCommentComposer'
 
 type PostCommentItemProps = {
   comment: CommentTreeNode
   postId: string
+  postAuthorId: string
   token: string
   userId?: string
   onChanged: () => void
@@ -20,6 +24,7 @@ type PostCommentItemProps = {
 export function PostCommentItem({
   comment,
   postId,
+  postAuthorId,
   token,
   userId,
   onChanged,
@@ -31,6 +36,34 @@ export function PostCommentItem({
   const [replyOpen, setReplyOpen] = useState(false)
   const isHighlighted = highlightId === comment.id
   const canReply = depth === 0 && Boolean(token)
+  const showDelete = canDeleteComment(userId, postAuthorId, comment.authorId)
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteComment(token, postId, comment.id),
+    onSuccess: onChanged,
+  })
+
+  const handleDelete = () => {
+    const isOwn = userId === comment.authorId
+    const message = isOwn
+      ? '이 댓글을 삭제할까요?'
+      : '이 댓글을 삭제할까요? 답글이 있으면 함께 삭제됩니다.'
+    if (!window.confirm(message)) {
+      return
+    }
+    deleteMutation.mutate()
+  }
+
+  const deleteButton = showDelete ? (
+    <button
+      className="text-xs font-semibold text-red-600 transition hover:text-red-700 disabled:opacity-50"
+      disabled={deleteMutation.isPending}
+      onClick={handleDelete}
+      type="button"
+    >
+      {deleteMutation.isPending ? '삭제 중…' : '삭제'}
+    </button>
+  ) : null
 
   const replyButton = canReply ? (
     <button
@@ -71,7 +104,11 @@ export function PostCommentItem({
             userId={userId}
           />
           {replyButton}
+          {deleteButton}
         </div>
+        {deleteMutation.error ? (
+          <p className="mt-1 text-xs text-red-600">{deleteMutation.error.message}</p>
+        ) : null}
         {replyOpen ? (
           <PostCommentComposer
             className="mt-2"
@@ -94,6 +131,7 @@ export function PostCommentItem({
                 highlightId={highlightId}
                 key={reply.id}
                 onChanged={onChanged}
+                postAuthorId={postAuthorId}
                 postId={postId}
                 token={token}
                 userId={userId}
@@ -137,7 +175,11 @@ export function PostCommentItem({
           userId={userId}
         />
         {replyButton}
+        {deleteButton}
       </div>
+      {deleteMutation.error ? (
+        <p className="mt-1 text-xs text-red-600">{deleteMutation.error.message}</p>
+      ) : null}
       {replyOpen ? (
         <PostCommentComposer
           className="mt-3"
@@ -160,6 +202,7 @@ export function PostCommentItem({
               highlightId={highlightId}
               key={reply.id}
               onChanged={onChanged}
+              postAuthorId={postAuthorId}
               postId={postId}
               token={token}
               userId={userId}

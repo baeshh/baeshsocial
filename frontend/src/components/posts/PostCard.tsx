@@ -193,6 +193,7 @@ export function PostCard({
             comments={post.comments}
             highlightId={highlightCommentId}
             onChanged={onChanged}
+            postAuthorId={post.authorId}
             postId={post.id}
             token={token}
             userId={userId}

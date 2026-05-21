@@ -95,3 +95,10 @@ export function unlikeComment(token: string, postId: string, commentId: string) 
     token,
   })
 }
+
+export function deleteComment(token: string, postId: string, commentId: string) {
+  return apiRequest<void>(`/posts/${postId}/comments/${commentId}`, {
+    method: 'DELETE',
+    token,
+  })
+}

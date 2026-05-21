@@ -798,3 +798,52 @@ postsRouter.post('/:id/comments', authenticate, async (req, res, next) => {
     next(error)
   }
 })
+
+postsRouter.delete('/:id/comments/:commentId', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const postId = String(req.params.id)
+    const commentId = String(req.params.commentId)
+    const followingIds = await getFollowingIds(authUser.id)
+
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, visibility: true },
+    })
+
+    if (!post) {
+      res.status(404).json({ message: 'Post not found' })
+      return
+    }
+
+    const visible = await canViewerSeePost(post, authUser.id, followingIds)
+    if (!visible) {
+      res.status(404).json({ message: 'Post not found' })
+      return
+    }
+
+    const comment = await prisma.comment.findFirst({
+      where: { id: commentId, postId },
+      select: { id: true, authorId: true, parentId: true },
+    })
+
+    if (!comment) {
+      res.status(404).json({ message: 'Comment not found' })
+      return
+    }
+
+    const isCommentAuthor = comment.authorId === authUser.id
+    const isPostAuthor = post.authorId === authUser.id
+
+    if (!isCommentAuthor && !isPostAuthor) {
+      res.status(403).json({ message: '댓글을 삭제할 권한이 없습니다.' })
+      return
+    }
+
+    await prisma.comment.delete({ where: { id: commentId } })
+
+    res.status(204).send()
+  } catch (error) {
+    next(error)
+  }
+})

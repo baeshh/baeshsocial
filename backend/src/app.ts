@@ -12,6 +12,7 @@ import { notificationsRouter } from './modules/notifications/notifications.route
 import { searchRouter } from './modules/search/search.routes.js'
 import { usersRouter } from './modules/users/users.routes.js'
 import { healthRouter } from './routes/health.route.js'
+import { publicRouter } from './routes/public.routes.js'
 import { seoRouter } from './modules/seo/seo.routes.js'
 
 export const app = express()
@@ -37,6 +38,7 @@ app.use(express.json({ limit: '25mb' }))
 app.use(seoRouter)
 
 app.use('/api', healthRouter)
+app.use('/api/public', publicRouter)
 app.use('/api/auth', authRouter)
 app.use('/api/users', usersRouter)
 app.use('/api/search', searchRouter)

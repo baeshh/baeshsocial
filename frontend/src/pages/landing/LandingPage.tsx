@@ -1,7 +1,10 @@
+import { useQuery } from '@tanstack/react-query'
 import gsap from 'gsap'
 import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { BaeshLogo } from '../../components/common/BaeshLogo'
+import { getBetaOpenLabel, getMemberCountDisplay } from '../../lib/formatPublicStats'
+import { getPublicStats } from '../../services/publicService'
 import './landing.css'
 import { useLandingBackground } from './useLandingBackground'
 
@@ -32,6 +35,15 @@ export function LandingPage() {
   const canvasRef = useRef<HTMLDivElement>(null)
   useLandingBackground(canvasRef)
 
+  const statsQuery = useQuery({
+    queryKey: ['public', 'stats'],
+    queryFn: getPublicStats,
+    staleTime: 60_000,
+    retry: 1,
+  })
+
+  const memberDisplay = getMemberCountDisplay(statsQuery.data?.userCount)
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries, obs) => {
@@ -47,11 +59,12 @@ export function LandingPage() {
 
     document.querySelectorAll('.landing-page .reveal').forEach((el) => observer.observe(el))
 
-    gsap.to('#anim-1', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.2 })
-    gsap.to('#anim-2', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.4 })
-    gsap.to('#anim-3', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.6 })
-    gsap.to('#anim-4', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.8 })
-    gsap.to('#anim-5', { opacity: 1, duration: 1.5, ease: 'power2.out', delay: 1.5 })
+    gsap.to('#anim-1', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.15 })
+    gsap.to('#anim-2', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.3 })
+    gsap.to('#anim-3', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.45 })
+    gsap.to('#anim-4', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.6 })
+    gsap.to('#anim-5', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.75 })
+    gsap.to('#anim-6', { opacity: 1, duration: 1.5, ease: 'power2.out', delay: 1.4 })
 
     return () => observer.disconnect()
   }, [])
@@ -91,23 +104,44 @@ export function LandingPage() {
         </header>
 
         <section className="hero" id="intro">
-          <div className="hero-badge" id="anim-1">
+          <div className="hero-ecosystem" id="anim-1">
+            <p className="hero-ecosystem-text">
+              {statsQuery.isLoading ? (
+                <span className="hero-ecosystem-loading">멤버 수 불러오는 중…</span>
+              ) : memberDisplay?.kind === 'members' ? (
+                <>
+                  현재{' '}
+                  <strong className="hero-ecosystem-count">
+                    {memberDisplay.count.toLocaleString('ko-KR')}명
+                  </strong>
+                  이 프로젝트 생태계를 함께 만들어가고 있습니다
+                </>
+              ) : memberDisplay?.kind === 'empty' ? (
+                <>곧 첫 멤버와 함께 프로젝트 생태계를 시작합니다</>
+              ) : (
+                <>프로젝트 생태계에 함께해 주세요</>
+              )}
+            </p>
+            <span className="hero-beta-tag">{getBetaOpenLabel()}</span>
+          </div>
+
+          <div className="hero-badge" id="anim-2">
             <div className="pulse-dot" />
             CES 2026 혁신상 · Meta AI 해커톤 1위 선정
           </div>
 
-          <h1 id="anim-2">
+          <h1 id="anim-3">
             소멸되던 프로젝트 경험,
             <br />
             <span className="gradient">압도적인 커리어 자산으로.</span>
           </h1>
-          <p className="subtitle" id="anim-3">
+          <p className="subtitle" id="anim-4">
             방치되던 수천 건의 실행 기록을 BAESH가 기록하고,
             <br />
             당신의 숨겨진 가치를 읽어내어 완벽한 기회와 연결해드립니다.
           </p>
 
-          <div className="glass-panel" id="anim-4">
+          <div className="glass-panel" id="anim-5">
             <div className="stat-group">
               <span className="stat-value">90%+</span>
               <span className="stat-label">방치되는 프로젝트</span>
@@ -129,7 +163,7 @@ export function LandingPage() {
             </Link>
           </div>
 
-          <div className="scroll-indicator" id="anim-5">
+          <div className="scroll-indicator" id="anim-6">
             <div className="scroll-text">Scroll to explore</div>
             <div className="mouse">
               <div className="wheel" />

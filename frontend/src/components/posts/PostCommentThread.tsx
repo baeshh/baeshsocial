@@ -5,6 +5,7 @@ import { PostCommentItem } from './PostCommentItem'
 type PostCommentThreadProps = {
   comments: PostComment[]
   postId: string
+  postAuthorId: string
   token: string
   userId?: string
   onChanged: () => void
@@ -14,6 +15,7 @@ type PostCommentThreadProps = {
 export function PostCommentThread({
   comments,
   postId,
+  postAuthorId,
   token,
   userId,
   onChanged,
@@ -33,6 +35,7 @@ export function PostCommentThread({
           highlightId={highlightId}
           key={comment.id}
           onChanged={onChanged}
+          postAuthorId={postAuthorId}
           postId={postId}
           token={token}
           userId={userId}
