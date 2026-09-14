@@ -197,12 +197,20 @@ async function seedCommunityPeople(password: string) {
   }
 
   const postIds: string[] = []
+  // 한국 게시물이 피드 상단(최신순)에 오도록 별도 카운터로 createdAt 부여
+  let krPostSeq = 0
+  let ukPostSeq = 0
   for (const [index, persona] of personas.entries()) {
     const authorId = `seed-person-${persona.key}`
     // 한국 유저는 게시물을 더 많이 (3~5개), 영국은 1~3개
     const postCount = persona.locale === 'kr' ? 3 + (index % 3) : 1 + (index % 3)
     for (let p = 0; p < postCount; p++) {
       const postId = `seed-cpost-${persona.key}-${p}`
+      // KR: 방금~수일 전 / UK: 그보다 오래된 구간 → 타임라인 진입 시 한글 글이 먼저
+      const hoursAgo =
+        persona.locale === 'kr'
+          ? krPostSeq++ * 1.5 + (p % 3) * 0.2
+          : 400 + ukPostSeq++ * 3 + p
       await prisma.post.create({
         data: {
           id: postId,
@@ -210,7 +218,7 @@ async function seedCommunityPeople(password: string) {
           content: getPostContent(persona, p),
           mediaUrls: [],
           visibility: 'PUBLIC',
-          createdAt: new Date(Date.now() - (index * 3 + p) * 36e5 * 11),
+          createdAt: new Date(Date.now() - hoursAgo * 36e5),
         },
       })
       postIds.push(postId)
