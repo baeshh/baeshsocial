@@ -1,7 +1,14 @@
 import { useEffect, type RefObject } from 'react'
 import * as THREE from 'three'
 
-export function useLandingBackground(containerRef: RefObject<HTMLDivElement | null>) {
+export type LandingBgControl = {
+  boost: (durationMs?: number) => void
+}
+
+export function useLandingBackground(
+  containerRef: RefObject<HTMLDivElement | null>,
+  controlRef?: RefObject<LandingBgControl | null>,
+) {
   useEffect(() => {
     const container = containerRef.current
     if (!container) {
@@ -17,7 +24,7 @@ export function useLandingBackground(containerRef: RefObject<HTMLDivElement | nu
     camera.lookAt(0, 0, 0)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-    renderer.setPixelRatio(window.devicePixelRatio)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(window.innerWidth, window.innerHeight)
     container.appendChild(renderer.domElement)
 
@@ -91,9 +98,27 @@ export function useLandingBackground(containerRef: RefObject<HTMLDivElement | nu
     let targetX = 0
     let targetY = 0
     let count = 0
+    let energy = 1
+    let boostUntil = 0
+
+    if (controlRef) {
+      controlRef.current = {
+        boost: (durationMs = 1200) => {
+          boostUntil = performance.now() + durationMs
+          energy = 2.6
+        },
+      }
+    }
 
     const animate = () => {
       frameId = requestAnimationFrame(animate)
+
+      const now = performance.now()
+      if (now < boostUntil) {
+        energy += (2.4 - energy) * 0.08
+      } else {
+        energy += (1 - energy) * 0.04
+      }
 
       targetX = mouseX
       targetY = mouseY
@@ -103,15 +128,18 @@ export function useLandingBackground(containerRef: RefObject<HTMLDivElement | nu
 
       const positionArray = particles.geometry.attributes.position.array as Float32Array
       const scaleArray = particles.geometry.attributes.scale.array as Float32Array
+      const amp = 45 * (0.85 + energy * 0.35)
+      const scaleBoost = 0.85 + energy * 0.25
 
       let pi = 0
       let pj = 0
       for (let ix = 0; ix < AMOUNTX; ix++) {
         for (let iy = 0; iy < AMOUNTY; iy++) {
           positionArray[pi + 1] =
-            Math.sin((ix + count) * 0.25) * 45 + Math.sin((iy + count) * 0.45) * 45
+            Math.sin((ix + count) * 0.25) * amp + Math.sin((iy + count) * 0.45) * amp
           scaleArray[pj] =
-            (Math.sin((ix + count) * 0.25) + 1) * 1.8 + (Math.sin((iy + count) * 0.45) + 1) * 1.8
+            ((Math.sin((ix + count) * 0.25) + 1) * 1.8 + (Math.sin((iy + count) * 0.45) + 1) * 1.8) *
+            scaleBoost
           pi += 3
           pj++
         }
@@ -119,8 +147,9 @@ export function useLandingBackground(containerRef: RefObject<HTMLDivElement | nu
 
       particles.geometry.attributes.position.needsUpdate = true
       particles.geometry.attributes.scale.needsUpdate = true
-      scene.rotation.y += 0.0008
-      count += 0.04
+      material.opacity = Math.min(0.92, 0.68 + energy * 0.1)
+      scene.rotation.y += 0.0008 * energy
+      count += 0.04 * energy
 
       renderer.render(scene, camera)
     }
@@ -131,6 +160,9 @@ export function useLandingBackground(containerRef: RefObject<HTMLDivElement | nu
       cancelAnimationFrame(frameId)
       document.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('resize', onResize)
+      if (controlRef) {
+        controlRef.current = null
+      }
       renderer.dispose()
       geometry.dispose()
       material.dispose()
@@ -138,5 +170,5 @@ export function useLandingBackground(containerRef: RefObject<HTMLDivElement | nu
         container.removeChild(renderer.domElement)
       }
     }
-  }, [containerRef])
+  }, [containerRef, controlRef])
 }

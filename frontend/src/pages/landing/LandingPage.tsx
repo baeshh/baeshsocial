@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import gsap from 'gsap'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BaeshLogo } from '../../components/common/BaeshLogo'
 import { getBetaOpenLabel, getMemberCountDisplay } from '../../lib/formatPublicStats'
 import { getPublicStats } from '../../services/publicService'
 import './landing.css'
-import { useLandingBackground } from './useLandingBackground'
+import { LandingIntro, shouldShowLandingIntro } from './LandingIntro'
+import { useLandingBackground, type LandingBgControl } from './useLandingBackground'
 
 const HEADER_OFFSET = 100
 
@@ -21,11 +22,7 @@ function scrollToSection(sectionId: string) {
 
 function ArrowIcon() {
   return (
-    <svg
-      aria-hidden
-      className="icon-arrow"
-      viewBox="0 0 24 24"
-    >
+    <svg aria-hidden className="icon-arrow" viewBox="0 0 24 24">
       <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
@@ -33,7 +30,14 @@ function ArrowIcon() {
 
 export function LandingPage() {
   const canvasRef = useRef<HTMLDivElement>(null)
-  useLandingBackground(canvasRef)
+  const bgControlRef = useRef<LandingBgControl | null>(null)
+  const headerRef = useRef<HTMLElement>(null)
+  const countRef = useRef<HTMLSpanElement>(null)
+  const countedRef = useRef(false)
+  useLandingBackground(canvasRef, bgControlRef)
+
+  const [showIntro, setShowIntro] = useState(shouldShowLandingIntro)
+  const [introDone, setIntroDone] = useState(() => !shouldShowLandingIntro())
 
   const statsQuery = useQuery({
     queryKey: ['public', 'stats'],
@@ -44,33 +48,125 @@ export function LandingPage() {
 
   const memberDisplay = getMemberCountDisplay(statsQuery.data?.userCount)
 
+  const playHeroEntrance = useCallback(() => {
+    bgControlRef.current?.boost(1400)
+
+    const tl = gsap.timeline({ defaults: { ease: 'power4.out' } })
+
+    tl.to('#anim-1', { y: 0, opacity: 1, duration: 0.95 }, 0.05)
+      .to('#anim-2', { y: 0, opacity: 1, duration: 0.9 }, 0.18)
+      .to('#hero-line-1', { y: 0, opacity: 1, duration: 0.95 }, 0.28)
+      .to('#hero-line-2', { y: 0, opacity: 1, duration: 1, ease: 'power3.out' }, 0.42)
+      .add(() => {
+        document.querySelector('.hero-gradient-text')?.classList.add('is-shimmering')
+      }, 0.55)
+      .to('#anim-4', { y: 0, opacity: 1, duration: 0.9 }, 0.58)
+      .to('#anim-5', { y: 0, opacity: 1, duration: 0.95 }, 0.72)
+      .to(
+        '.glass-panel-item',
+        {
+          y: 0,
+          opacity: 1,
+          duration: 0.7,
+          stagger: 0.1,
+          ease: 'power3.out',
+        },
+        0.82,
+      )
+      .to('#anim-6', { opacity: 1, duration: 1.1, ease: 'power2.out' }, 1.15)
+
+    gsap.to('.lp-header', {
+      opacity: 1,
+      duration: 0.9,
+      ease: 'power3.out',
+      delay: 0.1,
+    })
+  }, [])
+
+  useEffect(() => {
+    gsap.set('.lp-header', { opacity: 0 })
+    gsap.set('#hero-line-1, #hero-line-2', { opacity: 0, y: 28 })
+    gsap.set('.glass-panel-item', { opacity: 0, y: 18 })
+  }, [])
+
+  useEffect(() => {
+    const onScroll = () => {
+      headerRef.current?.classList.toggle('is-scrolled', window.scrollY > 24)
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries, obs) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add('active')
-            obs.unobserve(entry.target)
+          if (!entry.isIntersecting) {
+            return
           }
+          entry.target.classList.add('active')
+
+          if (entry.target.classList.contains('flow-process')) {
+            entry.target.classList.add('is-connected')
+          }
+
+          if (entry.target.classList.contains('bottom-cta')) {
+            bgControlRef.current?.boost(900)
+            entry.target.classList.add('is-alive')
+          }
+
+          obs.unobserve(entry.target)
         })
       },
-      { threshold: 0.15 },
+      { threshold: 0.18 },
     )
 
-    document.querySelectorAll('.landing-page .reveal').forEach((el) => observer.observe(el))
-
-    gsap.to('#anim-1', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.15 })
-    gsap.to('#anim-2', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.3 })
-    gsap.to('#anim-3', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.45 })
-    gsap.to('#anim-4', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.6 })
-    gsap.to('#anim-5', { y: 0, opacity: 1, duration: 1.2, ease: 'power4.out', delay: 0.75 })
-    gsap.to('#anim-6', { opacity: 1, duration: 1.5, ease: 'power2.out', delay: 1.4 })
+    document.querySelectorAll('.landing-page .reveal, .landing-page .flow-process').forEach((el) => {
+      observer.observe(el)
+    })
 
     return () => observer.disconnect()
   }, [])
 
+  useEffect(() => {
+    if (!introDone) {
+      return
+    }
+    playHeroEntrance()
+  }, [introDone, playHeroEntrance])
+
+  useEffect(() => {
+    if (!introDone || countedRef.current || memberDisplay?.kind !== 'members') {
+      return
+    }
+    const el = countRef.current
+    if (!el) {
+      return
+    }
+    countedRef.current = true
+    const target = memberDisplay.count
+    const proxy = { value: 0 }
+    gsap.to(proxy, {
+      value: target,
+      duration: 1.35,
+      delay: 0.55,
+      ease: 'power2.out',
+      onUpdate: () => {
+        el.textContent = `${Math.round(proxy.value).toLocaleString('ko-KR')}명`
+      },
+    })
+  }, [introDone, memberDisplay])
+
+  const handleIntroComplete = () => {
+    setShowIntro(false)
+    setIntroDone(true)
+  }
+
   return (
-    <div className="landing-page">
+    <div className={`landing-page${showIntro ? ' is-intro-active' : ''}`}>
+      {showIntro ? <LandingIntro onComplete={handleIntroComplete} /> : null}
+
       <svg aria-hidden className="svg-defs" focusable="false">
         <defs>
           <linearGradient id="svg-gradient" x1="0%" x2="100%" y1="0%" y2="100%">
@@ -83,7 +179,7 @@ export function LandingPage() {
       <div id="canvas-container" ref={canvasRef} />
 
       <div className="ui-layer">
-        <header className="lp-header">
+        <header className="lp-header" ref={headerRef}>
           <BaeshLogo className="logo" imageClassName="h-10 w-10" to="/" />
           <nav className="nav-links">
             <button onClick={() => scrollToSection('intro')} type="button">
@@ -112,7 +208,7 @@ export function LandingPage() {
                 <>
                   현재{' '}
                   <strong className="hero-ecosystem-count">
-                    {memberDisplay.count.toLocaleString('ko-KR')}명
+                    <span ref={countRef}>0명</span>
                   </strong>
                   이 프로젝트 생태계를 함께 만들어가고 있습니다
                 </>
@@ -131,9 +227,12 @@ export function LandingPage() {
           </div>
 
           <h1 id="anim-3">
-            소멸되던 프로젝트 경험,
-            <br />
-            <span className="gradient">압도적인 커리어 자산으로.</span>
+            <span className="hero-line" id="hero-line-1">
+              소멸되던 프로젝트 경험,
+            </span>
+            <span className="hero-line hero-gradient-text gradient" id="hero-line-2">
+              압도적인 커리어 자산으로.
+            </span>
           </h1>
           <p className="subtitle" id="anim-4">
             방치되던 수천 건의 실행 기록을 BAESH가 기록하고,
@@ -142,22 +241,22 @@ export function LandingPage() {
           </p>
 
           <div className="glass-panel" id="anim-5">
-            <div className="stat-group">
+            <div className="stat-group glass-panel-item">
               <span className="stat-value">90%+</span>
               <span className="stat-label">방치되는 프로젝트</span>
             </div>
-            <div className="v-divider" />
-            <div className="stat-group">
+            <div className="v-divider glass-panel-item" />
+            <div className="stat-group glass-panel-item">
               <span className="stat-value">AI 엔진</span>
               <span className="stat-label">실시간 역량 구조화</span>
             </div>
-            <div className="v-divider" />
-            <div className="stat-group">
+            <div className="v-divider glass-panel-item" />
+            <div className="stat-group glass-panel-item">
               <span className="stat-value">글로벌 검증</span>
               <span className="stat-label">해외 현지 마켓 테스트 완료</span>
             </div>
-            <div className="v-divider" />
-            <Link className="btn-cta" to="/auth/register">
+            <div className="v-divider glass-panel-item" />
+            <Link className="btn-cta glass-panel-item" to="/auth/register">
               합류하기
               <ArrowIcon />
             </Link>
@@ -232,8 +331,8 @@ export function LandingPage() {
             <div className="section-tag">How It Works</div>
             <h2 className="section-title">플랫폼 이용 프로세스</h2>
           </div>
-          <div className="cards-grid">
-            <article className="info-card reveal">
+          <div className="flow-process">
+            <article className="info-card reveal flow-step">
               <span className="card-num">01</span>
               <div className="card-icon-wrapper">
                 <svg viewBox="0 0 24 24">
@@ -250,7 +349,8 @@ export function LandingPage() {
                 자동으로 아카이빙됩니다.
               </p>
             </article>
-            <article className="info-card reveal reveal-delay-1">
+            <div aria-hidden className="flow-connector" />
+            <article className="info-card reveal reveal-delay-1 flow-step">
               <span className="card-num">02</span>
               <div className="card-icon-wrapper">
                 <svg viewBox="0 0 24 24">
@@ -263,7 +363,8 @@ export function LandingPage() {
                 정보로 표준화하여 인증합니다.
               </p>
             </article>
-            <article className="info-card reveal reveal-delay-2">
+            <div aria-hidden className="flow-connector" />
+            <article className="info-card reveal reveal-delay-2 flow-step">
               <span className="card-num">03</span>
               <div className="card-icon-wrapper">
                 <svg viewBox="0 0 24 24">

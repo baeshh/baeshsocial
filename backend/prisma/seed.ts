@@ -9,6 +9,13 @@ import {
 } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import bcrypt from 'bcryptjs'
+import {
+  avatarUrl,
+  buildPersonas,
+  coverUrl,
+  getCommentContent,
+  getPostContent,
+} from './seedPeopleData.js'
 
 const adapter = new PrismaPg({
   connectionString:
@@ -19,6 +26,7 @@ const adapter = new PrismaPg({
 const prisma = new PrismaClient({ adapter })
 
 const demoPassword = 'password123'
+const TARGET_USER_COUNT = 96
 
 const demoUsers = [
   {
@@ -32,6 +40,8 @@ const demoUsers = [
     location: 'Seoul',
     skills: ['React', 'TypeScript', 'Node.js', 'PostgreSQL'],
     interests: ['AI SaaS', 'Career Data', 'Product Engineering'],
+    avatarUrl: 'https://randomuser.me/api/portraits/men/32.jpg',
+    coverUrl: 'https://picsum.photos/seed/baesh-demo/1200/400',
   },
   {
     id: 'seed-user-company',
@@ -44,6 +54,8 @@ const demoUsers = [
     location: 'Seoul',
     skills: ['Talent Search', 'Hiring', 'AI Matching'],
     interests: ['Verified Talent', 'Technical Recruiting'],
+    avatarUrl: 'https://randomuser.me/api/portraits/women/44.jpg',
+    coverUrl: 'https://picsum.photos/seed/baesh-company/1200/400',
   },
   {
     id: 'seed-user-institution',
@@ -56,6 +68,8 @@ const demoUsers = [
     location: 'Seoul',
     skills: ['Program Management', 'KPI Tracking', 'Education'],
     interests: ['Hackathon', 'Student Projects', 'Outcome Reports'],
+    avatarUrl: 'https://randomuser.me/api/portraits/men/11.jpg',
+    coverUrl: 'https://picsum.photos/seed/baesh-institution/1200/400',
   },
   {
     id: 'seed-user-admin',
@@ -68,8 +82,267 @@ const demoUsers = [
     location: 'Seoul',
     skills: ['Operations', 'Platform Governance', 'Data Quality'],
     interests: ['Admin Workflow', 'Opportunity Management'],
+    avatarUrl: 'https://randomuser.me/api/portraits/men/75.jpg',
+    coverUrl: 'https://picsum.photos/seed/baesh-admin/1200/400',
   },
 ]
+
+async function seedCommunityPeople(password: string) {
+  await prisma.project.deleteMany({
+    where: {
+      OR: [
+        { id: { in: ['seed-project-career-bridge', 'seed-project-hackathon-archive'] } },
+        { owner: { email: { endsWith: '@seed.baesh.dev' } } },
+      ],
+    },
+  })
+
+  await prisma.post.deleteMany({
+    where: {
+      OR: [
+        { id: { startsWith: 'seed-cpost-' } },
+        { author: { email: { endsWith: '@seed.baesh.dev' } } },
+      ],
+    },
+  })
+
+  await prisma.user.deleteMany({
+    where: { email: { endsWith: '@seed.baesh.dev' } },
+  })
+
+  const currentCount = await prisma.user.count()
+  const needed = Math.max(0, TARGET_USER_COUNT - currentCount)
+  if (needed === 0) {
+    console.log(`Already at ${TARGET_USER_COUNT} users — skipping community seed.`)
+    return [] as string[]
+  }
+
+  const personas = buildPersonas(needed)
+  const createdUserIds: string[] = []
+
+  for (const [index, persona] of personas.entries()) {
+    const id = `seed-person-${persona.key}`
+    const email = `${persona.key}@seed.baesh.dev`
+    const user = await prisma.user.create({
+      data: {
+        id,
+        email,
+        password,
+        name: persona.name,
+        role: UserRole.USER,
+        avatarUrl: persona.locale === 'uk' ? avatarUrl(persona) : null,
+        coverUrl: persona.locale === 'uk' ? coverUrl(persona.key) : null,
+        createdAt: new Date(Date.now() - (needed - index) * 36e5 * 7),
+        profile: {
+          create: {
+            headline: persona.headline,
+            bio: persona.bio,
+            school: persona.school,
+            company: persona.company,
+            location: persona.location,
+            skills: persona.skills,
+            interests: persona.interests,
+            socialLinks: {
+              website: persona.locale === 'uk' ? 'https://baesh.dev' : 'https://baesh.dev/kr',
+              github: `https://github.com/baesh-${persona.key}`,
+            },
+            trustScore: 45 + ((index * 7) % 50),
+            verified: index % 3 !== 2,
+            careers: persona.career
+              ? {
+                  create: {
+                    id: `seed-career-${persona.key}`,
+                    company: persona.career.company,
+                    position: persona.career.position,
+                    description: persona.career.description,
+                    startDate: new Date('2023-03-01'),
+                    endDate: index % 5 === 0 ? null : new Date('2025-08-01'),
+                  },
+                }
+              : undefined,
+            awards: persona.award
+              ? {
+                  create: {
+                    id: `seed-award-${persona.key}`,
+                    title: persona.award.title,
+                    issuer: persona.award.issuer,
+                    description: persona.award.description,
+                    awardedAt: new Date('2025-06-15'),
+                  },
+                }
+              : undefined,
+            portfolios:
+              index % 2 === 0
+                ? {
+                    create: {
+                      id: `seed-portfolio-${persona.key}`,
+                      title:
+                        persona.locale === 'uk'
+                          ? `${persona.name.split(' ')[0]}'s Product Lab`
+                          : `${persona.name} 프로젝트 랩`,
+                      description:
+                        persona.locale === 'uk'
+                          ? 'Selected builds archived from hackathons and coursework.'
+                          : '해커톤·수업·사이드 프로젝트에서 남긴 대표 산출물 모음.',
+                      url: 'https://baesh.dev',
+                      imageUrl: null,
+                    },
+                  }
+                : undefined,
+          },
+        },
+      },
+    })
+    createdUserIds.push(user.id)
+  }
+
+  const postIds: string[] = []
+  for (const [index, persona] of personas.entries()) {
+    const authorId = `seed-person-${persona.key}`
+    // 한국 유저는 게시물을 더 많이 (3~5개), 영국은 1~3개
+    const postCount = persona.locale === 'kr' ? 3 + (index % 3) : 1 + (index % 3)
+    for (let p = 0; p < postCount; p++) {
+      const postId = `seed-cpost-${persona.key}-${p}`
+      await prisma.post.create({
+        data: {
+          id: postId,
+          authorId,
+          content: getPostContent(persona, p),
+          mediaUrls: [],
+          visibility: 'PUBLIC',
+          createdAt: new Date(Date.now() - (index * 3 + p) * 36e5 * 11),
+        },
+      })
+      postIds.push(postId)
+    }
+  }
+
+  for (let i = 0; i < createdUserIds.length; i++) {
+    const followerId = createdUserIds[i]!
+    for (const offset of [1, 3, 7, 12]) {
+      const followingId = createdUserIds[(i + offset) % createdUserIds.length]!
+      if (followerId === followingId) {
+        continue
+      }
+      await prisma.userFollow.upsert({
+        where: {
+          followerId_followingId: { followerId, followingId },
+        },
+        create: { followerId, followingId },
+        update: {},
+      })
+    }
+  }
+
+  const personaById = new Map(personas.map((p) => [`seed-person-${p.key}`, p]))
+
+  for (const [i, postId] of postIds.entries()) {
+    const likerA = createdUserIds[(i + 2) % createdUserIds.length]!
+    const likerB = createdUserIds[(i + 5) % createdUserIds.length]!
+    const authorOfPost = (await prisma.post.findUnique({
+      where: { id: postId },
+      select: { authorId: true },
+    }))!
+    for (const userId of [likerA, likerB]) {
+      if (userId === authorOfPost.authorId) {
+        continue
+      }
+      await prisma.postLike.upsert({
+        where: { postId_userId: { postId, userId } },
+        create: { id: `seed-clike-${postId}-${userId.slice(-6)}`, postId, userId },
+        update: {},
+      })
+    }
+    if (i % 2 === 0) {
+      const commenterId = createdUserIds[(i + 4) % createdUserIds.length]!
+      const commenter = personaById.get(commenterId)
+      if (!commenter) {
+        continue
+      }
+      await prisma.comment.create({
+        data: {
+          id: `seed-ccomment-${postId}`,
+          postId,
+          authorId: commenterId,
+          content: getCommentContent(commenter, i),
+        },
+      })
+    }
+  }
+
+  const krOwners = createdUserIds.filter((id) => personaById.get(id)?.locale === 'kr')
+  const ukOwners = createdUserIds.filter((id) => personaById.get(id)?.locale === 'uk')
+  const ownerKr = krOwners[0] ?? createdUserIds[0]!
+  const ownerUk = ukOwners[0] ?? createdUserIds[1]!
+  const memberKr = krOwners[1] ?? krOwners[0] ?? createdUserIds[0]!
+  const memberUk = ukOwners[1] ?? ukOwners[0] ?? createdUserIds[1]!
+
+  await prisma.project.upsert({
+    where: { slug: 'seoul-london-career-bridge' },
+    create: {
+      id: 'seed-project-career-bridge',
+      title: 'Seoul–London Career Bridge',
+      slug: 'seoul-london-career-bridge',
+      description:
+        'A joint lab where Seoul and London builders peer-review project histories and turn them into career proof.',
+      objective: 'Keep cross-border collaboration records as verified portfolio evidence.',
+      ownerId: ownerUk,
+      status: ProjectStatus.ACTIVE,
+      progress: 48,
+      visibility: ProjectVisibility.PUBLIC,
+      skills: ['React', 'Product', 'Community'],
+      members: {
+        create: [
+          { userId: ownerUk, role: 'Owner', contribution: 'Programme design and London operations' },
+          { userId: memberKr, role: 'Designer', contribution: 'Workshop UX and Seoul facilitation' },
+        ],
+      },
+      activities: {
+        create: [
+          {
+            userId: ownerUk,
+            type: ProjectActivityType.MILESTONE,
+            title: 'Kickoff workshop',
+            description: 'Joint Seoul–London kickoff. Sprint goals locked.',
+          },
+        ],
+      },
+    },
+    update: {
+      title: 'Seoul–London Career Bridge',
+      status: ProjectStatus.ACTIVE,
+      progress: 48,
+    },
+  })
+
+  await prisma.project.upsert({
+    where: { slug: 'verified-hackathon-archive' },
+    create: {
+      id: 'seed-project-hackathon-archive',
+      title: '검증형 해커톤 아카이브',
+      slug: 'verified-hackathon-archive',
+      description: '해커톤 산출물이 사라지지 않도록 역할·커밋·데모를 한곳에 아카이빙합니다.',
+      ownerId: ownerKr,
+      status: ProjectStatus.ACTIVE,
+      progress: 71,
+      visibility: ProjectVisibility.PUBLIC,
+      skills: ['TypeScript', 'PostgreSQL', 'DevRel'],
+      members: {
+        create: [
+          { userId: ownerKr, role: 'Owner', contribution: '아카이브 스키마와 수집 파이프라인' },
+          { userId: memberUk, role: 'Engineer', contribution: 'Demo embeds and timeline UI' },
+        ],
+      },
+    },
+    update: {
+      title: '검증형 해커톤 아카이브',
+      progress: 71,
+    },
+  })
+
+  console.log(`Community seed: created ${createdUserIds.length} people (@seed.baesh.dev)`)
+  return createdUserIds
+}
 
 async function main() {
   const password = await bcrypt.hash(demoPassword, 12)
@@ -83,6 +356,8 @@ async function main() {
         password,
         name: user.name,
         role: user.role,
+        avatarUrl: user.avatarUrl,
+        coverUrl: user.coverUrl,
         profile: {
           create: {
             headline: user.headline,
@@ -104,6 +379,8 @@ async function main() {
         password,
         name: user.name,
         role: user.role,
+        avatarUrl: user.avatarUrl,
+        coverUrl: user.coverUrl,
         profile: {
           upsert: {
             create: {
@@ -200,11 +477,13 @@ async function main() {
       title: 'BAESH Career Data Prototype',
       description: '프로젝트 이력을 구조화하고 AI 분석으로 연결하는 포트폴리오 샘플입니다.',
       url: 'https://baesh.dev',
+      imageUrl: null,
     },
     update: {
       title: 'BAESH Career Data Prototype',
       description: '프로젝트 이력을 구조화하고 AI 분석으로 연결하는 포트폴리오 샘플입니다.',
       url: 'https://baesh.dev',
+      imageUrl: null,
     },
   })
 
@@ -293,6 +572,7 @@ async function main() {
       linkedProjectId: 'seed-project-baesh-career-data-os',
       content:
         'BAESH Career Data OS의 Profile과 Projects 워크스페이스를 연결했습니다. 다음 목표는 Network 피드와 Opportunities 매칭입니다. #React #Prisma #CareerData',
+      mediaUrls: [],
       visibility: 'PUBLIC',
       comments: {
         create: [
@@ -320,6 +600,7 @@ async function main() {
       linkedProjectId: 'seed-project-baesh-career-data-os',
       content:
         'BAESH Career Data OS의 Profile과 Projects 워크스페이스를 연결했습니다. 다음 목표는 Network 피드와 Opportunities 매칭입니다. #React #Prisma #CareerData',
+      mediaUrls: [],
       visibility: 'PUBLIC',
     },
   })
@@ -411,11 +692,18 @@ async function main() {
     },
   })
 
+  await seedCommunityPeople(password)
+
+  const totalUsers = await prisma.user.count()
+  const totalPosts = await prisma.post.count()
+
   console.log('Seed complete.')
+  console.log(`Users: ${totalUsers} (target ${TARGET_USER_COUNT}) · Posts: ${totalPosts}`)
   console.log(`Demo password: ${demoPassword}`)
   for (const user of demoUsers) {
     console.log(`${user.email} / ${demoPassword}`)
   }
+  console.log('Community logins: p001@seed.baesh.dev … / password123')
 }
 
 main()
