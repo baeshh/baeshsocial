@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
+import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ProjectEvidencePanel } from '../../components/evidence/ProjectEvidencePanel'
 import {
@@ -373,11 +373,11 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
     setDetailTab(searchParams.get('tab') ?? 'overview')
   }
 
-  useEffect(() => {
-    if (project) {
-      setEditForm({ progress: project.progress, status: project.status.toLowerCase() })
-    }
-  }, [project])
+  const [editFormSource, setEditFormSource] = useState(project)
+  if (project && editFormSource !== project) {
+    setEditFormSource(project)
+    setEditForm({ progress: project.progress, status: project.status.toLowerCase() })
+  }
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['projects'] })

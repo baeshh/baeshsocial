@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Modal } from '../common/Modal'
 import { Button } from '../common/Button'
 import { Input } from '../common/Input'
@@ -21,12 +21,13 @@ export function ProjectDeleteModal({
   onConfirm,
 }: ProjectDeleteModalProps) {
   const [password, setPassword] = useState('')
-
-  useEffect(() => {
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
     if (!open) {
       setPassword('')
     }
-  }, [open])
+  }
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()

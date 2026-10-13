@@ -6,7 +6,8 @@ import { BaeshLogo } from '../../components/common/BaeshLogo'
 import { getBetaOpenLabel, getMemberCountDisplay } from '../../lib/formatPublicStats'
 import { getPublicStats } from '../../services/publicService'
 import './landing.css'
-import { LandingIntro, shouldShowLandingIntro } from './LandingIntro'
+import { LandingIntro } from './LandingIntro'
+import { shouldShowLandingIntro } from './landingIntroSession'
 import { useLandingBackground, type LandingBgControl } from './useLandingBackground'
 
 const HEADER_OFFSET = 100

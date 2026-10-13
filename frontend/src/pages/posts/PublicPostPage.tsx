@@ -27,6 +27,8 @@ export function PublicPostPage() {
   })
 
   const post = postQuery.data?.post
+  const loadedPostId = post?.id
+  const commentCount = post?.comments.length
 
   useEffect(() => {
     if (post) {
@@ -38,7 +40,7 @@ export function PublicPostPage() {
   }, [post])
 
   useEffect(() => {
-    if (!highlightCommentId || !post) {
+    if (!highlightCommentId || !loadedPostId) {
       return
     }
     const timer = window.setTimeout(() => {
@@ -46,7 +48,7 @@ export function PublicPostPage() {
       element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [highlightCommentId, post?.id, post?.comments.length])
+  }, [highlightCommentId, loadedPostId, commentCount])
 
   if (postQuery.isLoading) {
     return (

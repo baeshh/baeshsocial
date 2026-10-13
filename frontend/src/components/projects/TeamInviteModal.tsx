@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Avatar } from '../common/Avatar'
 import { Button } from '../common/Button'
 import { Select } from '../common/Input'
@@ -48,12 +48,13 @@ export function TeamInviteModal({
   const inviteRoles = useMemo(() => roles.filter((role) => role.slug !== 'owner'), [roles])
   const defaultRoleId = inviteRoles.find((role) => role.slug === 'editor')?.id ?? inviteRoles[0]?.id ?? ''
   const [roleId, setRoleId] = useState(defaultRoleId)
-
-  useEffect(() => {
+  const [roleSync, setRoleSync] = useState({ open, defaultRoleId })
+  if (roleSync.open !== open || roleSync.defaultRoleId !== defaultRoleId) {
+    setRoleSync({ open, defaultRoleId })
     if (open) {
       setRoleId(defaultRoleId)
     }
-  }, [open, defaultRoleId])
+  }
 
   const candidatesQuery = useQuery({
     queryKey: ['projects', projectId, 'team-candidates'],

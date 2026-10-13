@@ -23,7 +23,7 @@ type OpportunityBrowseControlsProps = {
 
 const skillPresets = ['Python', 'React', 'Node.js'] as const
 
-export function countActiveFilters(filters: OpportunityFilters) {
+function countActiveFilters(filters: OpportunityFilters) {
   let count = 0
   if (filters.q.trim()) count += 1
   if (filters.type) count += 1

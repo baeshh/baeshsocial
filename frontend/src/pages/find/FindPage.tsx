@@ -17,11 +17,12 @@ export function FindPage() {
   const urlQuery = searchParams.get('q') ?? ''
   const [input, setInput] = useState(urlQuery)
   const [debouncedQuery, setDebouncedQuery] = useState(urlQuery)
-
-  useEffect(() => {
+  const [syncedQuery, setSyncedQuery] = useState(urlQuery)
+  if (syncedQuery !== urlQuery) {
+    setSyncedQuery(urlQuery)
     setInput(urlQuery)
     setDebouncedQuery(urlQuery)
-  }, [urlQuery])
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

@@ -65,11 +65,18 @@ export function ProfileEditModal({
   const [cropTarget, setCropTarget] = useState<'avatar' | 'cover' | null>(null)
   const [cropFile, setCropFile] = useState<File | null>(null)
 
-  useEffect(() => {
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
     if (!open) {
       setCropTarget(null)
       setCropFile(null)
       setImageError(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!open) {
       return
     }
     const previousOverflow = document.body.style.overflow

@@ -1,7 +1,6 @@
 import gsap from 'gsap'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-
-const INTRO_SESSION_KEY = 'baesh-landing-intro-seen'
+import { markIntroSeen } from './landingIntroSession'
 
 const FRAGMENTS = [
   { label: '해커톤', x: -38, y: -32, rotate: -12 },
@@ -16,27 +15,6 @@ const FRAGMENTS = [
   { label: '런칭', x: -6, y: -44, rotate: -15 },
 ] as const
 
-export function shouldShowLandingIntro() {
-  if (typeof window === 'undefined') {
-    return false
-  }
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    return false
-  }
-  try {
-    return sessionStorage.getItem(INTRO_SESSION_KEY) !== '1'
-  } catch {
-    return true
-  }
-}
-
-function markIntroSeen() {
-  try {
-    sessionStorage.setItem(INTRO_SESSION_KEY, '1')
-  } catch {
-    // ignore
-  }
-}
 
 type LandingIntroProps = {
   onComplete: () => void
