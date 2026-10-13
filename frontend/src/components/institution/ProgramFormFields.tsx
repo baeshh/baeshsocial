@@ -1,7 +1,8 @@
+import type { Dispatch, SetStateAction } from 'react'
 import type { ProgramFormValue } from '../../lib/programForm'
-import { DISCLOSURE_META, PROGRAM_STATUS_META } from '../../lib/programs'
+import { DELIVERY_MODE_LABEL, DISCLOSURE_META, PROGRAM_STATUS_META, PROGRAM_VISIBILITY_META } from '../../lib/programs'
 import type { MemberUser } from '../../types/organization'
-import type { ProgramPolicy, ProgramStatus, RecordDisclosure } from '../../types/program'
+import type { DeliveryMode, ProgramPolicy, ProgramStatus, ProgramVisibility, RecordDisclosure, RecruitmentMode } from '../../types/program'
 import { Input, Select, Textarea } from '../common/Input'
 
 const POLICY_TOGGLES: Array<{ key: Exclude<keyof ProgramPolicy, 'recordDisclosure'>; label: string; hint: string; requires?: keyof ProgramPolicy }> = [
@@ -57,15 +58,137 @@ function ProgramPolicyFields({ value, onChange }: { value: ProgramPolicy; onChan
   )
 }
 
+const RECRUITMENT_OPTIONS: Array<{ value: RecruitmentMode; label: string; hint: string }> = [
+  { value: 'selected', label: '선발 완료', hint: '참여자를 이미 정했습니다. 담당자가 참여 학생 탭에서 직접 등록합니다.' },
+  { value: 'recruiting', label: '모집 예정·모집 중', hint: '공개한 뒤 지원을 받고, 담당자가 지원자 탭에서 선발합니다.' },
+]
+
+function ChoiceCard({ checked, label, hint, onSelect, name }: { checked: boolean; label: string; hint: string; onSelect: () => void; name: string }) {
+  return (
+    <label
+      className={`flex cursor-pointer flex-col rounded-2xl border px-4 py-3 transition ${
+        checked ? 'border-brand-600 bg-brand-50' : 'border-surface-border hover:border-brand-200'
+      }`}
+    >
+      <span className="flex items-center gap-2">
+        <input checked={checked} className="h-4 w-4 accent-brand-600" name={name} onChange={onSelect} type="radio" />
+        <span className="text-sm font-semibold text-ink-strong">{label}</span>
+      </span>
+      <span className="mt-1 text-xs leading-5 text-ink-muted">{hint}</span>
+    </label>
+  )
+}
+
+function ProgramRecruitmentFields({ value, onChange }: { value: ProgramFormValue; onChange: Dispatch<SetStateAction<ProgramFormValue>> }) {
+  const set = <K extends keyof ProgramFormValue>(key: K, next: ProgramFormValue[K]) => onChange((prev) => ({ ...prev, [key]: next }))
+  const recruiting = value.recruitmentMode === 'recruiting'
+  return (
+    <fieldset className="space-y-4 rounded-2xl border border-surface-border p-4">
+      <legend className="px-1 text-sm font-semibold text-ink-strong">공개 범위와 모집</legend>
+      <div>
+        <p className="text-sm font-medium text-ink-strong">공개 범위</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          {(Object.keys(PROGRAM_VISIBILITY_META) as ProgramVisibility[]).map((key) => (
+            <ChoiceCard
+              checked={value.visibility === key}
+              hint={PROGRAM_VISIBILITY_META[key].description}
+              key={key}
+              label={PROGRAM_VISIBILITY_META[key].label}
+              name="program-visibility"
+              onSelect={() => set('visibility', key)}
+            />
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="text-sm font-medium text-ink-strong">선발 방식</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {RECRUITMENT_OPTIONS.map((option) => (
+            <ChoiceCard
+              checked={value.recruitmentMode === option.value}
+              hint={option.hint}
+              key={option.value}
+              label={option.label}
+              name="program-recruitment"
+              onSelect={() => set('recruitmentMode', option.value)}
+            />
+          ))}
+        </div>
+        {recruiting && value.visibility === 'private' ? (
+          <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+            비공개 프로그램에는 아무도 지원할 수 없습니다. 공개 범위를 조직 내부 공개 또는 전체 공개로 바꿔 주세요.
+          </p>
+        ) : null}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Input
+          label="모집 대상"
+          maxLength={500}
+          onChange={(event) => set('targetAudience', event.target.value)}
+          placeholder="예: 전공 무관 3~4학년 재학생"
+          value={value.targetAudience}
+        />
+        <Input
+          label="선발 인원"
+          max={10000}
+          min={1}
+          onChange={(event) => set('capacity', event.target.value)}
+          placeholder="예: 30"
+          type="number"
+          value={value.capacity}
+        />
+        <Select label="진행 방식" onChange={(event) => set('deliveryMode', event.target.value as DeliveryMode | '')} value={value.deliveryMode}>
+          <option value="">선택 안 함</option>
+          {(Object.keys(DELIVERY_MODE_LABEL) as DeliveryMode[]).map((key) => (
+            <option key={key} value={key}>
+              {DELIVERY_MODE_LABEL[key]}
+            </option>
+          ))}
+        </Select>
+        <Input
+          label="장소"
+          maxLength={200}
+          onChange={(event) => set('location', event.target.value)}
+          placeholder="예: 공학관 301호 / Zoom"
+          value={value.location}
+        />
+      </div>
+      {recruiting ? (
+        <div className="grid gap-4 border-t border-surface-border pt-4 sm:grid-cols-3">
+          <Input
+            helperText="비우면 저장 즉시 모집을 시작합니다."
+            label="모집 시작 일시"
+            onChange={(event) => set('applyStartAt', event.target.value)}
+            type="datetime-local"
+            value={value.applyStartAt}
+          />
+          <Input label="모집 마감 일시" onChange={(event) => set('applyEndAt', event.target.value)} required type="datetime-local" value={value.applyEndAt} />
+          <Input label="합격자 발표 일시" onChange={(event) => set('announceAt', event.target.value)} type="datetime-local" value={value.announceAt} />
+          <div className="sm:col-span-3">
+            <Textarea
+              className="min-h-20"
+              label="선발 절차"
+              maxLength={2000}
+              onChange={(event) => set('selectionProcess', event.target.value)}
+              placeholder="예: 서류 심사 → 면접 → 최종 발표"
+              value={value.selectionProcess}
+            />
+          </div>
+        </div>
+      ) : null}
+    </fieldset>
+  )
+}
+
 type Props = {
   value: ProgramFormValue
-  onChange: (value: ProgramFormValue) => void
+  onChange: Dispatch<SetStateAction<ProgramFormValue>>
   managerCandidates?: MemberUser[]
   canEditManagers: boolean
 }
 
 export function ProgramFormFields({ value, onChange, managerCandidates = [], canEditManagers }: Props) {
-  const set = <K extends keyof ProgramFormValue>(key: K, next: ProgramFormValue[K]) => onChange({ ...value, [key]: next })
+  const set = <K extends keyof ProgramFormValue>(key: K, next: ProgramFormValue[K]) => onChange((prev) => ({ ...prev, [key]: next }))
 
   return (
     <div className="space-y-4">
@@ -87,10 +210,11 @@ export function ProgramFormFields({ value, onChange, managerCandidates = [], can
             </option>
           ))}
         </Select>
-        <Input label="시작일" onChange={(event) => set('startDate', event.target.value)} type="date" value={value.startDate} />
-        <Input label="종료일" onChange={(event) => set('endDate', event.target.value)} type="date" value={value.endDate} />
+        <Input label="운영 시작일" onChange={(event) => set('startDate', event.target.value)} type="date" value={value.startDate} />
+        <Input label="운영 종료일" onChange={(event) => set('endDate', event.target.value)} type="date" value={value.endDate} />
       </div>
       <Textarea label="설명" maxLength={4000} onChange={(event) => set('description', event.target.value)} value={value.description} />
+      <ProgramRecruitmentFields onChange={onChange} value={value} />
       <ProgramPolicyFields onChange={(policy) => set('policy', policy)} value={value.policy} />
       {canEditManagers ? (
         <fieldset>

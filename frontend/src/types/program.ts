@@ -19,6 +19,24 @@ export type ProgramPolicy = {
   recordDisclosure: RecordDisclosure
 }
 
+export type ProgramVisibility = 'private' | 'organization' | 'public'
+export type RecruitmentMode = 'selected' | 'recruiting'
+export type RecruitmentState = 'selected' | 'upcoming' | 'open' | 'closed'
+export type DeliveryMode = 'online' | 'offline' | 'hybrid'
+
+export type ProgramRecruitment = {
+  mode: RecruitmentMode
+  state: RecruitmentState
+  targetAudience: string | null
+  capacity: number | null
+  applyStartAt: string | null
+  applyEndAt: string | null
+  announceAt: string | null
+  selectionProcess: string | null
+  deliveryMode: DeliveryMode | null
+  location: string | null
+}
+
 export type Program = {
   id: string
   organizationId: string
@@ -34,6 +52,66 @@ export type Program = {
   participantCount: number | null
   managers: MemberUser[]
   policy: ProgramPolicy
+  visibility: ProgramVisibility
+  recruitment: ProgramRecruitment
+}
+
+export type ApplicationStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn'
+
+export type DiscoverableProgram = {
+  id: string
+  title: string
+  description: string | null
+  term: string | null
+  status: ProgramStatus
+  startDate: string | null
+  endDate: string | null
+  visibility: ProgramVisibility
+  organization: { id: string; name: string; type: OrganizationType }
+  recruitment: ProgramRecruitment
+  participantCount: number
+  myStatus: {
+    isParticipant: boolean
+    isManager: boolean
+    application: { status: ApplicationStatus; createdAt: string; reviewedAt: string | null; reviewNote: string | null } | null
+  }
+}
+
+export type DiscoverProgramsPage = {
+  programs: DiscoverableProgram[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+  openCount: number
+}
+
+export type ProgramApplication = {
+  id: string
+  status: ApplicationStatus
+  message: string | null
+  reviewNote: string | null
+  reviewedAt: string | null
+  reviewedBy: { id: string; name: string } | null
+  createdAt: string
+  user: MemberUser & { headline: string | null }
+}
+
+export type ProgramApplicationsResponse = {
+  applications: ProgramApplication[]
+  counts: Partial<Record<ApplicationStatus, number>>
+  capacity: number | null
+  participantCount: number
+}
+
+export type MyProgramApplication = {
+  id: string
+  status: ApplicationStatus
+  message: string | null
+  reviewNote: string | null
+  createdAt: string
+  reviewedAt: string | null
+  program: { id: string; title: string; organizationId: string; organizationName: string; isParticipant: boolean }
 }
 
 export type ProgramListItem = Program & {

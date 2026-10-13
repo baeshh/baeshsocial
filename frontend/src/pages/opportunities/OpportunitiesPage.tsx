@@ -9,6 +9,9 @@ import { LoadingState } from '../../components/common/LoadingState'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { EnrollmentManagePanel } from '../../components/institution/EnrollmentManagePanel'
 import { MyEnrollmentsPanel } from '../../components/opportunities/MyEnrollmentsPanel'
+import { InstitutionProgramsSection } from '../../components/programs/InstitutionProgramsSection'
+import { useDiscoverPrograms } from '../../hooks/useDiscoverPrograms'
+import { MyProgramApplications } from '../../components/programs/MyProgramApplications'
 import {
   OpportunityBrowseControls,
   OpportunityFiltersSidebar,
@@ -161,7 +164,9 @@ export function OpportunitiesPage() {
     )
   }, [opportunitiesQuery.data?.opportunities, sortBy])
 
-  const programCount = sortedOpportunities.length
+  const [institutionPage, setInstitutionPage] = useState(1)
+  const institutionPrograms = useDiscoverPrograms(token, institutionPage)
+  const programCount = sortedOpportunities.length + (institutionPrograms.data?.total ?? 0)
 
   const resetFilters = () => {
     setFilters({ q: '', type: '', skill: '', remote: false, saved: false })
@@ -211,6 +216,8 @@ export function OpportunitiesPage() {
             </button>
           </div>
         ) : null}
+
+        {pageTab === 'my' && token ? <MyProgramApplications token={token} /> : null}
 
         {pageTab === 'my' && token ? (
           <section>
@@ -272,6 +279,10 @@ export function OpportunitiesPage() {
               </div>
             </form>
           </Card>
+        ) : null}
+
+        {pageTab === 'browse' && token ? (
+          <InstitutionProgramsSection onPageChange={setInstitutionPage} page={institutionPage} token={token} />
         ) : null}
 
         {pageTab === 'browse' ? (

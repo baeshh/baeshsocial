@@ -1,11 +1,20 @@
 import { apiRequest, apiUpload } from '../lib/api'
 import type {
+  ApplicationStatus,
+  DeliveryMode,
+  DiscoverableProgram,
+  DiscoverProgramsPage,
   Evidence,
   EvidenceCategory,
   LinkableProject,
+  MyProgramApplication,
   MyVerifiedRecord,
   Program,
+  ProgramApplication,
+  ProgramApplicationsResponse,
   ProgramDetail,
+  ProgramVisibility,
+  RecruitmentMode,
   ProgramListItem,
   ProgramParticipant,
   ProgramPolicy,
@@ -36,6 +45,16 @@ export type ProgramPayload = {
   startDate?: string | null
   endDate?: string | null
   managerUserIds?: string[]
+  visibility?: ProgramVisibility
+  recruitmentMode?: RecruitmentMode
+  targetAudience?: string | null
+  capacity?: number | null
+  applyStartAt?: string | null
+  applyEndAt?: string | null
+  announceAt?: string | null
+  selectionProcess?: string | null
+  deliveryMode?: DeliveryMode | null
+  location?: string | null
 } & Partial<ProgramPolicy>
 
 export type ProgramProjectPayload = {
@@ -49,6 +68,52 @@ export type ProgramProjectPayload = {
 }
 
 export type ParticipantInput = { email?: string; userId?: string; studentNo?: string; department?: string }
+
+/* ---------------------- Discovery & applications ---------------------- */
+
+export function discoverPrograms(token: string, params: { page: number; pageSize: number; q?: string }) {
+  const search = new URLSearchParams({ page: String(params.page), pageSize: String(params.pageSize) })
+  if (params.q) search.set('q', params.q)
+  return apiRequest<DiscoverProgramsPage>(`/programs/discover?${search}`, { token })
+}
+
+export function getDiscoverableProgram(token: string, programId: string) {
+  return apiRequest<{ program: DiscoverableProgram }>(`/programs/discover/${programId}`, { token })
+}
+
+export function applyToProgram(token: string, programId: string, message: string) {
+  return apiRequest<{ application: { id: string; status: ApplicationStatus } }>(`/programs/${programId}/applications`, {
+    method: 'POST',
+    token,
+    body: json({ message: message.trim() || null }),
+  })
+}
+
+export function withdrawProgramApplication(token: string, programId: string) {
+  return apiRequest<void>(`/programs/${programId}/applications/me`, { method: 'DELETE', token })
+}
+
+export function getMyProgramApplications(token: string) {
+  return apiRequest<{ applications: MyProgramApplication[] }>('/programs/applications/me', { token })
+}
+
+export function getProgramApplications(token: string, programId: string, status: ApplicationStatus | 'all') {
+  return apiRequest<ProgramApplicationsResponse>(`/programs/${programId}/applications?status=${status}`, { token })
+}
+
+export function decideProgramApplication(
+  token: string,
+  programId: string,
+  applicationId: string,
+  decision: 'accept' | 'reject',
+  note?: string,
+) {
+  return apiRequest<{ application: ProgramApplication }>(`/programs/${programId}/applications/${applicationId}`, {
+    method: 'PATCH',
+    token,
+    body: json({ decision, note: note?.trim() || null }),
+  })
+}
 
 /* ------------------------------ Programs ----------------------------- */
 

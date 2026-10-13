@@ -21,6 +21,7 @@ import { SettingsPage } from '../pages/settings/SettingsPage'
 import { SupportPage } from '../pages/support/SupportPage'
 import { TalentDBPage } from '../pages/talent-db/TalentDBPage'
 import { ProgramDetailPage } from '../pages/institution/ProgramDetailPage'
+import { ProgramPublicPage } from '../pages/programs/ProgramPublicPage'
 import { OrganizationDashboardPage } from '../pages/organizations/OrganizationDashboardPage'
 import { OrganizationRegisterPage } from '../pages/organizations/OrganizationRegisterPage'
 import { OrganizationsPage } from '../pages/organizations/OrganizationsPage'
@@ -44,6 +45,7 @@ export function AppRoutes() {
       <Route element={<NetworkPage />} path="/network" />
       <Route element={<FindPage />} path="/find" />
       <Route element={<OpportunitiesPage />} path="/opportunities" />
+      <Route element={<ProgramPublicPage />} path="/programs/:programId" />
       <Route element={<AICopilotPage />} path="/ai-copilot" />
       <Route element={<TalentDBPage />} path="/talent-db" />
       <Route element={<OrganizationsPage />} path="/organizations" />

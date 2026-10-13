@@ -1,17 +1,18 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, CalendarDays, Users } from 'lucide-react'
+import { ArrowLeft, CalendarDays, MapPin, Users } from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Badge } from '../../components/common/Badge'
 import { LoadingState } from '../../components/common/LoadingState'
 import { Tabs, type TabItem } from '../../components/common/Tabs'
 import { ProgramKpiPanel } from '../../components/institution/KpiPanels'
+import { ProgramApplicationsPanel } from '../../components/institution/ProgramApplicationsPanel'
 import { ProgramParticipantsPanel } from '../../components/institution/ProgramParticipantsPanel'
 import { ProgramProjectsPanel } from '../../components/institution/ProgramProjectsPanel'
 import { ProgramRequestsPanel } from '../../components/institution/ProgramRequestsPanel'
 import { ProgramReviewPanel } from '../../components/institution/ProgramReviewPanel'
 import { ProgramSettingsPanel } from '../../components/institution/ProgramSettingsPanel'
 import { AppLayout } from '../../components/layout/AppLayout'
-import { PROGRAM_STATUS_META, formatPeriod } from '../../lib/programs'
+import { DELIVERY_MODE_LABEL, PROGRAM_STATUS_META, PROGRAM_VISIBILITY_META, RECRUITMENT_STATE_META, formatPeriod } from '../../lib/programs'
 import { getProgram } from '../../services/programService'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -46,6 +47,7 @@ export function ProgramDetailPage() {
 
   const { program, organization, myAccess } = programQuery.data
   const status = PROGRAM_STATUS_META[program.status]
+  const recruitmentMeta = RECRUITMENT_STATE_META[program.recruitment.state]
 
   const tabs: TabItem[] = [
     {
@@ -55,6 +57,9 @@ export function ProgramDetailPage() {
     },
     ...(myAccess.isStaff
       ? [
+          ...(program.recruitment.mode === 'recruiting'
+            ? [{ id: 'applications', label: '지원자', content: <ProgramApplicationsPanel program={program} /> }]
+            : []),
           { id: 'requests', label: '등록 요청', content: <ProgramRequestsPanel program={program} /> },
           { id: 'participants', label: `참여 학생 ${program.participantCount ?? ''}`, content: <ProgramParticipantsPanel program={program} /> },
           { id: 'review', label: '증빙 검토', content: <ProgramReviewPanel program={program} /> },
@@ -91,7 +96,14 @@ export function ProgramDetailPage() {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-ink-strong">{program.title}</h1>
             <Badge tone={status.tone}>{status.label}</Badge>
+            <Badge tone={recruitmentMeta.tone}>{recruitmentMeta.label}</Badge>
+            <Badge>{PROGRAM_VISIBILITY_META[program.visibility].label}</Badge>
             {myAccess.isStaff ? <Badge tone="blue">{myAccess.isOrgAdmin ? '조직 관리자' : '담당자'}</Badge> : <Badge>참여 학생</Badge>}
+            {program.visibility !== 'private' ? (
+              <Link className="text-sm font-semibold text-brand-600 hover:underline" to={`/programs/${program.id}`}>
+                공개 페이지 보기
+              </Link>
+            ) : null}
           </div>
           <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">
             <span className="flex items-center gap-1">
@@ -103,6 +115,16 @@ export function ProgramDetailPage() {
               <Users size={14} />
               담당 {program.managers.length ? program.managers.map((m) => m.name).join(', ') : '미지정'}
             </span>
+            {program.recruitment.targetAudience ? <span>대상 {program.recruitment.targetAudience}</span> : null}
+            {program.recruitment.capacity ? <span>선발 {program.recruitment.capacity}명</span> : null}
+            {program.recruitment.deliveryMode || program.recruitment.location ? (
+              <span className="flex items-center gap-1">
+                <MapPin size={14} />
+                {[program.recruitment.deliveryMode ? DELIVERY_MODE_LABEL[program.recruitment.deliveryMode] : null, program.recruitment.location]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            ) : null}
           </p>
           {program.description ? <p className="mt-3 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-ink-body">{program.description}</p> : null}
         </div>

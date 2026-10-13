@@ -1,9 +1,14 @@
 import type {
+  ApplicationStatus,
+  DeliveryMode,
   EvidenceCategory,
   EvidenceHistoryEntry,
   EvidenceStatus,
   ProgramProjectStatus,
+  ProgramRecruitment,
   ProgramStatus,
+  ProgramVisibility,
+  RecruitmentState,
   ProjectReviewKind,
   ProjectVisibility,
   RecordDisclosure,
@@ -52,6 +57,63 @@ export const PROGRAM_STATUS_META: Record<ProgramStatus, { label: string; tone: T
   active: { label: '진행 중', tone: 'blue' },
   completed: { label: '종료', tone: 'green' },
   archived: { label: '보관', tone: 'gray' },
+}
+
+export const PROGRAM_VISIBILITY_META: Record<ProgramVisibility, { label: string; description: string }> = {
+  private: { label: '비공개', description: '담당자와 등록된 참여자만 볼 수 있습니다.' },
+  organization: { label: '조직 내부 공개', description: '이 조직의 구성원에게 Jobs와 조직 프로그램 목록에 노출됩니다.' },
+  public: { label: '전체 공개', description: 'BAESH 사용자 누구나 Jobs에서 보고 지원할 수 있습니다.' },
+}
+
+export const RECRUITMENT_STATE_META: Record<RecruitmentState, { label: string; tone: Tone }> = {
+  open: { label: '모집 중', tone: 'green' },
+  upcoming: { label: '모집 예정', tone: 'purple' },
+  selected: { label: '선발 완료', tone: 'blue' },
+  closed: { label: '모집 마감', tone: 'gray' },
+}
+
+export const APPLICATION_STATUS_META: Record<ApplicationStatus, { label: string; tone: Tone }> = {
+  pending: { label: '심사 중', tone: 'purple' },
+  accepted: { label: '선발', tone: 'green' },
+  rejected: { label: '미선발', tone: 'gray' },
+  withdrawn: { label: '지원 취소', tone: 'gray' },
+}
+
+export const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
+  online: '온라인',
+  offline: '오프라인',
+  hybrid: '온·오프라인 병행',
+}
+
+export function formatDateTime(value: string | null | undefined) {
+  if (!value) return '—'
+  return new Date(value).toLocaleString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+/** `datetime-local` input value in the browser's time zone. */
+export function toDateTimeInput(value: string | null | undefined) {
+  if (!value) return ''
+  const date = new Date(value)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+export function fromDateTimeInput(value: string) {
+  return value ? new Date(value).toISOString() : null
+}
+
+/** "마감 D-3", "오늘 마감", "3일 후 모집 시작" style hint for a recruitment window. */
+export function recruitmentDeadlineHint(recruitment: ProgramRecruitment, now = new Date()) {
+  const days = (target: string) => Math.ceil((new Date(target).getTime() - now.getTime()) / 86_400_000)
+  if (recruitment.state === 'open' && recruitment.applyEndAt) {
+    const left = days(recruitment.applyEndAt)
+    return left <= 1 ? '오늘 마감' : `마감 D-${left}`
+  }
+  if (recruitment.state === 'upcoming' && recruitment.applyStartAt) {
+    const left = days(recruitment.applyStartAt)
+    return left <= 1 ? '곧 모집 시작' : `${left}일 후 모집 시작`
+  }
+  return null
 }
 
 export const PROJECT_STATUS_LABEL: Record<ProgramProjectStatus, string> = {
