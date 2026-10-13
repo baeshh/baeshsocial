@@ -19,6 +19,17 @@ export function searchPeople(token: string, query: string, params: { limit?: num
   )
 }
 
-export function getRecommendedPeople(token: string, limit = 12) {
-  return apiRequest<{ results: SearchResult[] }>(withQuery('/search/recommended', { limit }), { token })
+export type RecommendedPeoplePage = {
+  results: SearchResult[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+export function getRecommendedPeople(token: string, params: { page?: number; pageSize?: number } = {}) {
+  return apiRequest<RecommendedPeoplePage>(
+    withQuery('/search/recommended', { page: params.page ?? 1, pageSize: params.pageSize ?? 6 }),
+    { token },
+  )
 }

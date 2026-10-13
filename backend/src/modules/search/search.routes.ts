@@ -8,9 +8,25 @@ import { getRecommendedPeople } from '../../utils/peopleRecommendations.js'
 
 export const searchRouter = Router()
 
+const RECOMMENDATION_POOL_SIZE = 60
+
 const recommendedQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(30).optional().default(12),
+  page: z.coerce.number().int().min(1).max(100).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(30).optional().default(6),
 })
+
+function paginate<T>(items: T[], page: number, pageSize: number) {
+  const total = items.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const current = Math.min(page, totalPages)
+  return {
+    results: items.slice((current - 1) * pageSize, current * pageSize),
+    page: current,
+    pageSize,
+    total,
+    totalPages,
+  }
+}
 
 const MAX_SEARCH_OFFSET = 500
 
@@ -30,14 +46,18 @@ const userSelect = {
 searchRouter.get('/recommended', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
-    const { limit } = recommendedQuerySchema.parse(req.query)
-    const results = await getRecommendedPeople(authUser.id, limit)
-    res.status(200).json({ results })
+    const { page, pageSize } = recommendedQuerySchema.parse(req.query)
+    const ranked = await getRecommendedPeople(authUser.id, RECOMMENDATION_POOL_SIZE)
+    res.status(200).json(paginate(ranked, page, pageSize))
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      next(error)
+      return
+    }
     console.error('GET /search/recommended failed:', error)
     try {
       const authUser = res.locals.user as AuthTokenPayload
-      const { limit } = recommendedQuerySchema.parse(req.query)
+      const { page, pageSize } = recommendedQuerySchema.parse(req.query)
       const profiles = await prisma.profile.findMany({
         where: { userId: { not: authUser.id } },
         include: {
@@ -45,21 +65,25 @@ searchRouter.get('/recommended', authenticate, async (req, res, next) => {
           careers: { orderBy: { startDate: 'desc' }, take: 1, select: { company: true } },
         },
         orderBy: { updatedAt: 'desc' },
-        take: limit,
+        take: RECOMMENDATION_POOL_SIZE,
       })
-      res.status(200).json({
-        results: profiles.map((profile) => ({
-          userId: profile.user.id,
-          name: profile.user.name,
-          avatarUrl: profile.user.avatarUrl,
-          role: profile.user.role,
-          headline: profile.headline,
-          company: profile.company ?? profile.careers[0]?.company ?? null,
-          school: profile.school,
-          skills: profile.skills.slice(0, 6),
-          matchReasons: [] as string[],
-        })),
-      })
+      res.status(200).json(
+        paginate(
+          profiles.map((profile) => ({
+            userId: profile.user.id,
+            name: profile.user.name,
+            avatarUrl: profile.user.avatarUrl,
+            role: profile.user.role,
+            headline: profile.headline,
+            company: profile.company ?? profile.careers[0]?.company ?? null,
+            school: profile.school,
+            skills: profile.skills.slice(0, 6),
+            matchReasons: [] as string[],
+          })),
+          page,
+          pageSize,
+        ),
+      )
     } catch (fallbackError) {
       next(fallbackError)
     }

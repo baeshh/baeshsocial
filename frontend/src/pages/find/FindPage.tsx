@@ -1,14 +1,17 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Search, Sparkles } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../../components/common/EmptyState'
 import { LoadingState } from '../../components/common/LoadingState'
 import { LoadMore } from '../../components/common/LoadMore'
+import { Pagination } from '../../components/common/Pagination'
 import { PersonResultCard } from '../../components/find/PersonResultCard'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { getRecommendedPeople, searchPeople } from '../../services/searchService'
 import { useAuthStore } from '../../stores/authStore'
+
+const RECOMMENDED_PAGE_SIZE = 6
 
 export function FindPage() {
   const token = useAuthStore((state) => state.token)
@@ -43,11 +46,20 @@ export function FindPage() {
     }
   }, [debouncedQuery, searchParams, setSearchParams])
 
+  const recommendedPage = Math.max(1, Math.floor(Number(searchParams.get('page'))) || 1)
+  const recommendedSectionRef = useRef<HTMLElement>(null)
+
   const recommendedQuery = useQuery({
-    queryKey: ['search', 'recommended'],
-    queryFn: () => getRecommendedPeople(token ?? '', 12),
+    queryKey: ['search', 'recommended', recommendedPage],
+    queryFn: () => getRecommendedPeople(token ?? '', { page: recommendedPage, pageSize: RECOMMENDED_PAGE_SIZE }),
     enabled: Boolean(token) && !debouncedQuery,
+    placeholderData: keepPreviousData,
   })
+
+  const goToRecommendedPage = (page: number) => {
+    setSearchParams(page > 1 ? { page: String(page) } : {}, { replace: true })
+    recommendedSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const searchQuery = useInfiniteQuery({
     queryKey: ['search', 'people', debouncedQuery],
@@ -69,6 +81,9 @@ export function FindPage() {
 
   const searchResults = searchQuery.data?.pages.flatMap((page) => page.results) ?? []
   const recommended = recommendedQuery.data?.results ?? []
+  const recommendedTotal = recommendedQuery.data?.total ?? 0
+  const recommendedTotalPages = recommendedQuery.data?.totalPages ?? 1
+  const shownPage = recommendedQuery.data?.page ?? recommendedPage
 
   return (
     <AppLayout>
@@ -107,10 +122,16 @@ export function FindPage() {
         </form>
 
         {!debouncedQuery ? (
-          <section className="space-y-3 pb-4">
+          <section className="scroll-mt-40 space-y-3 pb-4" ref={recommendedSectionRef}>
             <div className="flex items-center gap-2 px-0.5">
               <Sparkles className="text-brand-600" size={18} />
               <h2 className="text-base font-bold text-ink-strong">추천 친구</h2>
+              {recommendedTotal > 0 ? (
+                <span className="ml-auto text-xs text-ink-muted">
+                  {(shownPage - 1) * RECOMMENDED_PAGE_SIZE + 1}–{Math.min(shownPage * RECOMMENDED_PAGE_SIZE, recommendedTotal)} /{' '}
+                  {recommendedTotal}명
+                </span>
+              ) : null}
             </div>
 
             {recommendedQuery.isLoading ? <LoadingState /> : null}
@@ -129,7 +150,7 @@ export function FindPage() {
             ) : null}
 
             {recommended.length > 0 ? (
-              <ul className="space-y-3">
+              <ul className={`space-y-3 transition-opacity ${recommendedQuery.isPlaceholderData ? 'opacity-60' : ''}`}>
                 {recommended.map((person) => (
                   <li key={person.userId}>
                     <PersonResultCard person={person} />
@@ -137,6 +158,14 @@ export function FindPage() {
                 ))}
               </ul>
             ) : null}
+
+            <Pagination
+              className="pt-2"
+              disabled={recommendedQuery.isPlaceholderData}
+              onPageChange={goToRecommendedPage}
+              page={shownPage}
+              totalPages={recommendedTotalPages}
+            />
           </section>
         ) : null}
 
