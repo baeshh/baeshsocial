@@ -9,6 +9,7 @@ import {
   ProjectTaskStatus,
   ProjectVisibility,
   type Prisma,
+  type RecordDisclosure,
 } from '@prisma/client'
 import { Router } from 'express'
 import { prisma } from '../../config/prisma.js'
@@ -32,13 +33,43 @@ import {
   updateProgramProjectSchema,
   updateProgramSchema,
 } from '../../validators/program.validator.js'
+import { findTeamConflicts, isStudentLed, loadStudentLed } from '../../services/programs/programProjects.js'
 import { evidenceInclude, serializeEvidence, serializeProgram, teamRoleOf, userBriefSelect } from './program.serializers.js'
+import { registerProjectRegistrationRoutes } from './programProjectRegistrations.routes.js'
+import { registerProjectReviewRoutes } from './programProjectReviews.routes.js'
+import { registerProjectVerificationRoutes } from './projectVerification.routes.js'
 
 export const organizationProgramsRouter = Router({ mergeParams: true })
 export const programsRouter = Router()
 
+registerProjectRegistrationRoutes(programsRouter)
+registerProjectReviewRoutes(programsRouter)
+registerProjectVerificationRoutes(programsRouter)
+
 const toProgramStatus = (value: string) => value.toUpperCase() as ProgramStatus
 const toProjectStatus = (value: string) => value.toUpperCase() as ProjectStatus
+
+type PolicyInput = {
+  allowStudentProjects?: boolean
+  requireProjectApproval?: boolean
+  allowStudentTeams?: boolean
+  allowPublicProjects?: boolean
+  allowMultipleProjects?: boolean
+  recordDisclosure?: 'hidden' | 'summary' | 'full'
+}
+
+function policyData(input: PolicyInput) {
+  return {
+    ...(input.allowStudentProjects !== undefined ? { allowStudentProjects: input.allowStudentProjects } : {}),
+    ...(input.requireProjectApproval !== undefined ? { requireProjectApproval: input.requireProjectApproval } : {}),
+    ...(input.allowStudentTeams !== undefined ? { allowStudentTeams: input.allowStudentTeams } : {}),
+    ...(input.allowPublicProjects !== undefined ? { allowPublicProjects: input.allowPublicProjects } : {}),
+    ...(input.allowMultipleProjects !== undefined ? { allowMultipleProjects: input.allowMultipleProjects } : {}),
+    ...(input.recordDisclosure !== undefined
+      ? { recordDisclosure: input.recordDisclosure.toUpperCase() as RecordDisclosure }
+      : {}),
+  }
+}
 
 const programInclude = {
   _count: { select: { projects: true, participants: true } },
@@ -57,6 +88,9 @@ const programProjectSelect = {
   startDate: true,
   endDate: true,
   programId: true,
+  ownerId: true,
+  visibility: true,
+  createdAt: true,
   updatedAt: true,
   members: {
     orderBy: { joinedAt: 'asc' },
@@ -67,9 +101,51 @@ const programProjectSelect = {
       user: { select: userBriefSelect },
     },
   },
-  tasks: { select: { status: true } },
+  tasks: { select: { status: true, dueDate: true } },
   evidence: { select: { status: true } },
+  activities: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
+  reviews: { orderBy: { createdAt: 'desc' }, take: 50, select: { kind: true, status: true, createdAt: true } },
+  verifications: { where: { status: 'VERIFIED' }, take: 1, select: { id: true, verifiedAt: true } },
+  registrations: { orderBy: { createdAt: 'desc' }, take: 1, select: { status: true, source: true } },
 } satisfies Prisma.ProjectSelect
+
+const STALE_AFTER_DAYS = 14
+
+/**
+ * Supervision status shown to staff, most urgent first: submitted evidence waiting for review,
+ * student-side items waiting for staff (open removal request, unanswered reply, stalled team),
+ * revision requests waiting for the team, otherwise on track.
+ */
+function supervisionHealth(project: ProgramProjectRow, now = new Date()) {
+  const submitted = project.evidence.filter((item) => item.status === EvidenceStatus.SUBMITTED).length
+  const openRevision = project.reviews.some((r) => r.kind === 'REVISION_REQUEST' && r.status === 'OPEN')
+  const openRemoval = project.reviews.some((r) => r.kind === 'REMOVAL_REQUEST' && r.status === 'OPEN')
+  const lastStaff = project.reviews.find((r) => r.kind === 'FEEDBACK' || r.kind === 'REVISION_REQUEST')
+  const lastResponse = project.reviews.find((r) => r.kind === 'RESPONSE')
+  const lastActivityAt = project.activities[0]?.createdAt ?? project.updatedAt
+  const stale =
+    project.status !== ProjectStatus.COMPLETED &&
+    project.status !== ProjectStatus.ARCHIVED &&
+    now.getTime() - Math.max(lastActivityAt.getTime(), project.updatedAt.getTime()) > STALE_AFTER_DAYS * 86_400_000
+  const unanswered = Boolean(lastResponse && (!lastStaff || lastResponse.createdAt > lastStaff.createdAt))
+  const health = submitted > 0
+    ? 'evidence_review'
+    : openRemoval || unanswered || stale
+      ? 'feedback_needed'
+      : openRevision
+        ? 'revision_requested'
+        : 'on_track'
+  return {
+    health,
+    stale,
+    openRevisionRequests: project.reviews.filter((r) => r.kind === 'REVISION_REQUEST' && r.status === 'OPEN').length,
+    openRemovalRequests: project.reviews.filter((r) => r.kind === 'REMOVAL_REQUEST' && r.status === 'OPEN').length,
+    lastActivityAt,
+    overdueTasks: project.tasks.filter(
+      (task) => task.dueDate && task.dueDate < now && task.status !== ProjectTaskStatus.DONE,
+    ).length,
+  }
+}
 
 type ProgramProjectRow = Prisma.ProjectGetPayload<{ select: typeof programProjectSelect }>
 
@@ -109,6 +185,13 @@ function serializeProgramProject(project: ProgramProjectRow, options: { includeE
       done: project.tasks.filter((task) => task.status === ProjectTaskStatus.DONE).length,
     },
     evidenceStats: options.includeEvidenceStats ? evidenceStats : null,
+    visibility: project.visibility.toLowerCase(),
+    origin: isStudentLed(project) ? ('student' as const) : ('institution' as const),
+    registration: project.registrations[0]
+      ? { status: project.registrations[0].status.toLowerCase(), source: project.registrations[0].source.toLowerCase() }
+      : null,
+    verification: project.verifications[0] ?? null,
+    supervision: options.includeEvidenceStats ? supervisionHealth(project) : null,
   }
 }
 
@@ -232,6 +315,7 @@ organizationProgramsRouter.post(
           endDate: input.endDate ?? null,
           createdById: authUser.id,
           managers: { create: managerIds.map((userId) => ({ userId })) },
+          ...policyData(input),
         },
         include: programInclude,
       })
@@ -241,7 +325,7 @@ organizationProgramsRouter.post(
         organizationId: organization.id,
         targetType: 'program',
         targetId: program.id,
-        metadata: { title: program.title, status: program.status, managers: managerIds.length },
+        metadata: { title: program.title, status: program.status, managers: managerIds.length, policy: policyData(input) },
       })
       await notify(
         managerIds,
@@ -305,12 +389,20 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
       await assertOrgCapacity(access.organization.id, 'activePrograms', 1)
     }
 
+    const policy = policyData(input)
+    const closingPublic = policy.allowPublicProjects === false && access.program.allowPublicProjects
     const program = await prisma.$transaction(async (tx) => {
       if (managerIds) {
         await tx.programManager.deleteMany({ where: { programId: access.program.id, userId: { notIn: managerIds } } })
         await tx.programManager.createMany({
           data: managerIds.map((userId) => ({ programId: access.program.id, userId })),
           skipDuplicates: true,
+        })
+      }
+      if (closingPublic) {
+        await tx.project.updateMany({
+          where: { programId: access.program.id, visibility: ProjectVisibility.PUBLIC },
+          data: { visibility: ProjectVisibility.TEAM },
         })
       }
       return tx.program.update({
@@ -322,6 +414,7 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
           ...(nextStatus !== undefined ? { status: nextStatus } : {}),
           ...(input.startDate !== undefined ? { startDate: input.startDate } : {}),
           ...(input.endDate !== undefined ? { endDate: input.endDate } : {}),
+          ...policy,
         },
         include: programInclude,
       })
@@ -336,6 +429,8 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
         fields: Object.keys(input),
         ...(nextStatus && nextStatus !== access.program.status ? { statusFrom: access.program.status, statusTo: nextStatus } : {}),
         ...(managerIds ? { managers: managerIds } : {}),
+        ...(Object.keys(policy).length ? { policy } : {}),
+        ...(closingPublic ? { publicProjectsClosed: true } : {}),
       },
     })
 
@@ -381,9 +476,29 @@ programsRouter.get('/:programId/projects', authenticate, async (req, res, next) 
       select: programProjectSelect,
       orderBy: [{ teamName: 'asc' }, { createdAt: 'asc' }],
     })
-    res.status(200).json({
-      projects: projects.map((project) => serializeProgramProject(project, { includeEvidenceStats: access.isStaff })),
-    })
+    const serialized = projects.map((project) => serializeProgramProject(project, { includeEvidenceStats: access.isStaff }))
+    let summary = null
+    if (access.isStaff) {
+      const [pendingRequests, participantCount] = await Promise.all([
+        prisma.programProjectRegistration.count({ where: { programId: access.program.id, status: 'PENDING' } }),
+        prisma.programParticipant.count({ where: { programId: access.program.id } }),
+      ])
+      const students = new Set(projects.flatMap((project) => project.members.map((member) => member.userId)))
+      const byHealth = { evidence_review: 0, feedback_needed: 0, revision_requested: 0, on_track: 0 }
+      for (const project of serialized) byHealth[project.supervision!.health as keyof typeof byHealth] += 1
+      summary = {
+        projects: projects.length,
+        studentProjects: serialized.filter((project) => project.origin === 'student').length,
+        students: students.size,
+        participants: participantCount,
+        pendingEvidence: serialized.reduce((sum, project) => sum + (project.evidenceStats?.submitted ?? 0), 0),
+        pendingRequests,
+        openRemovalRequests: serialized.reduce((sum, project) => sum + (project.supervision?.openRemovalRequests ?? 0), 0),
+        verified: serialized.filter((project) => project.verification).length,
+        byHealth,
+      }
+    }
+    res.status(200).json({ projects: serialized, summary })
   } catch (error) {
     next(error)
   }
@@ -462,6 +577,12 @@ programsRouter.patch('/:programId/projects/:projectId', authenticate, async (req
     assertProgramWritable(access.program.status)
     const target = await findProgramProject(access.program.id, String(req.params.projectId))
     const input = updateProgramProjectSchema.parse(req.body)
+    if (await loadStudentLed(target.id)) {
+      const contentFields = Object.keys(input).filter((key) => key !== 'teamName' && input[key as keyof typeof input] !== undefined)
+      if (contentFields.length > 0) {
+        throw new HttpError(403, '학생 주도 프로젝트의 내용은 직접 수정할 수 없습니다. 피드백이나 수정 요청을 남겨 주세요.')
+      }
+    }
     if (input.status !== undefined && toProjectStatus(input.status) !== ProjectStatus.ARCHIVED) {
       const current = await prisma.project.findUniqueOrThrow({ where: { id: target.id }, select: { status: true } })
       if (current.status === ProjectStatus.ARCHIVED) await assertOrgCapacity(access.organization.id, 'projects', 1)
@@ -567,11 +688,7 @@ programsRouter.post('/:programId/projects/:projectId/members', authenticate, asy
       select: { userId: true },
     })
     const participantIds = new Set(participants.map((p) => p.userId))
-    const otherTeams = await prisma.projectMember.findMany({
-      where: { userId: { in: input.userIds }, project: { programId: access.program.id, id: { not: project.id } } },
-      select: { userId: true, project: { select: { title: true, teamName: true } } },
-    })
-    const otherTeamByUser = new Map(otherTeams.map((row) => [row.userId, row.project.teamName ?? row.project.title]))
+    const otherTeamByUser = await findTeamConflicts(prisma, access.program, input.userIds, project.id)
 
     const role = await prisma.projectRole.findUnique({
       where: { projectId_slug: { projectId: project.id, slug: input.teamRole === 'leader' ? 'admin' : 'editor' } },
@@ -624,7 +741,21 @@ programsRouter.delete('/:programId/projects/:projectId/members/:userId', authent
     const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
     assertProgramWritable(access.program.status)
     const project = await findProgramProject(access.program.id, String(req.params.projectId))
-    await prisma.projectMember.deleteMany({ where: { projectId: project.id, userId: String(req.params.userId) } })
+    const userId = String(req.params.userId)
+    const owner = await prisma.project.findUniqueOrThrow({ where: { id: project.id }, select: { ownerId: true } })
+    if (owner.ownerId === userId) {
+      throw new HttpError(409, '프로젝트를 만든 학생은 팀에서 제외할 수 없습니다. 프로젝트를 프로그램에서 제거해 주세요.')
+    }
+    const { count } = await prisma.projectMember.deleteMany({ where: { projectId: project.id, userId } })
+    if (count > 0) {
+      await audit(req, res, {
+        action: 'program.team_member_remove',
+        organizationId: access.organization.id,
+        targetType: 'project',
+        targetId: project.id,
+        metadata: { programId: access.program.id, userId },
+      })
+    }
     res.status(204).send()
   } catch (error) {
     next(error)
@@ -658,10 +789,12 @@ programsRouter.get('/:programId/participants', authenticate, async (req, res, ne
       }),
     ])
 
-    const assignmentByUser = new Map(assignments.map((row) => [row.userId, row]))
+    const assignmentsByUser = new Map<string, typeof assignments>()
+    for (const row of assignments) assignmentsByUser.set(row.userId, [...(assignmentsByUser.get(row.userId) ?? []), row])
     res.status(200).json({
       participants: participants.map((participant) => {
-        const assignment = assignmentByUser.get(participant.userId)
+        const userAssignments = assignmentsByUser.get(participant.userId) ?? []
+        const assignment = userAssignments[0]
         const counts = { submitted: 0, approved: 0, rejected: 0 }
         for (const row of evidence.filter((item) => item.authorId === participant.userId)) {
           counts[row.status.toLowerCase() as keyof typeof counts] = row._count._all
@@ -676,6 +809,7 @@ programsRouter.get('/:programId/participants', authenticate, async (req, res, ne
           team: assignment
             ? { ...assignment.project, teamRole: teamRoleOf(assignment.projectRole?.slug) }
             : null,
+          teams: userAssignments.map((row) => ({ ...row.project, teamRole: teamRoleOf(row.projectRole?.slug) })),
           evidence: counts,
         }
       }),

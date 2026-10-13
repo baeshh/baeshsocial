@@ -47,6 +47,9 @@ import {
 } from '../../utils/projectPermissions.js'
 import { assertProgramWritable, programStaffWhere } from '../../utils/programAccess.js'
 import { getProjectRoleById } from '../../utils/projectRoles.js'
+import { HttpError } from '../../utils/httpError.js'
+import { audit } from '../../services/audit/audit.js'
+import { assertProgramInvitee, isLeaderSlug } from '../../services/programs/programProjects.js'
 import { registerProjectRoleRoutes } from './projectRoles.routes.js'
 import { ProjectInviteStatus } from '@prisma/client'
 
@@ -72,6 +75,8 @@ const projectInclude = {
       id: true,
       title: true,
       status: true,
+      allowPublicProjects: true,
+      allowStudentTeams: true,
       organization: { select: { id: true, name: true, type: true } },
     },
   },
@@ -243,12 +248,18 @@ function buildProjectUpdateData(input: ReturnType<typeof updateProjectSchema.par
   }
 }
 
+/** PUBLIC program projects are open to every signed-in user only while the program allows public projects. */
+const publicProjectWhere: Prisma.ProjectWhereInput = {
+  visibility: ProjectVisibility.PUBLIC,
+  OR: [{ programId: null }, { program: { allowPublicProjects: true } }],
+}
+
 async function findAccessibleProject(projectId: string, userId: string) {
   const project = await prisma.project.findFirst({
     where: {
       id: projectId,
       OR: [
-        { visibility: ProjectVisibility.PUBLIC, programId: null },
+        publicProjectWhere,
         { ownerId: userId, programId: null },
         { members: { some: { userId } } },
         { program: programStaffWhere(userId) },
@@ -256,13 +267,25 @@ async function findAccessibleProject(projectId: string, userId: string) {
     },
     include: projectInclude,
   })
+  if (!project) return null
 
-  if (project?.programId) {
-    const { permissions } = await resolveUserProjectPermissions(projectId, userId)
-    if (!permissions.includes('project.view')) return null
-  }
+  const access = await resolveUserProjectPermissions(projectId, userId)
+  const isPublic =
+    project.visibility === ProjectVisibility.PUBLIC && (!project.programId || Boolean(project.program?.allowPublicProjects))
+  if (project.programId && !access.permissions.includes('project.view') && !access.restricted && !isPublic) return null
 
   return project
+}
+
+async function assertVisibilityAllowed(projectId: string, visibility: keyof typeof visibilityMap) {
+  if (visibility !== 'public') return
+  const target = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { programId: true, program: { select: { allowPublicProjects: true } } },
+  })
+  if (target?.programId && !target.program?.allowPublicProjects) {
+    throw new HttpError(400, '이 기관 프로그램은 프로젝트 전체 공개를 허용하지 않습니다.')
+  }
 }
 
 async function requireProjectAccess(projectId: string, userId: string) {
@@ -629,12 +652,20 @@ projectsRouter.post('/:id/invites', authenticate, async (req, res, next) => {
 
     const project = await prisma.project.findUnique({
       where: { id: projectId },
-      select: { ownerId: true, title: true },
+      select: {
+        ownerId: true,
+        title: true,
+        program: { select: { id: true, organizationId: true, allowMultipleProjects: true, status: true } },
+      },
     })
 
     if (!project) {
       res.status(404).json({ message: 'Project not found' })
       return
+    }
+
+    if (project.program) {
+      await assertProgramInvitee(project.program, projectId, input.userId)
     }
 
     if (input.userId === authUser.id) {
@@ -655,6 +686,11 @@ projectsRouter.post('/:id/invites', authenticate, async (req, res, next) => {
 
     if (inviteRole.slug === 'owner') {
       res.status(400).json({ message: '소유자 역할로는 초대할 수 없습니다.' })
+      return
+    }
+
+    if (project.program && isLeaderSlug(inviteRole.slug)) {
+      res.status(400).json({ message: '기관 프로그램 팀장 지정은 담당자가 합니다. 팀원 역할로 초대해 주세요.' })
       return
     }
 
@@ -712,27 +748,48 @@ projectsRouter.get('/:id', authenticate, async (req, res, next) => {
     const authUser = res.locals.user as AuthTokenPayload
     const projectId = String(req.params.id)
     const project = await requireProjectAccess(projectId, authUser.id)
-    const { permissions, isOwner } = await resolveUserProjectPermissions(projectId, authUser.id)
+    const { permissions, isOwner, isLeader, isProgramStaff, restricted } = await resolveUserProjectPermissions(
+      projectId,
+      authUser.id,
+    )
     const isMember =
       isOwner || project.members.some((member) => member.userId === authUser.id)
-    if (isMember && !permissions.includes('project.view')) {
+    if (isMember && !restricted && !permissions.includes('project.view')) {
       throw new Error('PROJECT_FORBIDDEN')
     }
     const isGuestViewer = !isOwner && permissions.length === 0
     const canInvite = permissions.includes('members.invite')
 
-    const pendingInvites = canInvite
-      ? await prisma.projectInvite.findMany({
-          where: { projectId, status: ProjectInviteStatus.PENDING },
-          include: inviteInclude,
-          orderBy: { createdAt: 'desc' },
-        })
-      : []
+    const [pendingInvites, registration] = await Promise.all([
+      canInvite
+        ? prisma.projectInvite.findMany({
+            where: { projectId, status: ProjectInviteStatus.PENDING },
+            include: inviteInclude,
+            orderBy: { createdAt: 'desc' },
+          })
+        : [],
+      isGuestViewer
+        ? null
+        : prisma.programProjectRegistration.findFirst({
+            where: { projectId },
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              status: true,
+              reviewNote: true,
+              createdAt: true,
+              program: { select: { id: true, title: true, organizationId: true, organization: { select: { name: true } } } },
+            },
+          }),
+    ])
 
     const withLinks = withSerializedLinks(project)
     const visibleProject = isGuestViewer
       ? {
           ...withLinks,
+          externalLinks: restricted ? [] : withLinks.externalLinks,
+          owner: { ...withLinks.owner, email: '' },
+          members: withLinks.members.map((member) => ({ ...member, user: { ...member.user, email: '' } })),
           tasks: [],
           files: [],
           activities: [],
@@ -745,7 +802,24 @@ projectsRouter.get('/:id', authenticate, async (req, res, next) => {
       pendingInvites,
       myPermissions: permissions,
       isOwner,
+      isLeader,
+      isProgramStaff,
       isGuestViewer,
+      restricted,
+      registration: registration
+        ? {
+            id: registration.id,
+            status: registration.status.toLowerCase(),
+            reviewNote: registration.reviewNote,
+            createdAt: registration.createdAt,
+            program: {
+              id: registration.program.id,
+              title: registration.program.title,
+              organizationId: registration.program.organizationId,
+              organizationName: registration.program.organization.name,
+            },
+          }
+        : null,
     })
   } catch (error) {
     if (handleProjectError(error, res)) {
@@ -761,12 +835,9 @@ projectsRouter.patch('/:id', authenticate, async (req, res, next) => {
     const projectId = String(req.params.id)
     await requireProjectPermission(projectId, authUser.id, 'project.edit')
     const input = updateProjectSchema.parse(req.body)
-    if (input.visibility === 'public') {
-      const target = await prisma.project.findUnique({ where: { id: projectId }, select: { programId: true } })
-      if (target?.programId) {
-        res.status(400).json({ message: '기관 프로그램 프로젝트는 전체 공개로 전환할 수 없습니다.' })
-        return
-      }
+    if (input.visibility !== undefined) {
+      await requireProjectPermission(projectId, authUser.id, 'project.settings')
+      await assertVisibilityAllowed(projectId, input.visibility)
     }
     const project = await prisma.project.update({
       where: { id: projectId },
@@ -779,6 +850,62 @@ projectsRouter.patch('/:id', authenticate, async (req, res, next) => {
     if (handleProjectError(error, res)) {
       return
     }
+    next(error)
+  }
+})
+
+const visibilitySchema = z.object({ visibility: z.enum(['private', 'team', 'public']) })
+
+/**
+ * Project content visibility. PRIVATE: leaders, program staff and members granted private access.
+ * TEAM: every official team member (plus program staff). PUBLIC: any signed-in user sees the
+ * overview, and for program projects only while the program allows it.
+ */
+projectsRouter.patch('/:id/visibility', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const projectId = String(req.params.id)
+    await requireProjectPermission(projectId, authUser.id, 'project.settings')
+    const { visibility } = visibilitySchema.parse(req.body)
+    await assertVisibilityAllowed(projectId, visibility)
+    const project = await prisma.project.update({
+      where: { id: projectId },
+      data: { visibility: visibilityMap[visibility] },
+      select: { id: true, visibility: true, programId: true, program: { select: { organizationId: true } } },
+    })
+    await audit(req, res, {
+      action: 'project.visibility_change',
+      organizationId: project.program?.organizationId ?? null,
+      targetType: 'project',
+      targetId: project.id,
+      metadata: { visibility: project.visibility },
+    })
+    res.status(200).json({ id: project.id, visibility: project.visibility.toLowerCase() })
+  } catch (error) {
+    if (handleProjectError(error, res)) return
+    next(error)
+  }
+})
+
+const privateAccessSchema = z.object({ allowed: z.boolean() })
+
+/** Leaders choose which non-leader members may open the project while it is PRIVATE. */
+projectsRouter.patch('/:id/members/:memberId/private-access', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const projectId = String(req.params.id)
+    const { isLeader } = await resolveUserProjectPermissions(projectId, authUser.id)
+    if (!isLeader) throw new HttpError(403, '팀장만 비공개 열람 권한을 지정할 수 있습니다.')
+    const { allowed } = privateAccessSchema.parse(req.body)
+    const member = await prisma.projectMember.findFirst({
+      where: { id: String(req.params.memberId), projectId },
+      select: { id: true },
+    })
+    if (!member) throw new HttpError(404, '팀원을 찾을 수 없습니다.')
+    await prisma.projectMember.update({ where: { id: member.id }, data: { privateAccess: allowed } })
+    res.status(200).json({ id: member.id, privateAccess: allowed })
+  } catch (error) {
+    if (handleProjectError(error, res)) return
     next(error)
   }
 })
@@ -856,6 +983,11 @@ projectsRouter.post('/:id/members', authenticate, async (req, res, next) => {
     const authUser = res.locals.user as AuthTokenPayload
     const projectId = String(req.params.id)
     await requireProjectPermission(projectId, authUser.id, 'members.invite')
+    const target = await prisma.project.findUnique({ where: { id: projectId }, select: { programId: true } })
+    if (target?.programId) {
+      res.status(400).json({ message: '기관 프로그램 팀원은 초대를 보내 수락받는 방식으로만 추가할 수 있습니다.' })
+      return
+    }
     const input = projectMemberSchema.parse(req.body)
     const user = await prisma.user.findUnique({ where: { email: input.email.toLowerCase() } })
 

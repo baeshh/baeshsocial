@@ -1,5 +1,6 @@
 import { ProjectInviteStatus } from '@prisma/client'
 import { prisma } from '../config/prisma.js'
+import { activeParticipantIds, assertProgramInvitee, findTeamConflicts } from '../services/programs/programProjects.js'
 import { requireProjectPermission } from './projectPermissions.js'
 
 const userPublicSelect = {
@@ -43,7 +44,15 @@ export async function createProjectInviteNotification(params: {
 export async function acceptProjectInvite(inviteId: string, userId: string) {
   const invite = await prisma.projectInvite.findUnique({
     where: { id: inviteId },
-    include: { project: { select: { title: true, ownerId: true } } },
+    include: {
+      project: {
+        select: {
+          title: true,
+          ownerId: true,
+          program: { select: { id: true, organizationId: true, allowMultipleProjects: true, status: true } },
+        },
+      },
+    },
   })
 
   if (!invite) {
@@ -60,6 +69,10 @@ export async function acceptProjectInvite(inviteId: string, userId: string) {
 
   if (invite.project.ownerId === userId) {
     throw new Error('INVITE_INVALID')
+  }
+
+  if (invite.project.program) {
+    await assertProgramInvitee(invite.project.program, invite.projectId, userId)
   }
 
   const member = await prisma.$transaction(async (tx) => {
@@ -148,6 +161,7 @@ export async function getProjectTeamCandidates(projectId: string, userId: string
     where: { id: projectId },
     select: {
       ownerId: true,
+      program: { select: { id: true, organizationId: true, allowMultipleProjects: true } },
       members: { select: { userId: true } },
       invites: {
         where: { status: ProjectInviteStatus.PENDING },
@@ -165,6 +179,23 @@ export async function getProjectTeamCandidates(projectId: string, userId: string
     ...project.members.map((member) => member.userId),
     ...project.invites.map((invite) => invite.inviteeId),
   ])
+
+  if (project.program) {
+    const rows = await prisma.programParticipant.findMany({
+      where: { programId: project.program.id, userId: { notIn: [...excluded] } },
+      select: { userId: true, user: { select: userPublicSelect } },
+      orderBy: { createdAt: 'asc' },
+    })
+    const ids = rows.map((row) => row.userId)
+    const [eligible, conflicts] = await Promise.all([
+      activeParticipantIds(prisma, project.program, ids),
+      findTeamConflicts(prisma, project.program, ids, projectId),
+    ])
+    const participants = rows
+      .filter((row) => eligible.has(row.userId) && !conflicts.has(row.userId))
+      .map((row) => ({ ...row.user, email: '', relation: 'participant' as const }))
+    return { following: [], followers: [], mutual: [], participants }
+  }
 
   const [followingRows, followerRows] = await Promise.all([
     prisma.userFollow.findMany({
@@ -218,5 +249,5 @@ export async function getProjectTeamCandidates(projectId: string, userId: string
   const followers = [...map.values()].filter((user) => user.relation === 'follower')
   const mutual = [...map.values()].filter((user) => user.relation === 'mutual')
 
-  return { following, followers, mutual }
+  return { following, followers, mutual, participants: [] }
 }

@@ -4,6 +4,7 @@ import {
   EvidenceStatus,
   ProgramStatus,
   ProjectActivityType,
+  ProjectVisibility,
 } from '@prisma/client'
 import { Router, type RequestHandler } from 'express'
 import multer from 'multer'
@@ -23,6 +24,7 @@ import {
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { getProgramAccess } from '../../utils/programAccess.js'
+import { isLeaderSlug } from '../../utils/projectPermissions.js'
 import { issueVerifiedRecord, revokeVerifiedRecord } from '../../services/verification/verifiedRecords.js'
 import {
   createEvidenceSchema,
@@ -67,8 +69,9 @@ async function loadProjectContext(projectId: string, userId: string) {
       id: true,
       title: true,
       programId: true,
+      visibility: true,
       program: { select: { id: true, title: true, status: true } },
-      members: { where: { userId }, select: { role: true, projectRole: { select: { slug: true } } } },
+      members: { where: { userId }, select: { role: true, privateAccess: true, projectRole: { select: { slug: true } } } },
     },
   })
   if (!project) throw new HttpError(404, '프로젝트를 찾을 수 없습니다.')
@@ -76,7 +79,11 @@ async function loadProjectContext(projectId: string, userId: string) {
     throw new HttpError(400, '활동 증빙은 기관 프로그램 프로젝트에서만 사용할 수 있습니다.')
   }
   const access = await getProgramAccess(project.programId, userId)
-  const isTeamMember = project.members.length > 0
+  const member = project.members[0]
+  const isTeamMember = Boolean(
+    member &&
+      (project.visibility !== ProjectVisibility.PRIVATE || member.privateAccess || isLeaderSlug(member.projectRole?.slug)),
+  )
   if (!access?.membership || (!access.isStaff && !isTeamMember)) {
     throw new HttpError(404, '프로젝트를 찾을 수 없습니다.')
   }

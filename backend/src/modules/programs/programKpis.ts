@@ -1,4 +1,4 @@
-import { EvidenceStatus, ProjectStatus, VerifiedRecordStatus, type Prisma } from '@prisma/client'
+import { EvidenceStatus, ProjectStatus, VerifiedRecordKind, VerifiedRecordStatus, type Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { HttpError } from '../../utils/httpError.js'
@@ -210,6 +210,7 @@ export async function computeProgramKpis(programIds: string[], period: Period) {
     prisma.verifiedRecord.count({
       where: {
         programId: { in: programIds },
+        kind: VerifiedRecordKind.EVIDENCE,
         status: VerifiedRecordStatus.VERIFIED,
         verifiedAt: { gte: period.from, lte: period.to },
       },

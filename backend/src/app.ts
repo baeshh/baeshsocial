@@ -11,6 +11,7 @@ import {
   projectEvidenceRouter,
 } from './modules/evidence/evidence.routes.js'
 import { organizationProgramsRouter, programsRouter } from './modules/programs/programs.routes.js'
+import { verifiedRecordsRouter } from './modules/verification/verifiedRecords.routes.js'
 import { organizationReportsRouter } from './modules/reports/reports.routes.js'
 import { talentRouter } from './modules/matching/matching.routes.js'
 import { aiAdminRouter } from './modules/ai/aiAdmin.routes.js'
@@ -106,6 +107,7 @@ app.use('/api/support', supportRouter)
 app.use('/api/announcements', announcementsRouter)
 app.use('/api/programs', programsRouter)
 app.use('/api/evidence', evidenceRouter)
+app.use('/api/verified-records', verifiedRecordsRouter)
 app.use('/api/evidence-files', evidenceFilesRouter)
 app.use('/api/files', localFilesRouter)
 app.use('/api/posts', postsRouter)
