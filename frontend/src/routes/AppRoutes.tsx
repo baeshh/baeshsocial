@@ -3,6 +3,7 @@ import { AICopilotPage } from '../pages/ai-copilot/AICopilotPage'
 import { AuthEntryPage } from '../pages/auth/AuthEntryPage'
 import { LandingPage } from '../pages/LandingPage'
 import { FindPage } from '../pages/find/FindPage'
+import { HomePage } from '../pages/home/HomePage'
 import { NetworkPage } from '../pages/network/NetworkPage'
 import { OpportunitiesPage } from '../pages/opportunities/OpportunitiesPage'
 import { ProfilePage } from '../pages/profile/ProfilePage'
@@ -37,7 +38,8 @@ export function AppRoutes() {
       <Route element={<InvitePage />} path="/invite/:token" />
       <Route element={<SettingsPage />} path="/settings" />
       <Route element={<SupportPage />} path="/support" />
-      <Route element={<Navigate replace to="/network" />} path="/dashboard" />
+      <Route element={<HomePage />} path="/dashboard" />
+      <Route element={<Navigate replace to="/dashboard" />} path="/home" />
       <Route element={<ProfilePage />} path="/profile" />
       <Route element={<ProfilePage />} path="/profile/:userId" />
       <Route element={<ProjectsPage />} path="/projects" />
