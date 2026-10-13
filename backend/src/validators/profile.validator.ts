@@ -32,6 +32,8 @@ export const profileProjectsQuerySchema = pageQuerySchema(10, 30).extend({
 
 export const profileHistoryQuerySchema = pageQuerySchema(10, 50).extend({
   type: z.enum(HISTORY_TYPES).default('all'),
+  /** Numbered pagination; when present the cursor is ignored. Capped so one request stays bounded. */
+  page: z.coerce.number().int().min(1).max(50).optional(),
 })
 
 /** `verified` is not accepted from clients: only program completion or operators can mark a certificate verified. */

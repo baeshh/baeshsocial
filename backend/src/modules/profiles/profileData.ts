@@ -383,7 +383,7 @@ async function certificateEntries(viewer: ProfileViewer, opts: SourceOptions): P
       ? null
       : fromProgram
         ? { kind: 'program', issuer: row.opportunity?.organization ?? row.issuer, label: '수료 인증', verifiedAt: row.issuedAt }
-        : { kind: 'baesh', issuer: 'BAESH', label: '확인', verifiedAt: null }
+        : { kind: 'baesh', issuer: 'BAESH', label: '인증', verifiedAt: null }
     const editable = viewer.isSelf && !fromProgram
     return {
       key: { v: row.issuedAt, id: row.id },
@@ -685,6 +685,33 @@ export async function listProfileHistory(
   const merged = batches.flat().sort((a, b) => compareSortKeys(a.key, b.key))
   const page = toPage(merged, options.limit, (entry) => entry.key)
   return { items: page.items.map((entry) => entry.item), nextCursor: page.nextCursor }
+}
+
+/**
+ * Numbered page of the merged timeline. Every source returns its first `page * limit` rows, which is
+ * always enough to cover the requested slice once merged.
+ */
+export async function listProfileHistoryPage(
+  viewer: ProfileViewer,
+  options: { type: HistoryType; limit: number; page: number },
+) {
+  const kinds = options.type === 'all' || options.type === 'verified' ? HISTORY_KINDS : [options.type]
+  const sourceOptions = { cursor: null, take: options.page * options.limit, verifiedOnly: options.type === 'verified' }
+  const [batches, counts] = await Promise.all([
+    Promise.all(kinds.map((kind) => SOURCES[kind](viewer, sourceOptions))),
+    countProfileHistory(viewer),
+  ])
+  const total = counts[options.type]
+  const totalPages = Math.max(1, Math.ceil(total / options.limit))
+  const merged = batches.flat().sort((a, b) => compareSortKeys(a.key, b.key))
+  const start = (options.page - 1) * options.limit
+  return {
+    items: merged.slice(start, start + options.limit).map((entry) => entry.item),
+    page: options.page,
+    pageSize: options.limit,
+    total,
+    totalPages,
+  }
 }
 
 export async function countProfileHistory(viewer: ProfileViewer) {

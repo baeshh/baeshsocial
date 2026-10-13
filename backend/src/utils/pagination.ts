@@ -40,7 +40,8 @@ export function decodeCursor(raw: string | undefined): SortKey | null {
 export function keysetAfter(field: string, cursor: SortKey | null, nullable = false): Record<string, unknown> {
   if (!cursor) return {}
   if (cursor.v === null) {
-    return { [field]: null, id: { lt: cursor.id } }
+    // Nulls sort last, so a non-nullable field has no rows after a null-keyed cursor.
+    return nullable ? { [field]: null, id: { lt: cursor.id } } : { id: { in: [] } }
   }
   return {
     OR: [

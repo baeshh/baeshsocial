@@ -20,6 +20,7 @@ import {
   buildProfileOverview,
   involvementWhere,
   listProfileHistory,
+  listProfileHistoryPage,
   listProfileProjects,
   requireProfileDetails,
   resolveProfileViewer,
@@ -147,6 +148,10 @@ profilesRouter.get('/:userId/history', optionalAuthenticate, async (req, res, ne
     const viewer = await resolveProfileViewer(String(req.params.userId), viewerIdOf(res))
     requireProfileDetails(viewer)
     const query = profileHistoryQuerySchema.parse(req.query)
+    if (query.page) {
+      res.status(200).json(await listProfileHistoryPage(viewer, { type: query.type, limit: query.limit, page: query.page }))
+      return
+    }
     const page = await listProfileHistory(viewer, {
       type: query.type,
       limit: query.limit,
