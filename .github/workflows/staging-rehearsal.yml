@@ -55,8 +55,9 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       REHEARSAL_DATABASE_URL: postgresql://baesh:rehearsal-only-not-a-secret@localhost:5432/baesh_rehearsal?schema=public
-      REHEARSAL_WORK: ${{ runner.temp }}/rehearsal
     steps:
+      - name: Work directory
+        run: echo "REHEARSAL_WORK=$RUNNER_TEMP/rehearsal" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
