@@ -1,0 +1,9 @@
+[Unit]
+Description=BAESH %i S3 file protection check
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=baesh
+Environment=BAESH_ENV=%i
+ExecStart=/srv/baesh/%i/current/deploy/scripts/file-backup-check.sh

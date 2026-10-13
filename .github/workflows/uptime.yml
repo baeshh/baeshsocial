@@ -1,0 +1,40 @@
+name: Uptime check
+
+# External probe (independent of the server's own scheduler). Set repo variable
+# UPTIME_URLS="https://api.baesh.kr/api https://staging-api.baesh.kr/api" and secret ALERT_WEBHOOK_URL.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: vars.UPTIME_URLS != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe /health/ready
+        env:
+          URLS: ${{ vars.UPTIME_URLS }}
+          WEBHOOK: ${{ secrets.ALERT_WEBHOOK_URL }}
+        run: |
+          failed=""
+          for base in $URLS; do
+            body=$(curl -sS -m 10 --retry 2 --retry-delay 5 "$base/health/ready" || true)
+            if echo "$body" | jq -e '.status == "ok"' >/dev/null 2>&1; then
+              echo "ok   $base $(echo "$body" | jq -c '{version, db}')"
+            else
+              echo "FAIL $base $body"
+              failed="$failed $base"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            if [ -n "$WEBHOOK" ]; then
+              payload=$(jq -n --arg t "[BAESH][critical] 외부 헬스체크 실패:$failed" '{text: $t, content: $t}')
+              curl -sS -m 10 -H 'Content-Type: application/json' -d "$payload" "$WEBHOOK" >/dev/null || true
+            fi
+            exit 1
+          fi

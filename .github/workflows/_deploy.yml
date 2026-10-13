@@ -1,0 +1,135 @@
+name: Deploy (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      mode:
+        type: string
+        default: deploy
+      rollback_to:
+        type: string
+        default: ''
+      allow_destructive_migration:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  deploy:
+    name: ${{ inputs.mode }} → ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ vars.APP_URL }}
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      BAESH_ENV: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Resolve version
+        id: version
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: inputs.mode == 'deploy'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Build release bundle
+        if: inputs.mode == 'deploy'
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: bash deploy/scripts/package-release.sh "${{ steps.version.outputs.sha }}" release.tgz
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host target\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  StrictHostKeyChecking yes\n  ServerAliveInterval 30\n' \
+            "${{ secrets.SSH_HOST }}" "${{ secrets.SSH_USER }}" > ~/.ssh/config
+
+      - name: Upload and deploy (backup → migration guard → migrate → switch → health → auto-rollback)
+        if: inputs.mode == 'deploy'
+        env:
+          VERSION: ${{ steps.version.outputs.sha }}
+          ALLOW_DESTRUCTIVE: ${{ inputs.allow_destructive_migration && 'true' || 'false' }}
+        run: |
+          scp release.tgz "target:/tmp/baesh-release-${VERSION}.tgz"
+          ssh target "bash -s" <<EOF
+          set -euo pipefail
+          TGZ=/tmp/baesh-release-${VERSION}.tgz
+          STAGE=\$(mktemp -d)
+          trap 'rm -rf "\$STAGE" "\$TGZ"' EXIT
+          tar -xzf "\$TGZ" -C "\$STAGE" ./deploy
+          BAESH_ENV=${BAESH_ENV} ALLOW_DESTRUCTIVE_MIGRATION=${ALLOW_DESTRUCTIVE} "\$STAGE/deploy/scripts/deploy.sh" "\$TGZ" "${VERSION}"
+          EOF
+
+      - name: Roll back
+        if: inputs.mode == 'rollback'
+        env:
+          TARGET: ${{ inputs.rollback_to }}
+        run: |
+          if [ -n "$TARGET" ] && ! printf '%s' "$TARGET" | grep -Eq '^[0-9a-f]{7,40}$'; then
+            echo "::error::rollback_to must be a release sha"; exit 1
+          fi
+          ssh target "BAESH_ENV=${BAESH_ENV} /srv/baesh/${BAESH_ENV}/current/deploy/scripts/rollback.sh ${TARGET}"
+
+      - name: Smoke tests
+        env:
+          API: ${{ vars.PUBLIC_API_URL }}
+          APP: ${{ vars.APP_URL }}
+          EXPECT: ${{ inputs.mode == 'deploy' && steps.version.outputs.sha || '' }}
+        run: |
+          set -euo pipefail
+          ready=$(curl -fsS --retry 5 --retry-delay 3 "$API/health/ready")
+          echo "ready: $ready"
+          echo "$ready" | jq -e '.status == "ok" and .db.ok == true' >/dev/null
+          if [ -n "$EXPECT" ]; then echo "$ready" | jq -e --arg v "$EXPECT" '.version == $v' >/dev/null; fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/me")
+          [ "$code" = "401" ] || { echo "::error::/auth/me without token returned $code (expected 401)"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$API/billing/plans")
+          [ "$code" = "200" ] || { echo "::error::/billing/plans returned $code"; exit 1; }
+          curl -fsS "$APP/" | grep -q 'id="root"' || { echo "::error::frontend index did not load"; exit 1; }
+          curl -fsS -o /dev/null "$APP/login"
+
+      - name: Mark commit as deployed to ${{ inputs.environment }}
+        if: success() && inputs.mode == 'deploy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ steps.version.outputs.sha }}" \
+            -f state=success -f context="deploy/${BAESH_ENV}" \
+            -f description="Deployed and smoke-tested" -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >/dev/null
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${{ inputs.mode }} → ${BAESH_ENV}: ${{ job.status }}"
+            echo "- ref: \`${{ inputs.ref }}\` (${{ steps.version.outputs.sha }})"
+            [ "${{ inputs.mode }}" = "rollback" ] && echo "- rollback target: \`${{ inputs.rollback_to || 'previous release' }}\`"
+            echo "- destructive migrations allowed: ${{ inputs.allow_destructive_migration }}"
+          } >> "$GITHUB_STEP_SUMMARY"

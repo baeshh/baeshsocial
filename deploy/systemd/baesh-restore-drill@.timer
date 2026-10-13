@@ -1,0 +1,10 @@
+# Weekly restore drill, Sunday 05:00 KST. The ops dashboard flags drills older than 35 days.
+[Unit]
+Description=Weekly BAESH %i restore drill
+
+[Timer]
+OnCalendar=Sat *-*-* 20:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

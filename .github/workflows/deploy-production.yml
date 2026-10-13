@@ -1,0 +1,106 @@
+name: Deploy production
+
+# Manual only. The `production` environment must have required reviewers; the
+# `production-destructive` environment (separate reviewers) gates data-loss migrations.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit sha or ref (must already be deployed to staging)
+        required: true
+        default: main
+      mode:
+        description: deploy = ship ref, rollback = point back to an existing release
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+      rollback_to:
+        description: (rollback) release sha on the server; empty = previous release
+        default: ''
+      allow_destructive_migration:
+        description: Allow migrations marked `-- baesh:allow-destructive` (needs a second approval)
+        type: boolean
+        default: false
+      skip_staging_check:
+        description: Hotfix only — skip the "deployed to staging" requirement
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Require a successful staging deploy of this commit
+        if: inputs.mode == 'deploy' && !inputs.skip_staging_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=$(gh api "repos/${{ github.repository }}/commits/${{ steps.sha.outputs.sha }}/statuses" \
+            --jq '[.[] | select(.context == "deploy/staging")][0].state // "missing"')
+          echo "staging status: $state"
+          [ "$state" = "success" ] || { echo "::error::${{ steps.sha.outputs.sha }} has not been deployed to staging successfully"; exit 1; }
+
+      - name: Migration safety report (vs. version running in production)
+        if: inputs.mode == 'deploy' && vars.PRODUCTION_API_URL != ''
+        env:
+          API: ${{ vars.PRODUCTION_API_URL }}
+          ALLOW: ${{ inputs.allow_destructive_migration }}
+        run: |
+          running=$(curl -fsS "$API/health" | jq -r '.version // empty' || true)
+          echo "production is running: ${running:-unknown}"
+          if [ -z "$running" ] || ! git cat-file -e "${running}^{commit}" 2>/dev/null; then
+            echo "::warning::cannot resolve running version; the server-side guard will still block unapproved destructive migrations"
+            exit 0
+          fi
+          cd backend && npm ci --no-audit --no-fund --ignore-scripts >/dev/null
+          set +e
+          npx tsx scripts/checkMigrations.ts --base "$running"
+          rc=$?
+          set -e
+          changed=$(git diff --name-only --diff-filter=AM "$running...HEAD" -- prisma/migrations | grep 'migration.sql$' | sed 's#^backend/##' || true)
+          echo "migrations since ${running}: $(printf '%s' "$changed" | grep -c . || true)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$changed" ] && grep -l 'baesh:allow-destructive' $changed; then
+            if [ "$ALLOW" != "true" ]; then
+              echo "::error::this release contains destructive migrations; re-run with allow_destructive_migration=true"
+              exit 1
+            fi
+            echo "⚠️ destructive migrations approved for this run" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $rc
+
+  destructive-approval:
+    name: Approve data-loss migration
+    needs: preflight
+    if: inputs.mode == 'deploy' && inputs.allow_destructive_migration
+    runs-on: ubuntu-latest
+    environment: production-destructive
+    steps:
+      - run: echo "Destructive migration for ${{ needs.preflight.outputs.sha }} approved by ${{ github.actor }}"
+
+  deploy:
+    needs: [preflight, destructive-approval]
+    if: >-
+      always() && needs.preflight.result == 'success' &&
+      (needs.destructive-approval.result == 'success' || needs.destructive-approval.result == 'skipped')
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: production
+      ref: ${{ needs.preflight.outputs.sha }}
+      mode: ${{ inputs.mode }}
+      rollback_to: ${{ inputs.rollback_to }}
+      allow_destructive_migration: ${{ inputs.allow_destructive_migration }}
+    secrets: inherit

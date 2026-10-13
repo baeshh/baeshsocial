@@ -1,0 +1,13 @@
+[Unit]
+Description=BAESH %i restore drill (latest backup → scratch DB → verify)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=baesh
+Environment=BAESH_ENV=%i
+# Point at a separate drill instance when available:
+# Environment=RESTORE_ADMIN_URL=postgresql://drill:***@drill-db.internal:5432/postgres
+ExecStart=/srv/baesh/%i/current/deploy/scripts/restore-drill.sh
+Nice=10

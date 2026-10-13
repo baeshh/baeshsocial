@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    name: Backend (typecheck · tests · migrations)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/baesh_ci?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/baesh_ci_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Integration tests (isolation · auth · billing · invites · ops)
+        run: npm test
+      - name: Migrations apply cleanly to an empty database
+        run: npx prisma migrate deploy
+      - name: Destructive migration guard
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            BASE="${{ github.event.before }}"
+          else
+            BASE="HEAD~1"
+          fi
+          npm run migrations:check -- --base "$BASE"
+
+  frontend:
+    name: Frontend (lint · typecheck · build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck + build
+        run: npm run build
+        env:
+          VITE_API_URL: https://api.example.invalid/api
+
+  security:
+    name: Security (secrets · dependencies)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secret scan (gitleaks)
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/gitleaks/gitleaks:v8.21.2 \
+            dir /repo --config /repo/.gitleaks.toml --redact --no-banner --exit-code 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Dependency audit (production deps, high/critical; waivers in .github/audit-allowlist.json)
+        run: |
+          node .github/scripts/audit-gate.mjs backend
+          node .github/scripts/audit-gate.mjs frontend
+      - name: Forbid committed env files
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.(local|production|staging))' | grep -v '\.env\.example$'; then
+            echo "::error::.env files must never be committed"; exit 1
+          fi

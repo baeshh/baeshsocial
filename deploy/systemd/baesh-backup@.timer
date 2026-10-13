@@ -1,0 +1,11 @@
+# Daily at 03:30 KST (18:30 UTC). Enable: systemctl enable --now baesh-backup@production.timer
+[Unit]
+Description=Daily BAESH %i database backup
+
+[Timer]
+OnCalendar=*-*-* 18:30:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
