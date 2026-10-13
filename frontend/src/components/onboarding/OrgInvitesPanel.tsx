@@ -22,7 +22,7 @@ const RESULT_LABEL: Record<string, { label: string; tone: 'green' | 'blue' | 'gr
   invalid: { label: '오류', tone: 'red' },
 }
 
-const ROLE_LABEL: Record<InviteRole, string> = { admin: '관리자', manager: '담당자', member: '학생·참여자' }
+const ROLE_LABEL: Record<InviteRole, string> = { admin: '관리자', manager: '담당자', member: '참여자' }
 
 function copy(text: string) {
   void navigator.clipboard?.writeText(text).then(
@@ -117,7 +117,7 @@ export function OrgInvitesPanel({ orgId }: { orgId: string }) {
         <CardHeader>
           <CardTitle>일괄 초대</CardTitle>
           <CardDescription>
-            CSV(이메일, 이름, 학번, 학과, 역할)를 불러오거나 붙여 넣으세요. 초대 링크는 해당 이메일 계정으로만 수락할 수 있고, 프로그램을 고르면 수락과 동시에 참여자로 등록됩니다.
+            CSV(이메일, 이름, 소속번호, 소속, 역할)를 불러오거나 붙여 넣으세요. 소속번호·소속에는 학번·학과나 사번·부서를 적으면 되고, 비워 두어도 됩니다. 초대 링크는 해당 이메일 계정으로만 수락할 수 있고, 프로그램을 고르면 수락과 동시에 참여자로 등록됩니다.
           </CardDescription>
         </CardHeader>
         <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
@@ -141,7 +141,7 @@ export function OrgInvitesPanel({ orgId }: { orgId: string }) {
             onChange={(event) => setRole(event.target.value as InviteRole)}
             value={role}
           >
-            <option value="member">기본 역할: 학생·참여자</option>
+            <option value="member">기본 역할: 참여자</option>
             <option value="manager">기본 역할: 담당자</option>
             {canInviteStaff ? <option value="admin">기본 역할: 관리자</option> : null}
           </select>
@@ -158,7 +158,7 @@ export function OrgInvitesPanel({ orgId }: { orgId: string }) {
         <textarea
           className="mt-3 h-36 w-full rounded-2xl border border-surface-border bg-white p-3 font-mono text-xs text-ink-strong outline-none focus:border-brand-500"
           onChange={(event) => setText(event.target.value)}
-          placeholder={'이메일,이름,학번,학과\nstudent01@univ.ac.kr,홍길동,20260001,컴퓨터공학과'}
+          placeholder={'이메일,이름,소속번호,소속\nhong@example.ac.kr,홍길동,20260001,컴퓨터공학과\nkim@example.com,김지원,A1023,개발팀'}
           value={text}
         />
         {parsed.errors.length > 0 ? <p className="mt-2 text-sm text-red-700">{parsed.errors.slice(0, 3).join(' · ')}</p> : null}
@@ -252,7 +252,7 @@ export function OrgInvitesPanel({ orgId }: { orgId: string }) {
               <thead className="text-left text-xs text-ink-muted">
                 <tr>
                   <th className="py-2">이메일</th>
-                  <th>이름·학번</th>
+                  <th>이름·소속번호</th>
                   <th>역할</th>
                   <th>프로그램</th>
                   <th>상태</th>

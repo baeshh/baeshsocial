@@ -221,7 +221,7 @@ export function ProgramBasicsFields({
             </option>
           ))}
         </Select>
-        <Input label="학기·기수 (선택)" maxLength={40} onChange={(event) => set('term', event.target.value)} placeholder="예: 2026-2, 3기" value={value.term} />
+        <Input label="기수·회차 (선택)" maxLength={40} onChange={(event) => set('term', event.target.value)} placeholder="예: 3기, 2026 하반기, 2026-2학기" value={value.term} />
       </div>
       <Textarea
         className="min-h-28"
@@ -281,6 +281,7 @@ export function ProgramBasicsFields({
 }
 
 const GRADE_OPTIONS = [1, 2, 3, 4, 5, 6]
+const STUDENT_AUDIENCES: ProgramAudience[] = ['high_school', 'undergraduate', 'graduate']
 
 /** Step 2 — 참여자를 어떻게 모집하나요? */
 export function ProgramRecruitmentFields({ value, onChange, lockMode = false }: SectionProps & { lockMode?: boolean }) {
@@ -291,6 +292,7 @@ export function ProgramRecruitmentFields({ value, onChange, lockMode = false }: 
     eligibility.schools || eligibility.grades.length || eligibility.majors || eligibility.regions || eligibility.requirements,
   )
   const [showConditions, setShowConditions] = useState(hasConditions)
+  const showGrades = eligibility.grades.length > 0 || value.audiences.some((audience) => STUDENT_AUDIENCES.includes(audience))
   const setEligibility = (patch: Partial<typeof eligibility>) => onChange((prev) => ({ ...prev, eligibility: { ...prev.eligibility, ...patch } }))
 
   return (
@@ -342,11 +344,30 @@ export function ProgramRecruitmentFields({ value, onChange, lockMode = false }: 
         </div>
         {showConditions ? (
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            <Input label="학교" maxLength={300} onChange={(event) => setEligibility({ schools: event.target.value })} placeholder="예: 대구·경북 소재 대학" value={eligibility.schools} />
-            <Input label="전공" maxLength={300} onChange={(event) => setEligibility({ majors: event.target.value })} placeholder="예: 전공 무관" value={eligibility.majors} />
-            <Input label="거주 지역" maxLength={300} onChange={(event) => setEligibility({ regions: event.target.value })} placeholder="예: 대구광역시" value={eligibility.regions} />
+            <Input
+              label="소속 (학교·회사·기관)"
+              maxLength={300}
+              onChange={(event) => setEligibility({ schools: event.target.value })}
+              placeholder="예: 대구·경북 소재 대학 또는 기업"
+              value={eligibility.schools}
+            />
+            <Input
+              label="전공·직무 분야"
+              maxLength={300}
+              onChange={(event) => setEligibility({ majors: event.target.value })}
+              placeholder="예: 무관 / 개발·디자인 직군"
+              value={eligibility.majors}
+            />
+            <Input
+              label="지역 (거주·근무)"
+              maxLength={300}
+              onChange={(event) => setEligibility({ regions: event.target.value })}
+              placeholder="예: 대구·경북 거주 또는 근무"
+              value={eligibility.regions}
+            />
+            {showGrades ? (
             <fieldset>
-              <legend className="text-sm font-medium text-ink-strong">학년</legend>
+              <legend className="text-sm font-medium text-ink-strong">학년 (학생 대상)</legend>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {GRADE_OPTIONS.map((grade) => {
                   const checked = eligibility.grades.includes(grade)
@@ -364,13 +385,14 @@ export function ProgramRecruitmentFields({ value, onChange, lockMode = false }: 
                 })}
               </div>
             </fieldset>
+            ) : null}
             <div className="sm:col-span-2">
               <Textarea
                 className="min-h-16"
                 label="자격 요건"
                 maxLength={1000}
                 onChange={(event) => setEligibility({ requirements: event.target.value })}
-                placeholder="예: 팀 단위(2~4인) 지원, 사업자 등록 3년 이내"
+                placeholder="예: 관련 경력 2년 이상, 팀 단위(2~4인) 지원, 사업자 등록 3년 이내"
                 value={eligibility.requirements}
               />
             </div>
@@ -425,8 +447,8 @@ export function ProgramRecruitmentFields({ value, onChange, lockMode = false }: 
       ) : (
         <p className="rounded-xl bg-surface-muted px-4 py-3 text-sm text-ink-body">
           {value.recruitmentMode === 'invite'
-            ? '프로그램을 만든 뒤 참여 학생 탭에서 이메일 또는 CSV로 초대를 보냅니다. 초대를 수락한 사람만 참여자로 등록됩니다.'
-            : '프로그램을 만든 뒤 참여 학생 탭에서 선발된 명단을 이메일 또는 CSV로 등록합니다. 별도의 모집 공고나 지원서는 필요 없습니다.'}
+            ? '프로그램을 만든 뒤 참여자 탭에서 이메일 또는 CSV로 초대를 보냅니다. 초대를 수락한 사람만 참여자로 등록됩니다.'
+            : '프로그램을 만든 뒤 참여자 탭에서 선발된 명단을 이메일 또는 CSV로 등록합니다. 별도의 모집 공고나 지원서는 필요 없습니다.'}
         </p>
       )}
     </div>
@@ -461,15 +483,15 @@ export function ProgramVisibilityFields({ value, onChange }: SectionProps) {
 }
 
 const POLICY_TOGGLES: Array<{ key: Exclude<keyof ProgramPolicy, 'recordDisclosure'>; label: string; hint: string; requires?: keyof ProgramPolicy }> = [
-  { key: 'allowStudentProjects', label: '학생이 프로젝트를 직접 만들거나 기존 프로젝트를 연결', hint: '끄면 담당자가 만든 프로젝트에 배정하는 방식만 사용합니다.' },
+  { key: 'allowStudentProjects', label: '참여자가 프로젝트를 직접 만들거나 기존 프로젝트를 연결', hint: '끄면 담당자가 만든 프로젝트에 배정하는 방식만 사용합니다.' },
   {
     key: 'requireProjectApproval',
-    label: '학생 프로젝트 등록 시 담당자 승인 필요',
+    label: '참여자 프로젝트 등록 시 담당자 승인 필요',
     hint: '등록 승인은 프로그램 소속을 인정할 뿐, 성과 인증과는 별개입니다.',
     requires: 'allowStudentProjects',
   },
-  { key: 'allowStudentTeams', label: '팀장이 참여 학생을 직접 초대해 팀 구성', hint: '이 프로그램 참여 학생만 초대할 수 있습니다.' },
-  { key: 'allowMultipleProjects', label: '학생 1명이 여러 프로젝트에 참여 허용', hint: '끄면 학생은 이 프로그램에서 한 팀에만 속합니다.' },
+  { key: 'allowStudentTeams', label: '팀장이 참여자를 직접 초대해 팀 구성', hint: '이 프로그램 참여자만 초대할 수 있습니다.' },
+  { key: 'allowMultipleProjects', label: '참여자 1명이 여러 프로젝트에 참여 허용', hint: '끄면 참여자는 이 프로그램에서 한 팀에만 속합니다.' },
   { key: 'allowPublicProjects', label: '프로젝트 전체 공개 허용', hint: '끄면 기존 전체 공개 프로젝트는 팀 공개로 바뀝니다.' },
 ]
 
@@ -506,7 +528,7 @@ export function ProgramPolicyFields({ value, onChange }: { value: ProgramPolicy;
           </option>
         ))}
       </Select>
-      <p className="text-xs text-ink-muted">학생은 이 범위 안에서 자신의 인증 기록을 얼마나 공개할지 직접 선택합니다.</p>
+      <p className="text-xs text-ink-muted">참여자는 이 범위 안에서 자신의 인증 기록을 얼마나 공개할지 직접 선택합니다.</p>
     </div>
   )
 }

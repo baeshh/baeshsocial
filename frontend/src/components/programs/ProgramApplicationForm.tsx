@@ -298,7 +298,7 @@ export function ProgramApplicationForm({
         )
       })}
       <p className="text-xs text-ink-muted">
-        BAESH 프로필(이름·학교·전공·경력)이 지원서와 함께 이 프로그램 담당자에게만 공개됩니다. 선발되면 {program.organization.name}의
+        BAESH 프로필(이름·소속·전공/직무·경력)이 지원서와 함께 이 프로그램 담당자에게만 공개됩니다. 선발되면 {program.organization.name}의
         프로그램 참여자로 자동 등록됩니다.
       </p>
       <div className="flex flex-col gap-2 sm:flex-row">

@@ -52,7 +52,7 @@ export function OrgProgramsPanel({ organization, myRole }: Props) {
 
       {programs.length === 0 ? (
         <EmptyState
-          description={canCreate ? '예: 2026 AI 창업 부트캠프, SW 캡스톤처럼 운영 단위를 먼저 만들어 주세요.' : '담당자가 프로그램에 등록하면 이곳에 표시됩니다.'}
+          description={canCreate ? '예: 2026 AI 창업 부트캠프, SW 캡스톤, 신입사원 온보딩처럼 운영 단위를 먼저 만들어 주세요.' : '담당자가 프로그램에 등록하면 이곳에 표시됩니다.'}
           title="아직 프로그램이 없습니다"
         />
       ) : (

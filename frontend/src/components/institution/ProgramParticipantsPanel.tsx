@@ -16,7 +16,7 @@ import { Button } from '../common/Button'
 import { Card, CardDescription, CardHeader, CardTitle } from '../common/Card'
 import { LoadingState } from '../common/LoadingState'
 
-/** One participant per line: "email[, 학번[, 학과]]". */
+/** One participant per line: "email[, 소속번호(학번·사번)[, 소속(학과·부서)]]". */
 function parseLines(text: string): ParticipantInput[] {
   return text
     .split('\n')
@@ -88,7 +88,7 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
               {{ invite: '참여자 초대·등록', open: '참여자 직접 등록', preselected: '기선발 참여자 등록', mixed: '기선발 참여자 등록' }[program.recruitment.mode]}
             </CardTitle>
             <CardDescription>
-              한 줄에 한 명씩 <code className="rounded bg-surface-muted px-1">이메일, 학번, 학과</code> 형식으로 붙여 넣으세요. 조직에
+              한 줄에 한 명씩 <code className="rounded bg-surface-muted px-1">이메일, 소속번호, 소속</code> 형식으로 붙여 넣으세요(소속번호·소속은 학번·학과 또는 사번·부서, 생략 가능). 조직에
               가입 신청한 사람은 등록과 함께 구성원으로 승인되고, 가입하지 않은 사람은 사유와 함께 제외됩니다.
             </CardDescription>
           </CardHeader>
@@ -105,7 +105,7 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
           <textarea
             className="min-h-32 w-full rounded-2xl border border-surface-border px-4 py-3 font-mono text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
             onChange={(e) => setText(e.target.value)}
-            placeholder={'student1@kiu.ac.kr, 20260001, 컴퓨터공학과\nstudent2@kiu.ac.kr, 20260002'}
+            placeholder={'hong@example.ac.kr, 20260001, 컴퓨터공학과\nkim@example.com, A1023, 개발팀\nlee@example.com'}
             value={text}
           />
           <div className="mt-3 flex items-center justify-between gap-3">
@@ -137,7 +137,7 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
       <Card className="overflow-hidden rounded-2xl p-0">
         <div className="flex flex-wrap items-center gap-3 border-b border-surface-border px-5 py-4">
           <p className="font-bold text-ink-strong">
-            참여 학생 {total}명 <span className="text-sm font-medium text-ink-muted">· 팀 미배정 {unassigned}명</span>
+            참여자 {total}명 <span className="text-sm font-medium text-ink-muted">· 팀 미배정 {unassigned}명</span>
           </p>
           <div className="ml-auto flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-1.5 text-xs font-semibold text-ink-body">
@@ -147,20 +147,20 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
             <input
               className="h-9 w-56 rounded-full border border-surface-border px-4 text-sm outline-none focus:border-brand-500"
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="이름·학번·팀 검색"
+              placeholder="이름·소속번호·팀 검색"
               value={search}
             />
           </div>
         </div>
         {participants.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-ink-muted">{total === 0 ? '등록된 참여 학생이 없습니다.' : '조건에 맞는 학생이 없습니다.'}</p>
+          <p className="px-5 py-6 text-sm text-ink-muted">{total === 0 ? '등록된 참여자가 없습니다.' : '조건에 맞는 참여자가 없습니다.'}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-surface-muted/60 text-left text-xs font-semibold text-ink-muted">
                 <tr>
-                  <th className="px-5 py-3">학생</th>
-                  <th className="px-3 py-3">학번 · 학과</th>
+                  <th className="px-5 py-3">참여자</th>
+                  <th className="px-3 py-3">소속번호 · 소속</th>
                   <th className="px-3 py-3">팀</th>
                   <th className="px-3 py-3 text-right">대기 / 승인 / 반려</th>
                   <th className="px-5 py-3" />

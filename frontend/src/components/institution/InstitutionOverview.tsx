@@ -93,7 +93,7 @@ export function InstitutionOverview({ orgId, institution, programFilter, onProgr
       <Card>
         <CardHeader>
           <CardTitle>프로그램 운영 현황</CardTitle>
-          <CardDescription>캡스톤·교육 프로그램을 개설하면 프로젝트·학생·증빙 현황이 이곳에 모입니다.</CardDescription>
+          <CardDescription>교육·캡스톤·사내 프로그램을 개설하면 프로젝트·참여자·증빙 현황이 이곳에 모입니다.</CardDescription>
         </CardHeader>
         <Button className="w-fit" onClick={onOpenPrograms}>
           첫 프로그램 만들기
@@ -126,7 +126,7 @@ export function InstitutionOverview({ orgId, institution, programFilter, onProgr
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi icon={<Layers size={14} />} label="프로그램" value={totals.programCount} />
         <Kpi icon={<FolderKanban size={14} />} label="프로젝트" value={totals.projectCount} hint={`평균 진행률 ${percent(totals.averageProgress)}`} />
-        <Kpi icon={<GraduationCap size={14} />} label="참여 학생" value={totals.participantCount} />
+        <Kpi icon={<GraduationCap size={14} />} label="참여자" value={totals.participantCount} />
         <Kpi icon={<ClipboardCheck size={14} />} label="검토 대기" value={totals.pendingReview} hint="제출된 증빙" />
         <Kpi
           icon={<Send size={14} />}
@@ -156,7 +156,7 @@ export function InstitutionOverview({ orgId, institution, programFilter, onProgr
                   <th className="px-6 py-3">프로그램</th>
                   <th className="px-3 py-3">상태</th>
                   <th className="px-3 py-3 text-right">프로젝트</th>
-                  <th className="px-3 py-3 text-right">학생</th>
+                  <th className="px-3 py-3 text-right">참여자</th>
                   <th className="px-3 py-3 text-right">검토 대기</th>
                   <th className="px-3 py-3 text-right">제출률</th>
                   <th className="px-6 py-3" />

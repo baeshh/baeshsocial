@@ -101,7 +101,7 @@ export function ProfileProjectCard({ project, variant = 'list', pin, linkToProje
       {limited ? (
         <p className="mt-3 flex items-start gap-2 rounded-xl bg-surface-muted/70 px-3 py-2 text-xs leading-relaxed text-ink-muted">
           <Lock className="mt-0.5 shrink-0" size={13} />
-          팀 전용 프로젝트입니다. 학생이 공개를 허용한 기관 인증 기록만 표시됩니다.
+          팀 전용 프로젝트입니다. 참여자가 공개를 허용한 기관 인증 기록만 표시됩니다.
         </p>
       ) : (
         <>

@@ -41,7 +41,7 @@ export function VerificationBadge({ verification, detailed = false, className }:
         )}
         title={
           official
-            ? '기관 담당자가 승인된 활동 증빙을 근거로 프로젝트 성과와 이 학생의 역할·기여를 공식 인증했습니다.'
+            ? '기관 담당자가 승인된 활동 증빙을 근거로 프로젝트 성과와 이 참여자의 역할·기여를 공식 인증했습니다.'
             : institution
               ? '기관 담당자가 제출된 증빙을 확인하고 승인한 활동입니다.'
               : verification.kind === 'program'

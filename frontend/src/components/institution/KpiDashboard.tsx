@@ -113,7 +113,7 @@ function TrendChart({ result }: { result: KpiResult }) {
   return (
     <div>
       <svg className="w-full" role="img" viewBox={`0 0 ${width} ${height + 18}`}>
-        <title>기간별 증빙 제출·승인 건수와 활동 학생 수</title>
+        <title>기간별 증빙 제출·승인 건수와 활동 참여자 수</title>
         <line stroke="#e2e8f0" x1="0" x2={width} y1={height} y2={height} />
         {buckets.map((b, i) => {
           const x = i * step + step / 2
@@ -138,7 +138,7 @@ function TrendChart({ result }: { result: KpiResult }) {
       <p className="mt-2 flex flex-wrap gap-4 text-xs text-ink-muted">
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#93c5fd]" />증빙 제출</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#16a34a]" />증빙 승인</span>
-        <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-3 bg-[#7c3aed]" />활동 학생 수</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-3 bg-[#7c3aed]" />활동 참여자 수</span>
         <span>{result.trend.granularity === 'month' ? '월' : '주'} 단위 · 최대 {max}</span>
       </p>
     </div>
@@ -218,7 +218,7 @@ export function KpiDashboard({ result, aside }: { result: KpiResult; aside?: Rea
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard hint={`완료 ${c.completedProjects}개`} label="운영 프로젝트" value={c.projects} />
-        <MetricCard hint={`등록 ${c.uniqueStudents}명 중 기간 내 활동`} label="참여 학생" value={c.activeStudents} />
+        <MetricCard hint={`등록 ${c.uniqueStudents}명 중 기간 내 활동`} label="활동 참여자" value={c.activeStudents} />
         <MetricCard
           definition={defs.submissionRate}
           hint={`${m.submissionRate.numerator} / ${m.submissionRate.denominator}명`}
@@ -278,7 +278,7 @@ export function KpiDashboard({ result, aside }: { result: KpiResult; aside?: Rea
                 <tr>
                   <th className="py-2">프로그램</th>
                   <th>프로젝트</th>
-                  <th>등록 학생</th>
+                  <th>등록 참여자</th>
                   <th>참여율</th>
                   <th>제출률</th>
                   <th>승인율</th>
@@ -327,7 +327,7 @@ export function KpiDashboard({ result, aside }: { result: KpiResult; aside?: Rea
                 <th className="py-2">팀 · 프로젝트</th>
                 <th>상태</th>
                 <th>팀원</th>
-                <th title="기간 내 활동 기록 또는 증빙을 작성한 등록 학생 수">참여 학생</th>
+                <th title="기간 내 활동 기록 또는 증빙을 작성한 등록 참여자 수">활동 참여자</th>
                 <th>태스크</th>
                 <th>기간 내 활동</th>
                 <th>증빙 제출</th>

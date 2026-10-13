@@ -48,8 +48,8 @@ function DecisionModal({
     <Modal
       description={
         decision === 'approve'
-          ? '승인하면 같은 프로젝트가 그대로 프로그램에 연결되고 팀원은 참여 학생으로 등록됩니다. 등록 승인은 성과 인증이 아닙니다.'
-          : '반려해도 학생의 프로젝트는 개인 프로젝트로 그대로 남습니다. 사유는 학생에게 전달됩니다.'
+          ? '승인하면 같은 프로젝트가 그대로 프로그램에 연결되고 팀원은 참여자로 등록됩니다. 등록 승인은 성과 인증이 아닙니다.'
+          : '반려해도 참여자의 프로젝트는 개인 프로젝트로 그대로 남습니다. 사유는 신청자에게 전달됩니다.'
       }
       onClose={onClose}
       open
@@ -145,9 +145,9 @@ export function ProgramRequestsPanel({ program }: { program: Program }) {
         <p className="text-sm text-ink-muted">
           {program.policy.allowStudentProjects
             ? program.policy.requireProjectApproval
-              ? '학생이 만들거나 연결한 프로젝트는 승인 후 프로그램에 등록됩니다. 등록 승인은 성과 인증과 별개입니다.'
-              : '이 프로그램은 학생 프로젝트를 자동 승인합니다. 아래에서 등록 이력을 확인하세요.'
-            : '학생 프로젝트 등록이 꺼져 있습니다. 설정 탭의 운영 정책에서 켤 수 있습니다.'}
+              ? '참여자가 만들거나 연결한 프로젝트는 승인 후 프로그램에 등록됩니다. 등록 승인은 성과 인증과 별개입니다.'
+              : '이 프로그램은 참여자 프로젝트를 자동 승인합니다. 아래에서 등록 이력을 확인하세요.'
+            : '참여자 프로젝트 등록이 꺼져 있습니다. 설정 탭의 운영 정책에서 켤 수 있습니다.'}
         </p>
         <div className="flex gap-1 rounded-full border border-surface-border bg-white p-1">
           {FILTERS.map((item) => (

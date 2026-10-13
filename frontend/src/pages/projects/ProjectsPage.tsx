@@ -887,7 +887,7 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                 <Panel icon={<UsersRound size={20} />} title="팀">
                   <p className="mb-4 text-sm text-ink-muted">
                     {project.program
-                      ? '기관 프로그램 프로젝트는 이 프로그램 참여 학생만 초대할 수 있습니다.'
+                      ? '기관 프로그램 프로젝트는 이 프로그램 참여자만 초대할 수 있습니다.'
                       : '팀 초대는 사이드바의 + 버튼에서 팔로잉·팔로워·맞팔로우 목록으로 보낼 수 있습니다.'}
                     {isLeader && project.visibility === 'PRIVATE' ? ' 비공개 상태에서는 “비공개 열람”을 허용한 팀원만 내용을 볼 수 있습니다.' : ''}
                   </p>

@@ -141,7 +141,7 @@ export function AuthEntryPage() {
                       {option === 'personal' ? '개인' : ORG_TYPE_META[option].label}
                     </span>
                     <span className="block text-xs text-ink-muted">
-                      {option === 'personal' ? '학생 · 개발자 · 일반' : ORG_TYPE_META[option].audience}
+                      {option === 'personal' ? '학생 · 직장인 · 개인' : ORG_TYPE_META[option].audience}
                     </span>
                   </button>
                 ))}

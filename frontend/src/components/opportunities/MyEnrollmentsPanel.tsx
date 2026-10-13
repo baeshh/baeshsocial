@@ -27,7 +27,7 @@ function enrollmentStatusLabel(status: OpportunityEnrollmentStatus) {
     case 'APPLIED':
       return '신청 대기'
     case 'ENROLLED':
-      return '선정 · 수강 중'
+      return '선정 · 참여 중'
     case 'COMPLETED':
       return '수료 완료'
     case 'REJECTED':
@@ -159,7 +159,7 @@ function EnrollmentRow({ enrollment, onWithdraw, withdrawing, withdrawError }: E
               {withdrawing
                 ? '취소 중…'
                 : enrollment.status === 'ENROLLED'
-                  ? '수강 취소'
+                  ? '참여 취소'
                   : '신청 취소'}
             </Button>
           ) : null}

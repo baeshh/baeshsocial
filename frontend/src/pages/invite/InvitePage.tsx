@@ -11,7 +11,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { useOrgContextStore } from '../../stores/orgContextStore'
 import { showToast } from '../../stores/toastStore'
 
-const ROLE_LABEL: Record<string, string> = { admin: '관리자', manager: '담당자', member: '학생·참여자' }
+const ROLE_LABEL: Record<string, string> = { admin: '관리자', manager: '담당자', member: '참여자' }
 
 export function InvitePage() {
   const { token: inviteToken = '' } = useParams()

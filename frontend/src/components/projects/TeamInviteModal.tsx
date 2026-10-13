@@ -22,7 +22,7 @@ const relationLabels: Record<TeamCandidateRelation, string> = {
   mutual: '맞팔로우',
   following: '팔로잉',
   follower: '팔로워',
-  participant: '프로그램 참여 학생',
+  participant: '프로그램 참여자',
 }
 
 type TeamInviteModalProps = {
@@ -99,7 +99,7 @@ export function TeamInviteModal({
     <Modal
       description={
         inProgram
-          ? `「${projectTitle}」은 ${programTitle} 프로그램 프로젝트입니다. 이 프로그램 참여 학생 중 다른 팀에 속하지 않은 학생만 초대할 수 있습니다.`
+          ? `「${projectTitle}」은 ${programTitle} 프로그램 프로젝트입니다. 이 프로그램 참여자 중 다른 팀에 속하지 않은 사람만 초대할 수 있습니다.`
           : `「${projectTitle}」에 초대할 사람을 선택하세요. 초대를 수락하면 선택한 역할 권한으로 팀에 합류합니다.`
       }
       onClose={onClose}
@@ -164,7 +164,7 @@ export function TeamInviteModal({
           {list.length === 0 ? (
             <li className="py-8 text-center text-sm text-ink-muted">
               {inProgram
-                ? '초대할 수 있는 참여 학생이 없습니다.'
+                ? '초대할 수 있는 참여자가 없습니다.'
                 : tab === 'mutual'
                 ? '맞팔로우한 사람이 없습니다.'
                 : tab === 'following'

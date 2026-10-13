@@ -16,7 +16,7 @@ export function EvidenceRevokeAction({ evidence }: { evidence: Evidence }) {
   const revoke = useMutation({
     mutationFn: () => revokeEvidence(token!, evidence.id, reason.trim()),
     onSuccess: () => {
-      showToast('승인을 취소했습니다. 학생 프로필의 검증 표시가 해제됩니다.', 'info')
+      showToast('승인을 취소했습니다. 작성자 프로필의 검증 표시가 해제됩니다.', 'info')
       setOpen(false)
       setReason('')
       void queryClient.invalidateQueries({ queryKey: ['evidence'] })
@@ -42,7 +42,7 @@ export function EvidenceRevokeAction({ evidence }: { evidence: Evidence }) {
         className="min-h-11 flex-1 resize-y rounded-2xl border border-red-200 px-4 py-2.5 text-sm outline-none focus:border-red-400 focus:ring-4 focus:ring-red-100"
         maxLength={1000}
         onChange={(event) => setReason(event.target.value)}
-        placeholder="승인 취소 사유 (5자 이상, 학생에게 전달됩니다)"
+        placeholder="승인 취소 사유 (5자 이상, 작성자에게 전달됩니다)"
         rows={1}
         value={reason}
       />

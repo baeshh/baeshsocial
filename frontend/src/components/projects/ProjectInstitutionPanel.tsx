@@ -97,7 +97,7 @@ function VerifyModal({
 
   return (
     <Modal
-      description="승인된 활동 증빙을 근거로 인증합니다. 승인 증빙이 없는 학생은 인증할 수 없으며, 인증 후 내용은 고정되어 학생이 수정할 수 없습니다."
+      description="승인된 활동 증빙을 근거로 인증합니다. 승인 증빙이 없는 참여자는 인증할 수 없으며, 인증 후 내용은 고정되어 본인이 수정할 수 없습니다."
       onClose={onClose}
       open
       title={mode === 'project' ? '프로젝트 성과 인증' : '팀원 추가 인증'}
@@ -228,7 +228,7 @@ function VerificationSection({ projectId, programId, organizationName }: Omit<Pr
           <ShieldCheck className="text-emerald-600" size={20} /> 성과 인증
         </CardTitle>
         <CardDescription>
-          등록 승인과 성과 인증은 별개입니다. 기관 담당자가 승인된 증빙을 근거로 프로젝트 성과와 학생별 역할·기여를 인증하면 학생 프로필에 “기관 공식 인증
+          등록 승인과 성과 인증은 별개입니다. 기관 담당자가 승인된 증빙을 근거로 프로젝트 성과와 참여자별 역할·기여를 인증하면 참여자 프로필에 “기관 공식 인증
           완료”로 표시됩니다.
         </CardDescription>
       </CardHeader>
@@ -348,7 +348,7 @@ export function ProjectInstitutionPanel({ projectId, programId, programTitle, or
   const removeProject = useMutation({
     mutationFn: () => removeProgramProject(token!, programId, projectId, removeReason.trim()),
     onSuccess: () => {
-      showToast('프로그램에서 제거했습니다. 프로젝트는 학생의 개인 프로젝트로 남습니다.', 'info')
+      showToast('프로그램에서 제거했습니다. 프로젝트는 참여자의 개인 프로젝트로 남습니다.', 'info')
       setRemoveOpen(false)
       void queryClient.invalidateQueries({ queryKey: ['projects', projectId] })
       refresh()
@@ -374,7 +374,7 @@ export function ProjectInstitutionPanel({ projectId, programId, programTitle, or
         <CardHeader>
           <CardTitle className="text-lg">진행 현황</CardTitle>
           <CardDescription>
-            {programTitle} · {origin === 'student' ? '학생 주도 프로젝트 — 담당자는 내용 수정 대신 피드백·수정 요청으로 관여합니다.' : '기관 배정 프로젝트'}
+            {programTitle} · {origin === 'student' ? '참여자 주도 프로젝트 — 담당자는 내용 수정 대신 피드백·수정 요청으로 관여합니다.' : '기관 배정 프로젝트'}
           </CardDescription>
         </CardHeader>
         <div className="grid gap-3 sm:grid-cols-3">

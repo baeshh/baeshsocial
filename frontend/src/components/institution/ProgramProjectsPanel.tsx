@@ -174,8 +174,8 @@ function AssignModal({ program, project, onClose }: { program: Program; project:
     <Modal
       description={
         program.policy.allowMultipleProjects
-          ? '프로그램 참여 학생 중 이 팀에 없는 학생이 표시됩니다.'
-          : '프로그램 참여 학생 중 아직 팀이 없는 학생만 표시됩니다. 한 프로그램에서 학생은 한 팀에만 속할 수 있습니다.'
+          ? '프로그램 참여자 중 이 팀에 없는 사람이 표시됩니다.'
+          : '프로그램 참여자 중 아직 팀이 없는 사람만 표시됩니다. 한 프로그램에서 참여자는 한 팀에만 속할 수 있습니다.'
       }
       onClose={onClose}
       open
@@ -189,7 +189,7 @@ function AssignModal({ program, project, onClose }: { program: Program; project:
             <input
               className="h-10 flex-1 rounded-full border border-surface-border px-4 text-sm outline-none focus:border-brand-500"
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="이름·이메일·학번 검색"
+              placeholder="이름·이메일·소속번호 검색"
               value={search}
             />
             <select
@@ -204,7 +204,7 @@ function AssignModal({ program, project, onClose }: { program: Program; project:
           </div>
           {available.length === 0 ? (
             <p className="rounded-2xl bg-surface-muted/60 p-4 text-sm text-ink-muted">
-              배정 가능한 학생이 없습니다. 참여자 탭에서 학생을 먼저 등록해 주세요.
+              배정 가능한 참여자가 없습니다. 참여자 탭에서 먼저 등록해 주세요.
             </p>
           ) : (
             <ul className="max-h-80 divide-y divide-surface-border overflow-y-auto rounded-2xl border border-surface-border">
@@ -296,7 +296,7 @@ function RemoveModal({ program, project, onClose }: { program: Program; project:
   const remove = useMutation({
     mutationFn: () => removeProgramProject(token!, program.id, project.id, reason.trim()),
     onSuccess: () => {
-      showToast('프로그램에서 제거했습니다. 학생의 프로젝트는 개인 프로젝트로 남습니다.', 'info')
+      showToast('프로그램에서 제거했습니다. 참여자의 프로젝트는 개인 프로젝트로 남습니다.', 'info')
       void queryClient.invalidateQueries({ queryKey: ['programs'] })
       onClose()
     },
@@ -337,8 +337,8 @@ function SupervisionSummary({
   onFilter: (value: SupervisionHealth | null) => void
 }) {
   const stats = [
-    { label: '프로젝트', value: summary.projects, sub: `학생 주도 ${summary.studentProjects}` },
-    { label: '참여 학생', value: summary.students, sub: `등록 학생 ${summary.participants}` },
+    { label: '프로젝트', value: summary.projects, sub: `참여자 주도 ${summary.studentProjects}` },
+    { label: '활동 참여자', value: summary.students, sub: `등록 참여자 ${summary.participants}` },
     { label: '증빙 검토 대기', value: summary.pendingEvidence, sub: '검토 탭에서 처리', tone: summary.pendingEvidence ? 'text-accent-600' : '' },
     { label: '등록 요청', value: summary.pendingRequests, sub: '승인 대기', tone: summary.pendingRequests ? 'text-accent-600' : '' },
     { label: '성과 인증', value: summary.verified, sub: '기관 공식 인증 완료' },
@@ -479,8 +479,8 @@ export function ProgramProjectsPanel({ program, access }: Props) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-ink-muted">
             {program.policy.allowStudentProjects
-              ? '학생이 직접 만든 프로젝트와 기관이 배정한 프로젝트를 함께 감독합니다. 학생 주도 프로젝트는 피드백·수정 요청으로 관여합니다.'
-              : '팀 단위 프로젝트를 만들고 참여 학생을 배정합니다.'}
+              ? '참여자가 직접 만든 프로젝트와 기관이 배정한 프로젝트를 함께 감독합니다. 참여자 주도 프로젝트는 피드백·수정 요청으로 관여합니다.'
+              : '팀 단위 프로젝트를 만들고 참여자를 배정합니다.'}
           </p>
           {writable ? (
             <Button onClick={() => setModal({ kind: 'create' })}>
@@ -491,7 +491,7 @@ export function ProgramProjectsPanel({ program, access }: Props) {
       ) : canStartProject ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-100 bg-brand-50/60 p-4">
           <p className="text-sm text-ink-body">
-            이 프로그램은 학생이 직접 프로젝트를 만들거나 기존 프로젝트를 연결할 수 있습니다.
+            이 프로그램은 참여자가 직접 프로젝트를 만들거나 기존 프로젝트를 연결할 수 있습니다.
             {program.policy.requireProjectApproval ? ' 담당자 승인 후 프로그램 프로젝트가 됩니다.' : ''}
           </p>
           <Button onClick={() => setModal({ kind: 'request' })}>
@@ -510,7 +510,7 @@ export function ProgramProjectsPanel({ program, access }: Props) {
             access.isStaff
               ? healthFilter
                 ? '이 상태의 프로젝트가 없습니다.'
-                : '기관 프로젝트를 추가하거나 학생 프로젝트 등록을 허용하세요.'
+                : '기관 프로젝트를 추가하거나 참여자 프로젝트 등록을 허용하세요.'
               : canStartProject
                 ? '새 프로젝트를 만들거나 진행 중인 프로젝트를 연결해 보세요.'
                 : '아직 배정된 팀이 없습니다. 담당자가 팀을 배정하면 표시됩니다.'
@@ -528,7 +528,7 @@ export function ProgramProjectsPanel({ program, access }: Props) {
                     {project.title}
                   </p>
                   <p className="text-xs text-ink-muted">
-                    {formatPeriod(project.startDate, project.endDate)} · {project.origin === 'student' ? '학생 주도' : '기관 배정'} ·{' '}
+                    {formatPeriod(project.startDate, project.endDate)} · {project.origin === 'student' ? '참여자 주도' : '기관 배정'} ·{' '}
                     {project.visibility === 'public' && !program.policy.allowPublicProjects
                       ? `${VISIBILITY_META.team.label} (전체 공개 미허용)`
                       : VISIBILITY_META[project.visibility].label}

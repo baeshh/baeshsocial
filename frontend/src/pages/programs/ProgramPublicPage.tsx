@@ -286,10 +286,10 @@ export function ProgramPublicPage() {
             <Card className="rounded-2xl p-5">
               <dl className="divide-y divide-surface-border">
                 <InfoRow label="지원 대상">{audience ?? '제한 없음'}</InfoRow>
-                {eligibility?.schools ? <InfoRow label="학교">{eligibility.schools}</InfoRow> : null}
+                {eligibility?.schools ? <InfoRow label="소속">{eligibility.schools}</InfoRow> : null}
                 {grades ? <InfoRow label="학년">{grades}</InfoRow> : null}
-                {eligibility?.majors ? <InfoRow label="전공">{eligibility.majors}</InfoRow> : null}
-                {eligibility?.regions ? <InfoRow label="거주 지역">{eligibility.regions}</InfoRow> : null}
+                {eligibility?.majors ? <InfoRow label="전공·직무">{eligibility.majors}</InfoRow> : null}
+                {eligibility?.regions ? <InfoRow label="지역">{eligibility.regions}</InfoRow> : null}
                 {eligibility?.requirements ? <InfoRow label="자격 요건">{eligibility.requirements}</InfoRow> : null}
                 <InfoRow label="모집 인원">
                   {recruitment.capacity ? `${recruitment.capacity}명` : '미정'}

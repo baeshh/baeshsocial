@@ -106,9 +106,9 @@ export const RECRUITMENT_STATE_META: Record<RecruitmentState, { label: string; t
 }
 
 export const PROGRAM_CATEGORY_LABEL: Record<ProgramCategory, string> = {
-  education: '교육',
+  education: '교육·연수',
   startup: '창업',
-  capstone: '캡스톤·프로젝트 수업',
+  capstone: '프로젝트·캡스톤',
   internship: '인턴십·현장실습',
   competition: '공모전·해커톤',
   mentoring: '멘토링',
@@ -117,13 +117,13 @@ export const PROGRAM_CATEGORY_LABEL: Record<ProgramCategory, string> = {
 }
 
 export const PROGRAM_AUDIENCE_LABEL: Record<ProgramAudience, string> = {
-  high_school: '고등학생',
   undergraduate: '대학생',
   graduate: '대학원생',
   alumni: '졸업생',
-  job_seeker: '구직자',
-  employee: '재직자',
+  employee: '재직자·직장인',
+  job_seeker: '구직자·취업준비생',
   general: '일반인',
+  high_school: '고등학생',
 }
 
 export const PROGRAM_BENEFIT_LABEL: Record<ProgramBenefit, string> = {

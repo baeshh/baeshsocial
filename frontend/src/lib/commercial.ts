@@ -136,9 +136,14 @@ export function parseInviteCsv(text: string) {
     studentno: 'studentNo',
     student_no: 'studentNo',
     학번: 'studentNo',
+    사번: 'studentNo',
+    소속번호: 'studentNo',
+    '학번·사번': 'studentNo',
     department: 'department',
     학과: 'department',
+    부서: 'department',
     소속: 'department',
+    '학과·부서': 'department',
   }
   const header = split(lines[0]).map((cell) => HEADER_ALIASES[cell.toLowerCase().replace(/\s/g, '')] ?? null)
   const hasHeader = header.includes('email')
@@ -174,4 +179,5 @@ export function parseInviteCsv(text: string) {
   return { rows: rows.filter((row) => row.email), errors }
 }
 
-export const INVITE_CSV_TEMPLATE = '이메일,이름,학번,학과,역할\nstudent01@example.ac.kr,홍길동,20260001,컴퓨터공학과,학생\n'
+export const INVITE_CSV_TEMPLATE =
+  '이메일,이름,소속번호,소속,역할\nhong@example.ac.kr,홍길동,20260001,컴퓨터공학과,참여자\nkim@example.com,김지원,A1023,개발팀,참여자\n'

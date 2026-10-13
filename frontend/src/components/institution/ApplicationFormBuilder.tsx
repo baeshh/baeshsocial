@@ -44,7 +44,7 @@ export function ApplicationFormBuilder({
   return (
     <div className="space-y-3">
       <p className="text-xs text-ink-muted">
-        지원자의 이름·학교·전공 등 BAESH 프로필은 자동으로 함께 제출됩니다. 프로필에 없는 내용만 질문하세요.
+        지원자의 이름·소속·전공/직무·경력 등 BAESH 프로필은 자동으로 함께 제출됩니다. 프로필에 없는 내용만 질문하세요.
       </p>
       {fields.length === 0 ? (
         <p className="rounded-xl bg-surface-muted px-4 py-3 text-sm text-ink-muted">문항이 없습니다. 지원자는 프로필만으로 지원합니다.</p>

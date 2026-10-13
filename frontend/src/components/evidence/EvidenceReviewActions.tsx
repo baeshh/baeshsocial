@@ -14,7 +14,7 @@ export function EvidenceReviewActions({ evidence }: { evidence: Evidence }) {
   const review = useMutation({
     mutationFn: (decision: 'approve' | 'reject') => reviewEvidence(token!, evidence.id, decision, note.trim() || undefined),
     onSuccess: (_data, decision) => {
-      showToast(decision === 'approve' ? '승인했습니다. 학생 프로필에 검증 기록이 추가됩니다.' : '반려했습니다.', decision === 'approve' ? 'success' : 'info')
+      showToast(decision === 'approve' ? '승인했습니다. 작성자 프로필에 검증 기록이 추가됩니다.' : '반려했습니다.', decision === 'approve' ? 'success' : 'info')
       setNote('')
       void queryClient.invalidateQueries({ queryKey: ['evidence'] })
       void queryClient.invalidateQueries({ queryKey: ['programs'] })

@@ -122,7 +122,7 @@ export function StudentProjectRequestModal({ program, onClose }: { program: Prog
         ) : (
           <>
             <p className="text-sm text-ink-muted">
-              프로젝트를 복사하지 않고 그대로 연결합니다. 태스크·파일·활동 기록·GitHub 링크와 팀원이 유지되며, 팀원 모두 이 프로그램의 참여 학생이어야
+              프로젝트를 복사하지 않고 그대로 연결합니다. 태스크·파일·활동 기록·GitHub 링크와 팀원이 유지되며, 팀원 모두 이 프로그램의 참여자여야
               합니다.
             </p>
             {linkableQuery.isLoading ? (

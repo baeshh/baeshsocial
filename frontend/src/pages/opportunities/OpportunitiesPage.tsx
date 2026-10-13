@@ -387,7 +387,7 @@ function OpportunityCard({ opportunity, enrollment, token, canManage = false, on
 
   const handleDelete = () => {
     const confirmed = window.confirm(
-      `「${opportunity.title}」 프로그램을 삭제할까요?\n연결된 수강 신청·저장 기록도 함께 제거됩니다.`,
+      `「${opportunity.title}」 프로그램을 삭제할까요?\n연결된 참여 신청·저장 기록도 함께 제거됩니다.`,
     )
     if (!confirmed) {
       return
@@ -487,7 +487,7 @@ function OpportunityCard({ opportunity, enrollment, token, canManage = false, on
             onClick={() => enrollMutation.mutate()}
             type="button"
           >
-            {enrollMutation.isPending ? '신청 중…' : '프로그램 수강 신청'}
+            {enrollMutation.isPending ? '신청 중…' : '프로그램 참여 신청'}
           </Button>
         ) : null}
         {isProgram && canCancelEnrollment ? (
@@ -500,7 +500,7 @@ function OpportunityCard({ opportunity, enrollment, token, canManage = false, on
             {withdrawMutation.isPending
               ? '취소 중…'
               : status === 'ENROLLED'
-                ? '수강 취소'
+                ? '참여 취소'
                 : '신청 취소'}
           </Button>
         ) : null}
