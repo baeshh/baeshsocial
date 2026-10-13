@@ -22,7 +22,7 @@ const server = http.createServer((req, res) => {
 await new Promise<void>((resolve) => server.listen(0, resolve))
 const port = (server.address() as { port: number }).port
 
-const FAKE_KEY = 'sk-test-SECRET1234567890abcdef'
+const FAKE_KEY = 'sk-test-SECRET1234567890abcdef' // gitleaks:allow (sent only to the local mock server above)
 process.env.AI_PROVIDER = 'openai'
 process.env.OPENAI_API_KEY = FAKE_KEY
 process.env.OPENAI_BASE_URL = `http://127.0.0.1:${port}/v1`

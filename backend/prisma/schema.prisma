@@ -660,7 +660,7 @@ model ProjectRole {
   name        String
   slug        String
   description String?
-  permissions String[]
+  permissions String[]        @default([])
   isSystem    Boolean         @default(false)
   sortOrder   Int             @default(0)
   createdAt   DateTime        @default(now())
