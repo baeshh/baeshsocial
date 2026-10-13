@@ -1,6 +1,6 @@
 import type { AccessState, Contract, InvoiceStatus, InviteStatus, TicketPriority, TicketStatus } from '../types/commercial'
 
-type Tone = 'blue' | 'purple' | 'gray' | 'green' | 'red'
+type Tone = 'blue' | 'purple' | 'gray' | 'green' | 'amber' | 'red'
 
 export const ACCESS_STATE_META: Record<AccessState, { label: string; tone: Tone; description: string }> = {
   active: { label: '이용 중', tone: 'green', description: '계약 기간 안에서 모든 기능을 사용할 수 있습니다.' },
