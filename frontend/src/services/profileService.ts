@@ -19,6 +19,7 @@ export type UpdateProfilePayload = Partial<{
   interests: string[]
   socialLinks: Record<string, string> | null
   visibility: Lowercase<ProfileVisibility>
+  talentSearchOptIn: boolean
 }>
 
 export type CertificatePayload = {

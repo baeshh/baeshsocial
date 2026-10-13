@@ -16,6 +16,7 @@ export const updateProfileSchema = z.object({
     .enum(['public', 'members', 'followers'])
     .transform((value) => value.toUpperCase() as ProfileVisibility)
     .optional(),
+  talentSearchOptIn: z.boolean().optional(),
 })
 
 export const featuredProjectsSchema = z.object({

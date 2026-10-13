@@ -10,6 +10,9 @@ import {
   projectEvidenceRouter,
 } from './modules/evidence/evidence.routes.js'
 import { organizationProgramsRouter, programsRouter } from './modules/programs/programs.routes.js'
+import { organizationReportsRouter } from './modules/reports/reports.routes.js'
+import { talentRouter } from './modules/matching/matching.routes.js'
+import { aiAdminRouter } from './modules/ai/aiAdmin.routes.js'
 import { HttpError } from './utils/httpError.js'
 import { aiRouter } from './modules/ai/ai.routes.js'
 import { authRouter } from './modules/auth/auth.routes.js'
@@ -44,6 +47,7 @@ app.use(
       callback(new Error(`CORS origin not allowed: ${origin}`))
     },
     credentials: true,
+    exposedHeaders: ['Content-Disposition'],
   }),
 )
 app.use(express.json({ limit: '25mb' }))
@@ -63,6 +67,8 @@ app.use('/api/profiles', profilesRouter)
 app.use('/api/projects/:projectId/evidence', projectEvidenceRouter)
 app.use('/api/projects', projectsRouter)
 app.use('/api/organizations/:orgId/programs', organizationProgramsRouter)
+app.use('/api/organizations/:orgId/reports', organizationReportsRouter)
+app.use('/api/organizations/:orgId/talent', talentRouter)
 app.use('/api/programs', programsRouter)
 app.use('/api/evidence', evidenceRouter)
 app.use('/api/evidence-files', evidenceFilesRouter)
@@ -73,6 +79,7 @@ app.use('/api/notifications', notificationsRouter)
 app.use('/api/opportunities', opportunitiesRouter)
 app.use('/api/organizations', organizationsRouter)
 app.use('/api/admin/organizations', organizationAdminRouter)
+app.use('/api/admin/ai', aiAdminRouter)
 app.use('/api/ai', aiRouter)
 
 app.use((_req, res) => {

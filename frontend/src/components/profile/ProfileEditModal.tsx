@@ -21,6 +21,7 @@ export type ProfileEditFormState = {
   github: string
   linkedin: string
   visibility: Lowercase<ProfileVisibility>
+  talentSearchOptIn: boolean
 }
 
 const VISIBILITY_OPTIONS: ProfileVisibility[] = ['PUBLIC', 'MEMBERS', 'FOLLOWERS']
@@ -320,6 +321,21 @@ export function ProfileEditModal({
                     태그·소속은 항상 표시됩니다.
                   </span>
                 </Field>
+                <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 sm:col-span-2">
+                  <input
+                    checked={form.talentSearchOptIn}
+                    className="mt-0.5 h-4 w-4 accent-blue-600"
+                    onChange={(event) => onChange({ talentSearchOptIn: event.target.checked })}
+                    type="checkbox"
+                  />
+                  <span>
+                    <span className="block text-[13px] font-semibold text-slate-700">기업 인재 검색에 노출</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
+                      승인된 기업이 나를 추천 후보로 볼 수 있습니다. 이름·직무·소속·기술과 함께 <b>공개 프로젝트</b>와{' '}
+                      <b>기관 검증 기록</b>(활동명·기관·검증일)만 공유되며, 비공개 프로젝트·연락처는 공유되지 않습니다. 언제든 끌 수 있습니다.
+                    </span>
+                  </span>
+                </label>
               </div>
 
               {imageError ? (

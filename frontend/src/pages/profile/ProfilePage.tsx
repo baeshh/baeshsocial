@@ -58,6 +58,7 @@ function toEditForm(data: ProfileOverview): ProfileEditFormState {
     github: profile.socialLinks?.github ?? '',
     linkedin: profile.socialLinks?.linkedin ?? '',
     visibility: (profile.visibility ?? 'PUBLIC').toLowerCase() as ProfileEditFormState['visibility'],
+    talentSearchOptIn: profile.talentSearchOptIn ?? false,
   }
 }
 
@@ -147,6 +148,7 @@ export function ProfilePage() {
           ...(emptyToNull(profileForm.linkedin) ? { linkedin: profileForm.linkedin.trim() } : {}),
         },
         visibility: profileForm.visibility,
+        talentSearchOptIn: profileForm.talentSearchOptIn,
       })
 
       const avatarChanged = draftAvatarUrl !== data.user.avatarUrl

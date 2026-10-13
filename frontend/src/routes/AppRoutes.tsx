@@ -1,7 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AICopilotPage } from '../pages/ai-copilot/AICopilotPage'
 import { AuthEntryPage } from '../pages/auth/AuthEntryPage'
-import { ComingSoonPage } from '../pages/ComingSoonPage'
 import { DashboardPage } from '../pages/dashboard/DashboardPage'
 import { LandingPage } from '../pages/LandingPage'
 import { FindPage } from '../pages/find/FindPage'
@@ -11,7 +10,9 @@ import { ProfilePage } from '../pages/profile/ProfilePage'
 import { PublicProfilePage } from '../pages/profile/PublicProfilePage'
 import { ProjectsPage } from '../pages/projects/ProjectsPage'
 import { PublicPostPage } from '../pages/posts/PublicPostPage'
+import { AdminAIUsagePage } from '../pages/admin/AdminAIUsagePage'
 import { AdminOrganizationsPage } from '../pages/admin/AdminOrganizationsPage'
+import { TalentDBPage } from '../pages/talent-db/TalentDBPage'
 import { ProgramDetailPage } from '../pages/institution/ProgramDetailPage'
 import { OrganizationDashboardPage } from '../pages/organizations/OrganizationDashboardPage'
 import { OrganizationRegisterPage } from '../pages/organizations/OrganizationRegisterPage'
@@ -34,16 +35,7 @@ export function AppRoutes() {
       <Route element={<FindPage />} path="/find" />
       <Route element={<OpportunitiesPage />} path="/opportunities" />
       <Route element={<AICopilotPage />} path="/ai-copilot" />
-      <Route
-        element={
-          <ComingSoonPage
-            description="기업용 인재 검색, Trust Score 필터, AI Matching Result를 연결합니다."
-            phase="Phase 9"
-            title="Talent DB"
-          />
-        }
-        path="/talent-db"
-      />
+      <Route element={<TalentDBPage />} path="/talent-db" />
       <Route element={<OrganizationsPage />} path="/organizations" />
       <Route element={<OrganizationRegisterPage />} path="/organizations/new" />
       <Route
@@ -69,6 +61,14 @@ export function AppRoutes() {
           </RequirePlatformAdmin>
         }
         path="/admin/organizations"
+      />
+      <Route
+        element={
+          <RequirePlatformAdmin>
+            <AdminAIUsagePage />
+          </RequirePlatformAdmin>
+        }
+        path="/admin/ai"
       />
       <Route element={<Navigate replace to="/organizations" />} path="/institution-admin" />
       <Route element={<Navigate replace to="/" />} path="*" />

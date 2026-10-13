@@ -63,6 +63,7 @@ profilesRouter.patch('/me', authenticate, async (req, res, next) => {
     const data = {
       ...input,
       ...(socialLinks !== undefined ? { socialLinks: socialLinks === null ? Prisma.JsonNull : socialLinks } : {}),
+      ...(input.talentSearchOptIn !== undefined ? { talentSearchOptInAt: input.talentSearchOptIn ? new Date() : null } : {}),
     }
     await prisma.profile.upsert({
       where: { userId: authUser.id },

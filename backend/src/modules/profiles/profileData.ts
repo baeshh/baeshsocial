@@ -20,6 +20,7 @@ import {
   type SortKey,
 } from '../../utils/pagination.js'
 import { DEFAULT_OWNER_CONTRIBUTION } from '../../utils/projectPermissions.js'
+import { readSnapshot, recordIntegrity } from '../../services/verification/verifiedRecords.js'
 import { buildSkillInsights } from '../../utils/skillInsights.js'
 
 /* ------------------------------ Viewer access ----------------------------- */
@@ -258,6 +259,7 @@ type Verification = {
   label: string
   verifiedAt: Date | null
   programTitle?: string | null
+  verifiedBy?: string | null
 }
 
 export type HistoryItem = {
@@ -403,7 +405,7 @@ async function careerEntries(viewer: ProfileViewer, opts: SourceOptions): Promis
 function verifiedRecordWhere(viewer: ProfileViewer, verifiedOnly: boolean): Prisma.VerifiedRecordWhereInput {
   const statuses =
     viewer.isSelf && !verifiedOnly
-      ? [VerifiedRecordStatus.VERIFIED, VerifiedRecordStatus.PENDING]
+      ? [VerifiedRecordStatus.VERIFIED, VerifiedRecordStatus.PENDING, VerifiedRecordStatus.REVOKED]
       : [VerifiedRecordStatus.VERIFIED]
   return {
     userId: viewer.userId,
@@ -423,6 +425,14 @@ async function projectRecordEntries(viewer: ProfileViewer, opts: SourceOptions):
       contributionSummary: true,
       issuedAt: true,
       status: true,
+      verifiedAt: true,
+      snapshot: true,
+      contentHash: true,
+      revokedAt: true,
+      revokeReason: true,
+      organization: { select: { name: true } },
+      program: { select: { title: true } },
+      verifiedBy: { select: { name: true } },
       project: { select: { id: true, title: true, visibility: true, teamName: true } },
       evidence: {
         select: {
@@ -436,29 +446,40 @@ async function projectRecordEntries(viewer: ProfileViewer, opts: SourceOptions):
     },
   })
   return rows.map((row) => {
-    const program = row.evidence?.project.program ?? null
-    const verified = row.status === VerifiedRecordStatus.VERIFIED
+    // The frozen snapshot wins over live rows so later edits never change what was verified.
+    const snapshot = readSnapshot(row.snapshot)
+    const integrity = recordIntegrity(row)
+    const liveProgram = row.evidence?.project.program ?? null
+    const issuer = snapshot?.organization?.name ?? row.organization?.name ?? liveProgram?.organization.name ?? null
+    const programTitle = snapshot?.program?.title ?? row.program?.title ?? liveProgram?.title ?? null
+    const verified = row.status === VerifiedRecordStatus.VERIFIED && integrity !== 'tampered'
     const verification: Verification | null = !verified
       ? null
-      : program
+      : issuer
         ? {
             kind: 'institution',
-            issuer: program.organization.name,
+            issuer,
             label: '승인',
-            verifiedAt: row.evidence?.reviewedAt ?? row.issuedAt,
-            programTitle: program.title,
+            verifiedAt: row.verifiedAt ?? row.evidence?.reviewedAt ?? row.issuedAt,
+            programTitle,
+            verifiedBy: snapshot?.approvedBy?.name ?? row.verifiedBy?.name ?? null,
           }
         : { kind: 'baesh', issuer: null, label: '검증', verifiedAt: row.issuedAt }
+    const projectTitle = snapshot?.project.title ?? row.project.title
+    const teamName = snapshot ? snapshot.project.teamName : row.project.teamName
     return {
       key: { v: row.issuedAt, id: row.id },
       item: {
         id: `project:${row.id}`,
         sourceId: row.id,
         kind: 'project',
-        title: row.evidence?.title ?? row.project.title,
-        subtitle: [row.project.title, row.project.teamName, row.role].filter(Boolean).join(' · '),
-        description: row.evidence?.description ?? row.contributionSummary,
-        date: row.evidence?.activityDate ?? row.issuedAt,
+        title: snapshot?.evidence.title ?? row.evidence?.title ?? row.project.title,
+        subtitle: [projectTitle, teamName, snapshot?.role ?? row.role].filter(Boolean).join(' · '),
+        description:
+          row.status === VerifiedRecordStatus.REVOKED && viewer.isSelf
+            ? `승인 취소${row.revokeReason ? ` — ${row.revokeReason}` : ''}`
+            : (snapshot?.evidence.description ?? row.evidence?.description ?? row.contributionSummary),
+        date: snapshot ? new Date(snapshot.evidence.activityDate) : (row.evidence?.activityDate ?? row.issuedAt),
         endDate: null,
         ongoing: false,
         category: null,
@@ -654,7 +675,13 @@ export async function buildProfileOverview(viewer: ProfileViewer) {
       location: details ? profile.location : null,
       interests: details ? profile.interests : [],
       socialLinks: details ? profile.socialLinks : null,
-      ...(viewer.isSelf ? { visibility: profile.visibility, featuredProjectIds: profile.featuredProjectIds } : {}),
+      ...(viewer.isSelf
+        ? {
+            visibility: profile.visibility,
+            featuredProjectIds: profile.featuredProjectIds,
+            talentSearchOptIn: profile.talentSearchOptIn,
+          }
+        : {}),
     },
     affiliations: affiliations.map((row) => ({
       organizationId: row.organization.id,

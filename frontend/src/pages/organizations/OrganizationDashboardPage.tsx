@@ -8,7 +8,9 @@ import { LoadingState } from '../../components/common/LoadingState'
 import { Tabs, type TabItem } from '../../components/common/Tabs'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { InstitutionOverview } from '../../components/institution/InstitutionOverview'
+import { OrgKpiPanel } from '../../components/institution/KpiPanels'
 import { OrgProgramsPanel } from '../../components/institution/OrgProgramsPanel'
+import { OrgReportsPanel } from '../../components/institution/OrgReportsPanel'
 import { OrgMembersPanel } from '../../components/organizations/OrgMembersPanel'
 import { OrgSettingsPanel } from '../../components/organizations/OrgSettingsPanel'
 import { OrgVerificationPanel } from '../../components/organizations/OrgVerificationPanel'
@@ -26,7 +28,6 @@ const TYPE_MODULES: Partial<Record<OrganizationType, Array<{ title: string; desc
     { title: '수료·이수 인증', description: '프로그램 수료자에게 검증된 이수 기록을 발급합니다.' },
   ],
   company: [
-    { title: '채용·인재 검색', description: '검증된 프로젝트 이력을 기준으로 인재를 찾고 제안합니다.' },
     { title: '기업 프로젝트 운영', description: '외부 참여자와 함께하는 기업 과제·해커톤을 운영합니다.' },
     { title: '지원자 관리', description: '공고별 지원자와 평가 단계를 팀원과 함께 관리합니다.' },
   ],
@@ -111,6 +112,7 @@ export function OrganizationDashboardPage() {
   const status = VERIFICATION_STATUS_META[organization.verificationStatus]
   const approved = organization.verificationStatus === 'approved'
   const isAdmin = hasOrgRole(myRole, 'admin')
+  const canManagePrograms = approved && hasOrgRole(myRole, 'manager') && organization.type !== 'company'
   const Icon = meta.icon
   const upcomingModules = TYPE_MODULES[organization.type] ?? []
   const requestedTab = searchParams.get('tab') ?? 'overview'
@@ -152,6 +154,18 @@ export function OrganizationDashboardPage() {
             orgId={organization.id}
             programFilter={programFilter}
           />
+
+          {organization.type === 'company' ? (
+            <Card className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="flex-1">
+                <p className="font-bold text-ink-strong">검증 기반 인재 검색</p>
+                <p className="mt-1 text-sm text-ink-muted">
+                  인재 검색에 동의한 사용자의 공개 프로젝트와 기관 검증 기록을 기준으로 후보를 추천하고, 추천 근거를 함께 보여줍니다.
+                </p>
+              </div>
+              {approved ? <Button to={`/talent-db?org=${organization.id}`}>인재 검색 열기</Button> : <Badge>조직 인증 후</Badge>}
+            </Card>
+          ) : null}
 
           {upcomingModules.length > 0 ? (
           <Card>
@@ -204,6 +218,12 @@ export function OrganizationDashboardPage() {
       ),
     },
     { id: 'programs', label: '프로그램', content: <OrgProgramsPanel myRole={myRole} organization={organization} /> },
+    ...(canManagePrograms
+      ? [
+          { id: 'kpis', label: '성과 분석', content: <OrgKpiPanel orgId={organization.id} /> },
+          { id: 'reports', label: '결과보고서', content: <OrgReportsPanel orgId={organization.id} /> },
+        ]
+      : []),
     { id: 'members', label: '구성원', content: <OrgMembersPanel myRole={myRole} organization={organization} /> },
     ...(isAdmin
       ? [
