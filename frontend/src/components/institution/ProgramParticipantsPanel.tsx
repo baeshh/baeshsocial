@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Crown } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   addProgramParticipants,
   getProgramParticipants,
@@ -83,12 +84,24 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
       {writable ? (
         <Card className="rounded-2xl">
           <CardHeader>
-            <CardTitle className="text-lg">참여 학생 등록</CardTitle>
+            <CardTitle className="text-lg">
+              {{ invite: '참여자 초대·등록', open: '참여자 직접 등록', preselected: '기선발 참여자 등록', mixed: '기선발 참여자 등록' }[program.recruitment.mode]}
+            </CardTitle>
             <CardDescription>
               한 줄에 한 명씩 <code className="rounded bg-surface-muted px-1">이메일, 학번, 학과</code> 형식으로 붙여 넣으세요. 조직에
-              가입 신청한 학생은 등록과 함께 구성원으로 승인되고, 가입하지 않은 학생은 사유와 함께 제외됩니다.
+              가입 신청한 사람은 등록과 함께 구성원으로 승인되고, 가입하지 않은 사람은 사유와 함께 제외됩니다.
             </CardDescription>
           </CardHeader>
+          <Link
+            className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-sm text-ink-body transition hover:border-brand-300"
+            to={`/org/${program.organizationId}?tab=invites&invite_program=${program.id}`}
+          >
+            <span>
+              <b className="text-ink-strong">아직 BAESH 계정이 없는 사람이 있나요?</b> 이메일·CSV로 초대 링크를 보내면, 수락하는 순간 이
+              프로그램 참여자로 자동 등록됩니다.
+            </span>
+            <span className="shrink-0 font-semibold text-brand-700">초대 보내기 →</span>
+          </Link>
           <textarea
             className="min-h-32 w-full rounded-2xl border border-surface-border px-4 py-3 font-mono text-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
             onChange={(e) => setText(e.target.value)}

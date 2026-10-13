@@ -5,7 +5,8 @@ import { APPLICATION_STATUS_META, RECRUITMENT_STATE_META, formatDate, formatDate
 import { decideProgramApplication, getProgramApplications } from '../../services/programService'
 import { useAuthStore } from '../../stores/authStore'
 import { showToast } from '../../stores/toastStore'
-import type { ApplicationStatus, Program, ProgramApplication } from '../../types/program'
+import type { AnswerValue, ApplicationStatus, Program, ProgramApplication } from '../../types/program'
+import { AttachmentLink } from '../programs/ProgramApplicationForm'
 import { Avatar } from '../common/Avatar'
 import { Badge } from '../common/Badge'
 import { Button } from '../common/Button'
@@ -82,6 +83,73 @@ function DecisionModal({
   )
 }
 
+function formatAnswer(value: AnswerValue) {
+  if (typeof value === 'boolean') return value ? '동의함' : '동의하지 않음'
+  if (Array.isArray(value)) return value.join(', ')
+  return value
+}
+
+function ApplicationAnswers({ application }: { application: ProgramApplication }) {
+  const token = useAuthStore((s) => s.token)
+  const [expanded, setExpanded] = useState(false)
+  const answers = application.answers.filter((answer) => answer.type !== 'file')
+  const fileFieldIds = [...new Set(application.files.map((file) => file.fieldId))]
+  const fileLabels = new Map(application.files.map((file) => [file.fieldId, file.fieldLabel]))
+  if (answers.length === 0 && application.files.length === 0) {
+    return application.message ? (
+      <p className="mt-2 whitespace-pre-wrap rounded-xl bg-surface-muted/60 px-3 py-2 text-sm text-ink-body">{application.message}</p>
+    ) : (
+      <p className="mt-2 text-sm text-ink-muted">작성한 답변이 없습니다.</p>
+    )
+  }
+  const visible = expanded ? answers : answers.slice(0, 2)
+  return (
+    <div className="mt-3 space-y-3">
+      {application.message ? (
+        <p className="whitespace-pre-wrap rounded-xl bg-surface-muted/60 px-3 py-2 text-sm text-ink-body">{application.message}</p>
+      ) : null}
+      {visible.map((answer) => (
+        <div key={answer.fieldId}>
+          <p className="text-xs font-semibold text-ink-muted">
+            {answer.label}
+            {answer.archived ? <span className="ml-1 font-normal">(삭제된 문항)</span> : null}
+          </p>
+          <p className={`mt-0.5 whitespace-pre-wrap text-sm text-ink-body ${expanded ? '' : 'line-clamp-4'}`}>
+            {answer.type === 'url' && typeof answer.value === 'string' ? (
+              <a className="break-all text-brand-700 hover:underline" href={answer.value} rel="noopener noreferrer nofollow" target="_blank">
+                {answer.value}
+              </a>
+            ) : (
+              formatAnswer(answer.value)
+            )}
+          </p>
+        </div>
+      ))}
+      {answers.length > 2 || (!expanded && answers.some((answer) => typeof answer.value === 'string' && answer.value.length > 200)) ? (
+        <button className="text-xs font-semibold text-brand-600" onClick={() => setExpanded((value) => !value)} type="button">
+          {expanded ? '접기' : `답변 전체 보기${answers.length > 2 ? ` (${answers.length}개)` : ''}`}
+        </button>
+      ) : null}
+      {token && application.files.length > 0 ? (
+        <div className="space-y-1">
+          {fileFieldIds.map((fieldId) => (
+            <div key={fieldId}>
+              {fileLabels.get(fieldId) ? <p className="text-xs font-semibold text-ink-muted">{fileLabels.get(fieldId)}</p> : null}
+              {application.files
+                .filter((file) => file.fieldId === fieldId)
+                .map((file) => (
+                  <div key={file.id}>
+                    <AttachmentLink file={file} token={token} />
+                  </div>
+                ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function ApplicationCard({ application, actions }: { application: ProgramApplication; actions?: ReactNode }) {
   const status = APPLICATION_STATUS_META[application.status]
   return (
@@ -96,12 +164,8 @@ function ApplicationCard({ application, actions }: { application: ProgramApplica
         </Link>
         <Badge tone={status.tone}>{status.label}</Badge>
       </div>
-      <p className="mt-3 text-xs text-ink-muted">지원 {formatDateTime(application.createdAt)}</p>
-      {application.message ? (
-        <p className="mt-2 whitespace-pre-wrap rounded-xl bg-surface-muted/60 px-3 py-2 text-sm text-ink-body">{application.message}</p>
-      ) : (
-        <p className="mt-2 text-sm text-ink-muted">지원 동기를 남기지 않았습니다.</p>
-      )}
+      <p className="mt-3 text-xs text-ink-muted">제출 {formatDateTime(application.submittedAt ?? application.createdAt)}</p>
+      <ApplicationAnswers application={application} />
       {application.reviewedBy ? (
         <p className="mt-2 text-xs text-ink-muted">
           {application.reviewedBy.name} · {formatDate(application.reviewedAt)}
@@ -133,8 +197,11 @@ export function ProgramApplicationsPanel({ program }: { program: Program }) {
       <Card className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl p-4 text-sm">
         <Badge tone={RECRUITMENT_STATE_META[recruitment.state].tone}>{RECRUITMENT_STATE_META[recruitment.state].label}</Badge>
         <span className="text-ink-body">
-          모집 {recruitment.applyStartAt ? formatDateTime(recruitment.applyStartAt) : '공개 즉시'} ~ {formatDateTime(recruitment.applyEndAt)}
+          모집 {recruitment.applyStartAt ? formatDateTime(recruitment.applyStartAt) : '게시 즉시'} ~ {formatDateTime(recruitment.applyEndAt)}
         </span>
+        {recruitment.mode === 'mixed' && recruitment.openSeats !== null ? (
+          <span className="text-ink-body">추가 모집 {recruitment.openSeats}명 남음</span>
+        ) : null}
         {recruitment.announceAt ? <span className="text-ink-body">발표 {formatDateTime(recruitment.announceAt)}</span> : null}
         {data ? (
           <span className={`font-semibold ${full ? 'text-red-600' : 'text-ink-strong'}`}>
@@ -143,8 +210,8 @@ export function ProgramApplicationsPanel({ program }: { program: Program }) {
             {full ? ' · 정원 마감' : ''}
           </span>
         ) : null}
-        {program.visibility === 'private' ? (
-          <span className="text-xs font-medium text-amber-700">비공개 상태라 새 지원을 받을 수 없습니다. 설정에서 공개 범위를 바꿔 주세요.</span>
+        {!program.publishedAt ? (
+          <span className="text-xs font-medium text-amber-700">아직 게시하지 않아 지원을 받을 수 없습니다. 설정 탭에서 모집 공고를 게시해 주세요.</span>
         ) : null}
       </Card>
 

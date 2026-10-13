@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, Download, RotateCw, Upload, X } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Badge } from '../common/Badge'
 import { Button } from '../common/Button'
 import { Card, CardDescription, CardHeader, CardTitle } from '../common/Card'
@@ -35,7 +36,8 @@ export function OrgInvitesPanel({ orgId }: { orgId: string }) {
   const queryClient = useQueryClient()
   const fileRef = useRef<HTMLInputElement>(null)
   const [text, setText] = useState('')
-  const [programId, setProgramId] = useState('')
+  const [searchParams] = useSearchParams()
+  const [programId, setProgramId] = useState(() => searchParams.get('invite_program') ?? '')
   const [role, setRole] = useState<InviteRole>('member')
   const [statusFilter, setStatusFilter] = useState('pending')
   const [result, setResult] = useState<BulkInviteResult | null>(null)

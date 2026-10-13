@@ -1,60 +1,35 @@
-import { Building2, CalendarDays, Users } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
 import { useDiscoverPrograms } from '../../hooks/useDiscoverPrograms'
-import { APPLICATION_STATUS_META, RECRUITMENT_STATE_META, formatDateTime, formatPeriod, recruitmentDeadlineHint } from '../../lib/programs'
-import type { DiscoverableProgram } from '../../types/program'
-import { Badge } from '../common/Badge'
-import { Card } from '../common/Card'
+import { PROGRAM_CATEGORY_LABEL } from '../../lib/programs'
+import type { ProgramCategory } from '../../types/program'
 import { Pagination } from '../common/Pagination'
+import { ProgramCard } from './ProgramCard'
 
-function ProgramDiscoverCard({ program }: { program: DiscoverableProgram }) {
-  const { recruitment, myStatus } = program
-  const state = RECRUITMENT_STATE_META[recruitment.state]
-  const hint = recruitmentDeadlineHint(recruitment)
-  const application = myStatus.application && myStatus.application.status !== 'withdrawn' ? myStatus.application : null
-  return (
-    <Link to={`/programs/${program.id}`}>
-      <Card className="flex h-full flex-col rounded-2xl p-5 transition hover:border-brand-200 hover:shadow-md">
-        <div className="flex items-start justify-between gap-2">
-          <p className="flex min-w-0 items-center gap-1 truncate text-xs font-semibold text-ink-muted">
-            <Building2 size={13} /> {program.organization.name}
-          </p>
-          <div className="flex shrink-0 gap-1">
-            {myStatus.isParticipant ? <Badge tone="green">참여 중</Badge> : null}
-            {!myStatus.isParticipant && application ? (
-              <Badge tone={APPLICATION_STATUS_META[application.status].tone}>{APPLICATION_STATUS_META[application.status].label}</Badge>
-            ) : null}
-            <Badge tone={state.tone}>{state.label}</Badge>
-          </div>
-        </div>
-        <p className="mt-2 line-clamp-2 text-base font-bold text-ink-strong">{program.title}</p>
-        {recruitment.targetAudience ? <p className="mt-1 line-clamp-1 text-sm text-ink-body">대상 · {recruitment.targetAudience}</p> : null}
-        <div className="mt-auto space-y-1 pt-4 text-xs text-ink-muted">
-          {recruitment.mode === 'recruiting' ? (
-            <p className="flex items-center gap-1">
-              <CalendarDays size={12} /> 모집 ~ {formatDateTime(recruitment.applyEndAt)}
-              {hint ? <span className="ml-1 font-semibold text-accent-600">{hint}</span> : null}
-            </p>
-          ) : (
-            <p className="flex items-center gap-1">
-              <CalendarDays size={12} /> 운영 {formatPeriod(program.startDate, program.endDate)}
-            </p>
-          )}
-          {recruitment.capacity ? (
-            <p className="flex items-center gap-1">
-              <Users size={12} /> 선발 {recruitment.capacity}명
-            </p>
-          ) : null}
-        </div>
-      </Card>
-    </Link>
-  )
-}
+const chip = (active: boolean) =>
+  `rounded-full border px-3 py-1 text-xs font-semibold transition ${
+    active ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-surface-border text-ink-body hover:border-brand-200'
+  }`
 
-export function InstitutionProgramsSection({ token, page, onPageChange }: { token: string; page: number; onPageChange: (page: number) => void }) {
-  const query = useDiscoverPrograms(token, page)
+export function InstitutionProgramsSection({
+  token,
+  page,
+  onPageChange,
+}: {
+  token: string | null
+  page: number
+  onPageChange: (page: number) => void
+}) {
+  const [category, setCategory] = useState<ProgramCategory | null>(null)
+  const [openOnly, setOpenOnly] = useState(false)
+  const filtered = Boolean(category) || openOnly
+  const query = useDiscoverPrograms(token, page, { category, openOnly })
   const data = query.data
-  if (!data || data.total === 0) return null
+  if (!data || (data.total === 0 && !filtered)) return null
+
+  const setFilter = (next: () => void) => {
+    next()
+    onPageChange(1)
+  }
 
   return (
     <section className="scroll-mt-40 space-y-3" id="institution-programs">
@@ -65,15 +40,35 @@ export function InstitutionProgramsSection({ token, page, onPageChange }: { toke
             인증된 기관이 BAESH에서 직접 운영하는 프로그램입니다.{data.openCount ? ` 지금 ${data.openCount}개 모집 중` : ''}
           </p>
         </div>
-        <p className="text-xs text-ink-muted">
-          {(data.page - 1) * data.pageSize + 1}–{Math.min(data.page * data.pageSize, data.total)} / {data.total}개
-        </p>
+        {data.total > 0 ? (
+          <p className="text-xs text-ink-muted">
+            {(data.page - 1) * data.pageSize + 1}–{Math.min(data.page * data.pageSize, data.total)} / {data.total}개
+          </p>
+        ) : null}
       </div>
-      <div className={`grid gap-3 sm:grid-cols-2 xl:grid-cols-3 ${query.isPlaceholderData ? 'opacity-60' : ''}`}>
-        {data.programs.map((program) => (
-          <ProgramDiscoverCard key={program.id} program={program} />
+      <div className="flex flex-wrap gap-1.5">
+        <button className={chip(openOnly)} onClick={() => setFilter(() => setOpenOnly((value) => !value))} type="button">
+          모집 중만
+        </button>
+        <span className="mx-1 w-px self-stretch bg-surface-border" />
+        <button className={chip(!category)} onClick={() => setFilter(() => setCategory(null))} type="button">
+          전체 유형
+        </button>
+        {(Object.keys(PROGRAM_CATEGORY_LABEL) as ProgramCategory[]).map((key) => (
+          <button className={chip(category === key)} key={key} onClick={() => setFilter(() => setCategory(key))} type="button">
+            {PROGRAM_CATEGORY_LABEL[key]}
+          </button>
         ))}
       </div>
+      {data.total === 0 ? (
+        <p className="rounded-2xl bg-surface-muted px-4 py-6 text-center text-sm text-ink-muted">조건에 맞는 프로그램이 없습니다.</p>
+      ) : (
+        <div className={`grid gap-3 sm:grid-cols-2 xl:grid-cols-3 ${query.isPlaceholderData ? 'opacity-60' : ''}`}>
+          {data.programs.map((program) => (
+            <ProgramCard key={program.id} program={program} />
+          ))}
+        </div>
+      )}
       <Pagination
         disabled={query.isPlaceholderData}
         onPageChange={(next) => {

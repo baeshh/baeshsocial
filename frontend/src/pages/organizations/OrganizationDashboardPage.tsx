@@ -32,10 +32,6 @@ const TYPE_MODULES: Partial<Record<OrganizationType, Array<{ title: string; desc
   institution: [
     { title: '수료·이수 인증', description: '프로그램 수료자에게 검증된 이수 기록을 발급합니다.' },
   ],
-  company: [
-    { title: '기업 프로젝트 운영', description: '외부 참여자와 함께하는 기업 과제·해커톤을 운영합니다.' },
-    { title: '지원자 관리', description: '공고별 지원자와 평가 단계를 팀원과 함께 관리합니다.' },
-  ],
   community: [{ title: '커뮤니티 활동', description: '커뮤니티 구성원 활동을 관리합니다.' }],
 }
 
@@ -118,7 +114,7 @@ export function OrganizationDashboardPage() {
   const approved = organization.verificationStatus === 'approved'
   const isAdmin = hasOrgRole(myRole, 'admin')
   const isStaff = hasOrgRole(myRole, 'manager')
-  const canManagePrograms = approved && hasOrgRole(myRole, 'manager') && organization.type !== 'company'
+  const canManagePrograms = approved && hasOrgRole(myRole, 'manager')
   const Icon = meta.icon
   const upcomingModules = TYPE_MODULES[organization.type] ?? []
   const requestedTab = searchParams.get('tab') ?? 'overview'

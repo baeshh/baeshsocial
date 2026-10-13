@@ -281,7 +281,7 @@ export function OpportunitiesPage() {
           </Card>
         ) : null}
 
-        {pageTab === 'browse' && token ? (
+        {pageTab === 'browse' ? (
           <InstitutionProgramsSection onPageChange={setInstitutionPage} page={institutionPage} token={token} />
         ) : null}
 

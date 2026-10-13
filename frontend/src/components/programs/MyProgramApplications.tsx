@@ -32,7 +32,14 @@ export function MyProgramApplications({ token }: { token: string }) {
                   </div>
                   <Badge tone={meta.tone}>{meta.label}</Badge>
                 </div>
-                <p className="mt-2 text-xs text-ink-muted">{formatDateTime(application.createdAt)} 지원</p>
+                {application.status === 'draft' ? (
+                  <p className="mt-2 text-xs font-medium text-accent-600">
+                    작성 중 · {formatDateTime(application.updatedAt)} 저장
+                    {application.program.applyEndAt ? ` · ${formatDateTime(application.program.applyEndAt)}까지 제출` : ''}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-ink-muted">{formatDateTime(application.submittedAt ?? application.createdAt)} 제출</p>
+                )}
                 {application.status === 'rejected' && application.reviewNote ? (
                   <p className="mt-2 rounded-xl bg-surface-muted/70 px-3 py-2 text-sm text-ink-body">{application.reviewNote}</p>
                 ) : null}

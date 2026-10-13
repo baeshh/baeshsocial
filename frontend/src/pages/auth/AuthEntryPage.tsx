@@ -18,7 +18,13 @@ export function AuthEntryPage() {
   const { mode } = useParams()
   const [searchParams] = useSearchParams()
   const inviteToken = searchParams.get('invite')
-  const inviteQuery = inviteToken ? `?invite=${encodeURIComponent(inviteToken)}` : ''
+  const rawNext = searchParams.get('next')
+  const nextPath = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null
+  const inviteQuery = inviteToken
+    ? `?invite=${encodeURIComponent(inviteToken)}`
+    : nextPath
+      ? `?next=${encodeURIComponent(nextPath)}`
+      : ''
   const navigate = useNavigate()
   const { token, setSession } = useAuthStore()
   const [name, setName] = useState('')
@@ -52,12 +58,12 @@ export function AuthEntryPage() {
         navigate(`/invite/${encodeURIComponent(inviteToken)}`)
         return
       }
-      navigate(isRegister && purpose !== 'personal' ? `/organizations/new?type=${purpose}` : '/network')
+      navigate(isRegister && purpose !== 'personal' ? `/organizations/new?type=${purpose}` : (nextPath ?? '/network'))
     },
   })
 
   if (token && !authMutation.isPending && !authMutation.isSuccess) {
-    return <Navigate replace to={inviteToken ? `/invite/${encodeURIComponent(inviteToken)}` : '/network'} />
+    return <Navigate replace to={inviteToken ? `/invite/${encodeURIComponent(inviteToken)}` : (nextPath ?? '/network')} />
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {

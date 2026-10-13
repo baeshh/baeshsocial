@@ -19,23 +19,57 @@ export type ProgramPolicy = {
   recordDisclosure: RecordDisclosure
 }
 
-export type ProgramVisibility = 'private' | 'organization' | 'public'
-export type RecruitmentMode = 'selected' | 'recruiting'
-export type RecruitmentState = 'selected' | 'upcoming' | 'open' | 'closed'
+export type ProgramVisibility = 'private' | 'organization' | 'unlisted' | 'public'
+export type RecruitmentMode = 'preselected' | 'open' | 'invite' | 'mixed'
+export type RecruitmentState = 'draft' | 'scheduled' | 'open' | 'closed' | 'selected' | 'invite_only'
 export type DeliveryMode = 'online' | 'offline' | 'hybrid'
+export type ProgramCategory = 'education' | 'startup' | 'capstone' | 'internship' | 'competition' | 'mentoring' | 'research' | 'other'
+export type ProgramAudience = 'high_school' | 'undergraduate' | 'graduate' | 'alumni' | 'job_seeker' | 'employee' | 'general'
+export type ProgramBenefit = 'certificate' | 'training' | 'mentoring' | 'funding' | 'networking' | 'workspace'
+
+export type ProgramEligibility = {
+  schools?: string
+  grades?: number[]
+  majors?: string
+  regions?: string
+  requirements?: string
+}
 
 export type ProgramRecruitment = {
   mode: RecruitmentMode
   state: RecruitmentState
+  category: ProgramCategory | null
+  coverImageUrl: string | null
+  audiences: ProgramAudience[]
   targetAudience: string | null
+  eligibility: ProgramEligibility | null
+  benefits: ProgramBenefit[]
+  benefitsNote: string | null
   capacity: number | null
+  openSeats: number | null
   applyStartAt: string | null
   applyEndAt: string | null
   announceAt: string | null
+  closedEarlyAt: string | null
   selectionProcess: string | null
   deliveryMode: DeliveryMode | null
   location: string | null
 }
+
+export type ApplicationFieldType = 'short_text' | 'long_text' | 'single_choice' | 'multi_choice' | 'url' | 'file' | 'consent'
+
+export type ApplicationField = {
+  id: string
+  type: ApplicationFieldType
+  label: string
+  description: string | null
+  required: boolean
+  options: string[]
+}
+
+export type AnswerValue = string | string[] | boolean
+
+export type ApplicationFile = { id: string; fieldId: string; originalName: string; sizeBytes: number; mimeType: string }
 
 export type Program = {
   id: string
@@ -53,10 +87,24 @@ export type Program = {
   managers: MemberUser[]
   policy: ProgramPolicy
   visibility: ProgramVisibility
+  publishedAt: string | null
   recruitment: ProgramRecruitment
+  /** Only returned to program staff. */
+  shareToken?: string | null
 }
 
-export type ApplicationStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn'
+export type ApplicationStatus = 'draft' | 'pending' | 'accepted' | 'rejected' | 'withdrawn'
+
+export type MyApplicationSummary = {
+  id: string
+  status: ApplicationStatus
+  createdAt: string
+  submittedAt: string | null
+  reviewedAt: string | null
+  reviewNote: string | null
+  answers?: Record<string, AnswerValue>
+  files?: ApplicationFile[]
+}
 
 export type DiscoverableProgram = {
   id: string
@@ -67,14 +115,16 @@ export type DiscoverableProgram = {
   startDate: string | null
   endDate: string | null
   visibility: ProgramVisibility
+  publishedAt: string | null
   organization: { id: string; name: string; type: OrganizationType }
   recruitment: ProgramRecruitment
   participantCount: number
   myStatus: {
     isParticipant: boolean
     isManager: boolean
-    application: { status: ApplicationStatus; createdAt: string; reviewedAt: string | null; reviewNote: string | null } | null
+    application: MyApplicationSummary | null
   }
+  applicationFields?: ApplicationField[]
 }
 
 export type DiscoverProgramsPage = {
@@ -94,7 +144,10 @@ export type ProgramApplication = {
   reviewedAt: string | null
   reviewedBy: { id: string; name: string } | null
   createdAt: string
+  submittedAt: string | null
   user: MemberUser & { headline: string | null }
+  answers: Array<{ fieldId: string; label: string; type: ApplicationFieldType; archived: boolean; value: AnswerValue }>
+  files: Array<ApplicationFile & { fieldLabel: string }>
 }
 
 export type ProgramApplicationsResponse = {
@@ -110,8 +163,17 @@ export type MyProgramApplication = {
   message: string | null
   reviewNote: string | null
   createdAt: string
+  submittedAt: string | null
+  updatedAt: string
   reviewedAt: string | null
-  program: { id: string; title: string; organizationId: string; organizationName: string; isParticipant: boolean }
+  program: {
+    id: string
+    title: string
+    organizationId: string
+    organizationName: string
+    applyEndAt: string | null
+    isParticipant: boolean
+  }
 }
 
 export type ProgramListItem = Program & {

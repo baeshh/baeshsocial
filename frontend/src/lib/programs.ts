@@ -1,13 +1,18 @@
 import type {
+  ApplicationFieldType,
   ApplicationStatus,
   DeliveryMode,
   EvidenceCategory,
   EvidenceHistoryEntry,
   EvidenceStatus,
+  ProgramAudience,
+  ProgramBenefit,
+  ProgramCategory,
   ProgramProjectStatus,
   ProgramRecruitment,
   ProgramStatus,
   ProgramVisibility,
+  RecruitmentMode,
   RecruitmentState,
   ProjectReviewKind,
   ProjectVisibility,
@@ -59,20 +64,105 @@ export const PROGRAM_STATUS_META: Record<ProgramStatus, { label: string; tone: T
   archived: { label: '보관', tone: 'gray' },
 }
 
-export const PROGRAM_VISIBILITY_META: Record<ProgramVisibility, { label: string; description: string }> = {
-  private: { label: '비공개', description: '담당자와 등록된 참여자만 볼 수 있습니다.' },
-  organization: { label: '조직 내부 공개', description: '이 조직의 구성원에게 Jobs와 조직 프로그램 목록에 노출됩니다.' },
-  public: { label: '전체 공개', description: 'BAESH 사용자 누구나 Jobs에서 보고 지원할 수 있습니다.' },
+export const PROGRAM_VISIBILITY_META: Record<ProgramVisibility, { label: string; description: string; listed: boolean }> = {
+  public: { label: '전체 공개', description: 'Jobs와 검색에 노출되고 누구나 소개를 볼 수 있습니다.', listed: true },
+  unlisted: { label: '링크 공개', description: '링크를 받은 사람만 볼 수 있습니다. Jobs·검색 목록에는 나오지 않습니다.', listed: false },
+  organization: { label: '조직 내부 공개', description: '이 조직의 구성원에게만 Jobs와 조직 프로그램 목록에 노출됩니다.', listed: true },
+  private: { label: '내부 전용', description: '담당자와 승인된 참여자만 볼 수 있습니다. 어디에도 공개되지 않습니다.', listed: false },
 }
 
+export const RECRUITMENT_MODE_META: Record<RecruitmentMode, { label: string; question: string; description: string }> = {
+  open: {
+    label: '공개 모집',
+    question: '지금부터 지원자를 모집해요',
+    description: '모집 공고를 게시하고 지원서를 받아 선발합니다. 선발된 사람은 자동으로 참여자가 됩니다.',
+  },
+  preselected: {
+    label: '기선발 인원 등록',
+    question: '참여자가 이미 정해져 있어요',
+    description: '이미 선발한 명단을 이메일·CSV로 등록합니다. 모집 공고와 지원서가 필요 없습니다.',
+  },
+  invite: {
+    label: '초대 모집',
+    question: '초대한 사람만 참여해요',
+    description: '담당자가 보낸 초대를 수락한 사람만 참여합니다. 임직원·내부 대상 프로그램에 적합합니다.',
+  },
+  mixed: {
+    label: '혼합 모집',
+    question: '일부는 정해졌고, 나머지를 추가 모집해요',
+    description: '기선발 인원을 먼저 등록하고, 남은 정원만큼 지원서를 받아 추가 선발합니다.',
+  },
+}
+
+export const takesApplications = (mode: RecruitmentMode) => mode === 'open' || mode === 'mixed'
+
 export const RECRUITMENT_STATE_META: Record<RecruitmentState, { label: string; tone: Tone }> = {
+  draft: { label: '모집 준비', tone: 'gray' },
+  scheduled: { label: '모집 예정', tone: 'purple' },
   open: { label: '모집 중', tone: 'green' },
-  upcoming: { label: '모집 예정', tone: 'purple' },
-  selected: { label: '선발 완료', tone: 'blue' },
   closed: { label: '모집 마감', tone: 'gray' },
+  selected: { label: '선발 완료', tone: 'blue' },
+  invite_only: { label: '초대 전용', tone: 'gray' },
+}
+
+export const PROGRAM_CATEGORY_LABEL: Record<ProgramCategory, string> = {
+  education: '교육',
+  startup: '창업',
+  capstone: '캡스톤·프로젝트 수업',
+  internship: '인턴십·현장실습',
+  competition: '공모전·해커톤',
+  mentoring: '멘토링',
+  research: '연구',
+  other: '기타',
+}
+
+export const PROGRAM_AUDIENCE_LABEL: Record<ProgramAudience, string> = {
+  high_school: '고등학생',
+  undergraduate: '대학생',
+  graduate: '대학원생',
+  alumni: '졸업생',
+  job_seeker: '구직자',
+  employee: '재직자',
+  general: '일반인',
+}
+
+export const PROGRAM_BENEFIT_LABEL: Record<ProgramBenefit, string> = {
+  certificate: '수료증',
+  training: '교육',
+  mentoring: '멘토링',
+  funding: '지원금',
+  networking: '네트워킹',
+  workspace: '공간 지원',
+}
+
+export const APPLICATION_FIELD_TYPE_LABEL: Record<ApplicationFieldType, string> = {
+  short_text: '단답형',
+  long_text: '서술형',
+  single_choice: '객관식(하나)',
+  multi_choice: '객관식(여러 개)',
+  url: '포트폴리오·링크',
+  file: '첨부파일',
+  consent: '동의 항목',
+}
+
+export function formatGrades(grades: number[] | undefined) {
+  if (!grades?.length) return null
+  return [...grades].sort((a, b) => a - b).map((grade) => `${grade}학년`).join(', ')
+}
+
+export function formatAudiences(recruitment: Pick<ProgramRecruitment, 'audiences' | 'targetAudience'>) {
+  const labels = recruitment.audiences.map((audience) => PROGRAM_AUDIENCE_LABEL[audience])
+  return [labels.join('·'), recruitment.targetAudience].filter(Boolean).join(' · ') || null
+}
+
+/** Share URL of a program page; unlisted programs carry their token. */
+export function programShareUrl(programId: string, shareToken?: string | null) {
+  const base = `${window.location.origin}/programs/${programId}`
+  return shareToken ? `${base}?t=${encodeURIComponent(shareToken)}` : base
 }
 
 export const APPLICATION_STATUS_META: Record<ApplicationStatus, { label: string; tone: Tone }> = {
+  draft: { label: '작성 중', tone: 'gray' },
   pending: { label: '심사 중', tone: 'purple' },
   accepted: { label: '선발', tone: 'green' },
   rejected: { label: '미선발', tone: 'gray' },
@@ -109,7 +199,7 @@ export function recruitmentDeadlineHint(recruitment: ProgramRecruitment, now = n
     const left = days(recruitment.applyEndAt)
     return left <= 1 ? '오늘 마감' : `마감 D-${left}`
   }
-  if (recruitment.state === 'upcoming' && recruitment.applyStartAt) {
+  if (recruitment.state === 'scheduled' && recruitment.applyStartAt) {
     const left = days(recruitment.applyStartAt)
     return left <= 1 ? '곧 모집 시작' : `${left}일 후 모집 시작`
   }

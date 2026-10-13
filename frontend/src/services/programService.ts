@@ -1,7 +1,14 @@
 import { apiRequest, apiUpload } from '../lib/api'
 import type {
+  AnswerValue,
+  ApplicationField,
+  ApplicationFile,
   ApplicationStatus,
   DeliveryMode,
+  ProgramAudience,
+  ProgramBenefit,
+  ProgramCategory,
+  ProgramEligibility,
   DiscoverableProgram,
   DiscoverProgramsPage,
   Evidence,
@@ -37,6 +44,8 @@ import type {
 
 const json = (body: unknown) => JSON.stringify(body)
 
+export type ApplicationFieldPayload = Omit<ApplicationField, 'id'> & { id?: string }
+
 export type ProgramPayload = {
   title: string
   description?: string | null
@@ -47,7 +56,13 @@ export type ProgramPayload = {
   managerUserIds?: string[]
   visibility?: ProgramVisibility
   recruitmentMode?: RecruitmentMode
+  category?: ProgramCategory | null
+  coverImageUrl?: string | null
+  audiences?: ProgramAudience[]
   targetAudience?: string | null
+  eligibility?: ProgramEligibility | null
+  benefits?: ProgramBenefit[]
+  benefitsNote?: string | null
   capacity?: number | null
   applyStartAt?: string | null
   applyEndAt?: string | null
@@ -55,7 +70,11 @@ export type ProgramPayload = {
   selectionProcess?: string | null
   deliveryMode?: DeliveryMode | null
   location?: string | null
+  publish?: boolean
+  applicationFields?: ApplicationFieldPayload[]
 } & Partial<ProgramPolicy>
+
+export type PublicationAction = 'publish' | 'unpublish' | 'close_recruitment' | 'reopen_recruitment' | 'rotate_share_link'
 
 export type ProgramProjectPayload = {
   title: string
@@ -71,26 +90,71 @@ export type ParticipantInput = { email?: string; userId?: string; studentNo?: st
 
 /* ---------------------- Discovery & applications ---------------------- */
 
-export function discoverPrograms(token: string, params: { page: number; pageSize: number; q?: string }) {
+export function discoverPrograms(
+  token: string | null,
+  params: { page: number; pageSize: number; q?: string; category?: ProgramCategory | null; openOnly?: boolean },
+) {
   const search = new URLSearchParams({ page: String(params.page), pageSize: String(params.pageSize) })
   if (params.q) search.set('q', params.q)
+  if (params.category) search.set('category', params.category)
+  if (params.openOnly) search.set('openOnly', 'true')
   return apiRequest<DiscoverProgramsPage>(`/programs/discover?${search}`, { token })
 }
 
-export function getDiscoverableProgram(token: string, programId: string) {
-  return apiRequest<{ program: DiscoverableProgram }>(`/programs/discover/${programId}`, { token })
+export function getDiscoverableProgram(token: string | null, programId: string, shareToken?: string | null) {
+  const query = shareToken ? `?t=${encodeURIComponent(shareToken)}` : ''
+  return apiRequest<{ program: DiscoverableProgram }>(`/programs/discover/${programId}${query}`, { token })
 }
 
-export function applyToProgram(token: string, programId: string, message: string) {
-  return apiRequest<{ application: { id: string; status: ApplicationStatus } }>(`/programs/${programId}/applications`, {
-    method: 'POST',
+export function saveMyApplication(
+  token: string,
+  programId: string,
+  payload: { answers: Record<string, AnswerValue>; submit: boolean; shareToken?: string | null },
+) {
+  return apiRequest<{ application: { id: string; status: ApplicationStatus } }>(`/programs/${programId}/applications/me`, {
+    method: 'PUT',
     token,
-    body: json({ message: message.trim() || null }),
+    body: json({ ...payload, shareToken: payload.shareToken || undefined }),
   })
 }
 
+export function uploadApplicationFile(token: string, programId: string, fieldId: string, file: File, shareToken?: string | null) {
+  const form = new FormData()
+  form.append('fieldId', fieldId)
+  if (shareToken) form.append('shareToken', shareToken)
+  form.append('file', file)
+  return apiUpload<{ file: ApplicationFile }>(`/programs/${programId}/applications/me/files`, form, { token })
+}
+
+export function deleteApplicationFile(token: string, programId: string, fileId: string) {
+  return apiRequest<void>(`/programs/${programId}/applications/me/files/${fileId}`, { method: 'DELETE', token })
+}
+
+export function getApplicationFileUrl(token: string, fileId: string, download = false) {
+  return apiRequest<{ url: string; expiresAt: string }>(`/programs/application-files/${fileId}/url${download ? '?download=1' : ''}`, {
+    token,
+  })
+}
+
+/** Withdraws a submitted application, or discards a draft. */
 export function withdrawProgramApplication(token: string, programId: string) {
   return apiRequest<void>(`/programs/${programId}/applications/me`, { method: 'DELETE', token })
+}
+
+export function getApplicationForm(token: string, programId: string) {
+  return apiRequest<{ fields: ApplicationField[]; submittedCount: number }>(`/programs/${programId}/application-form`, { token })
+}
+
+export function saveApplicationForm(token: string, programId: string, fields: ApplicationFieldPayload[]) {
+  return apiRequest<{ fields: ApplicationField[] }>(`/programs/${programId}/application-form`, {
+    method: 'PUT',
+    token,
+    body: json({ fields }),
+  })
+}
+
+export function updateProgramPublication(token: string, programId: string, action: PublicationAction) {
+  return apiRequest<{ program: Program }>(`/programs/${programId}/publication`, { method: 'POST', token, body: json({ action }) })
 }
 
 export function getMyProgramApplications(token: string) {

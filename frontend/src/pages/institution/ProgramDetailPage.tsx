@@ -12,7 +12,16 @@ import { ProgramRequestsPanel } from '../../components/institution/ProgramReques
 import { ProgramReviewPanel } from '../../components/institution/ProgramReviewPanel'
 import { ProgramSettingsPanel } from '../../components/institution/ProgramSettingsPanel'
 import { AppLayout } from '../../components/layout/AppLayout'
-import { DELIVERY_MODE_LABEL, PROGRAM_STATUS_META, PROGRAM_VISIBILITY_META, RECRUITMENT_STATE_META, formatPeriod } from '../../lib/programs'
+import {
+  DELIVERY_MODE_LABEL,
+  PROGRAM_STATUS_META,
+  PROGRAM_VISIBILITY_META,
+  RECRUITMENT_MODE_META,
+  RECRUITMENT_STATE_META,
+  formatAudiences,
+  formatPeriod,
+  takesApplications,
+} from '../../lib/programs'
 import { getProgram } from '../../services/programService'
 import { useAuthStore } from '../../stores/authStore'
 
@@ -57,11 +66,11 @@ export function ProgramDetailPage() {
     },
     ...(myAccess.isStaff
       ? [
-          ...(program.recruitment.mode === 'recruiting'
+          ...(takesApplications(program.recruitment.mode)
             ? [{ id: 'applications', label: '지원자', content: <ProgramApplicationsPanel program={program} /> }]
             : []),
+          { id: 'participants', label: `참여자 ${program.participantCount ?? ''}`, content: <ProgramParticipantsPanel program={program} /> },
           { id: 'requests', label: '등록 요청', content: <ProgramRequestsPanel program={program} /> },
-          { id: 'participants', label: `참여 학생 ${program.participantCount ?? ''}`, content: <ProgramParticipantsPanel program={program} /> },
           { id: 'review', label: '증빙 검토', content: <ProgramReviewPanel program={program} /> },
           { id: 'kpis', label: '성과 분석', content: <ProgramKpiPanel program={program} /> },
           { id: 'settings', label: '설정', content: <ProgramSettingsPanel access={myAccess} key={program.updatedAt} program={program} /> },
@@ -95,13 +104,18 @@ export function ProgramDetailPage() {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-ink-strong">{program.title}</h1>
+            {myAccess.isStaff && !program.publishedAt ? <Badge>임시저장</Badge> : null}
             <Badge tone={status.tone}>{status.label}</Badge>
-            <Badge tone={recruitmentMeta.tone}>{recruitmentMeta.label}</Badge>
+            {program.recruitment.state !== 'draft' ? <Badge tone={recruitmentMeta.tone}>{recruitmentMeta.label}</Badge> : null}
             <Badge>{PROGRAM_VISIBILITY_META[program.visibility].label}</Badge>
-            {myAccess.isStaff ? <Badge tone="blue">{myAccess.isOrgAdmin ? '조직 관리자' : '담당자'}</Badge> : <Badge>참여 학생</Badge>}
+            <Badge>{RECRUITMENT_MODE_META[program.recruitment.mode].label}</Badge>
+            {myAccess.isStaff ? <Badge tone="blue">{myAccess.isOrgAdmin ? '조직 관리자' : '담당자'}</Badge> : <Badge>참여자</Badge>}
             {program.visibility !== 'private' ? (
-              <Link className="text-sm font-semibold text-brand-600 hover:underline" to={`/programs/${program.id}`}>
-                공개 페이지 보기
+              <Link
+                className="text-sm font-semibold text-brand-600 hover:underline"
+                to={program.visibility === 'unlisted' && program.shareToken ? `/programs/${program.id}?t=${encodeURIComponent(program.shareToken)}` : `/programs/${program.id}`}
+              >
+                {program.publishedAt ? '공개 페이지 보기' : '공고 미리보기'}
               </Link>
             ) : null}
           </div>
@@ -115,8 +129,12 @@ export function ProgramDetailPage() {
               <Users size={14} />
               담당 {program.managers.length ? program.managers.map((m) => m.name).join(', ') : '미지정'}
             </span>
-            {program.recruitment.targetAudience ? <span>대상 {program.recruitment.targetAudience}</span> : null}
-            {program.recruitment.capacity ? <span>선발 {program.recruitment.capacity}명</span> : null}
+            {formatAudiences(program.recruitment) ? <span>대상 {formatAudiences(program.recruitment)}</span> : null}
+            {program.recruitment.capacity ? (
+              <span>
+                정원 {program.recruitment.capacity}명 · 참여 {program.participantCount ?? 0}명
+              </span>
+            ) : null}
             {program.recruitment.deliveryMode || program.recruitment.location ? (
               <span className="flex items-center gap-1">
                 <MapPin size={14} />
