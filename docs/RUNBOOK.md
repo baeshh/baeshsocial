@@ -163,7 +163,14 @@ BAESH_ENV=production deploy/scripts/restore-s3-object.sh evidence/<id>/<file>.pd
 | Variable | `UPTIME_URLS` | 저장소 | 업타임 점검 대상. 공백으로 구분한 `/api`까지의 주소 (예: `https://api.baesh.kr/api https://staging-api.baesh.kr/api`) |
 | Secret | `ALERT_WEBHOOK_URL` | 저장소 | 업타임 실패 알림 |
 
-`main` 브랜치 보호: PR로만 병합하고, 승인 리뷰 1건 이상과 CI 필수 검사 `Backend tests`, `DB migrations`, `Frontend build & lint`, `Security scan` 통과를 요구합니다. 작업 이름을 바꾸면 보호 규칙의 필수 검사 이름도 함께 바꿔야 합니다.
+`main` 브랜치 보호는 저장소 규칙 세트(Settings → Rules → Rulesets) 두 개로 합니다.
+
+| 규칙 세트 | 내용 | 예외 |
+|-----------|------|------|
+| `main: PR only + required CI (everyone)` | PR로만 병합(직접 push 차단), 강제 push·삭제 금지, 리뷰 대화 해결, 필수 검사 `Backend tests`, `DB migrations`, `Frontend build & lint`, `Security scan`(GitHub Actions가 보고한 것만 인정) 통과 + 최신 `main` 기준 | 없음 (관리자 포함) |
+| `main: 1 approving review (admins may bypass)` | 승인 리뷰 1건, 새 커밋 push 시 기존 승인 무효 | 관리자 역할, PR에서만 |
+
+관리자는 PR 화면에서 리뷰 없이 병합할 수 있지만, 필수 검사 4개가 모두 통과해야 합니다. CI 작업 이름을 바꾸면 규칙 세트의 필수 검사 이름도 함께 바꿔야 합니다.
 
 자동 가입 구성원 변환(참여자/구성원 분리 이전 데이터): `npx tsx scripts/convertAutoJoinedMembers.ts`(backend 폴더)는 기본이 드라이런입니다. 선발로 자동 가입된 일반 구성원만 후보로 보고, 이전부터 구성원이었거나 담당자·관리자이거나 조직 초대로 가입한 사람, 현재 참여 중인 프로그램이 없는 사람은 유지합니다. 프로그램 초대로 가입한 사람은 `--include-program-invites`로 따로 검토합니다. 운영에서 `--apply`는 백업 후 `--confirm-backup`과 함께만 실행됩니다. 감사 로그 action은 `org.member_convert_to_participant`입니다.
 

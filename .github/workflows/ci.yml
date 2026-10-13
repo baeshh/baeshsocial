@@ -1,7 +1,7 @@
 name: CI
 
-# Job names are referenced by main's branch protection (required status checks). Renaming a job
-# requires updating the protection rule, otherwise PRs wait forever for the old check name.
+# Job names are referenced by main's ruleset "main: PR only + required CI (everyone)". Renaming a job
+# requires updating the ruleset, otherwise PRs wait forever for the old check name.
 on:
   push:
     branches: [main, develop, 'feat/**', 'fix/**', 'hotfix/**', 'chore/**', 'release/**']
