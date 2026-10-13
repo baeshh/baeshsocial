@@ -6,6 +6,8 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization.middleware.js'
 import { runAiTask } from '../../services/ai/runner.js'
+import { audit } from '../../services/audit/audit.js'
+import { assertOrgCapacity } from '../../services/billing/entitlements.js'
 import { buildNarrativeInput, fallbackNarrative, reportNarrativeTask, type ReportNarrative } from '../../services/ai/tasks/reportNarrative.js'
 import { renderPdf } from '../../services/pdf/renderPdf.js'
 import { storage } from '../../services/storage/storage.js'
@@ -166,6 +168,7 @@ organizationReportsRouter.post('/', authenticate, staffAccess, async (req, res, 
       where: { organizationId: access.organization.id, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     })
     if (recent >= DAILY_REPORT_LIMIT) throw new HttpError(429, `보고서는 기관별로 24시간에 ${DAILY_REPORT_LIMIT}건까지 생성할 수 있습니다.`)
+    await assertOrgCapacity(access.organization.id, 'reportsPerPeriod', 1)
 
     inFlight.add(lockKey)
     locked = true
@@ -242,6 +245,13 @@ organizationReportsRouter.post('/', authenticate, staffAccess, async (req, res, 
         },
         select: reportSelect,
       })
+      await audit(req, res, {
+        action: 'report.generate',
+        organizationId: organization.id,
+        targetType: 'report',
+        targetId: report.id,
+        metadata: { programIds, version: report.version, narrativeSource, from: body.from, to: body.to },
+      })
       res.status(201).json({ report: serializeReport(ready) })
     } catch (error) {
       console.error('[reports] generation failed', error)
@@ -296,6 +306,14 @@ organizationReportsRouter.get('/:reportId/download', authenticate, staffAccess, 
       fileName: `${report.title}_v${report.version}.pdf`,
       inline: req.query.inline === '1',
     })
+    await audit(req, res, {
+      action: 'report.download',
+      organizationId: (res.locals.orgAccess as OrgAccess).organization.id,
+      targetType: 'report',
+      targetId: report.id,
+      metadata: { version: report.version },
+    })
+    res.setHeader('Cache-Control', 'no-store')
     res.status(200).json(signed)
   } catch (error) {
     next(error)

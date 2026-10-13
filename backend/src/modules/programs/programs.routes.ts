@@ -14,6 +14,8 @@ import { Router } from 'express'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization.middleware.js'
+import { audit } from '../../services/audit/audit.js'
+import { assertOrgCapacity } from '../../services/billing/entitlements.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { hasOrgRole } from '../../utils/organizations.js'
@@ -216,6 +218,8 @@ organizationProgramsRouter.post(
       const requested = [...input.managerUserIds]
       if (!hasOrgRole(membership.role, OrganizationRole.ADMIN)) requested.push(authUser.id)
       const managerIds = await resolveManagerIds(organization.id, requested)
+      const status = toProgramStatus(input.status)
+      await assertOrgCapacity(organization.id, 'activePrograms', status === ProgramStatus.ACTIVE ? 1 : 0)
 
       const program = await prisma.program.create({
         data: {
@@ -223,7 +227,7 @@ organizationProgramsRouter.post(
           title: input.title,
           description: input.description ?? null,
           term: input.term ?? null,
-          status: toProgramStatus(input.status),
+          status,
           startDate: input.startDate ?? null,
           endDate: input.endDate ?? null,
           createdById: authUser.id,
@@ -232,6 +236,13 @@ organizationProgramsRouter.post(
         include: programInclude,
       })
 
+      await audit(req, res, {
+        action: 'program.create',
+        organizationId: organization.id,
+        targetType: 'program',
+        targetId: program.id,
+        metadata: { title: program.title, status: program.status, managers: managerIds.length },
+      })
       await notify(
         managerIds,
         authUser.id,
@@ -289,6 +300,10 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
     const managerIds = input.managerUserIds
       ? await resolveManagerIds(access.organization.id, input.managerUserIds)
       : null
+    const nextStatus = input.status !== undefined ? toProgramStatus(input.status) : undefined
+    if (nextStatus === ProgramStatus.ACTIVE && access.program.status !== ProgramStatus.ACTIVE) {
+      await assertOrgCapacity(access.organization.id, 'activePrograms', 1)
+    }
 
     const program = await prisma.$transaction(async (tx) => {
       if (managerIds) {
@@ -304,12 +319,24 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
           ...(input.title !== undefined ? { title: input.title } : {}),
           ...(input.description !== undefined ? { description: input.description } : {}),
           ...(input.term !== undefined ? { term: input.term } : {}),
-          ...(input.status !== undefined ? { status: toProgramStatus(input.status) } : {}),
+          ...(nextStatus !== undefined ? { status: nextStatus } : {}),
           ...(input.startDate !== undefined ? { startDate: input.startDate } : {}),
           ...(input.endDate !== undefined ? { endDate: input.endDate } : {}),
         },
         include: programInclude,
       })
+    })
+
+    await audit(req, res, {
+      action: 'program.update',
+      organizationId: access.organization.id,
+      targetType: 'program',
+      targetId: access.program.id,
+      metadata: {
+        fields: Object.keys(input),
+        ...(nextStatus && nextStatus !== access.program.status ? { statusFrom: access.program.status, statusTo: nextStatus } : {}),
+        ...(managerIds ? { managers: managerIds } : {}),
+      },
     })
 
     res.status(200).json({ program: serializeProgram(program) })
@@ -327,6 +354,13 @@ programsRouter.delete('/:programId', authenticate, async (req, res, next) => {
       throw new HttpError(409, '프로젝트가 남아 있는 프로그램은 삭제할 수 없습니다. 보관 상태로 변경해 주세요.')
     }
     await prisma.program.delete({ where: { id: access.program.id } })
+    await audit(req, res, {
+      action: 'program.delete',
+      organizationId: access.organization.id,
+      targetType: 'program',
+      targetId: access.program.id,
+      metadata: { title: access.program.title },
+    })
     res.status(204).send()
   } catch (error) {
     next(error)
@@ -361,6 +395,9 @@ programsRouter.post('/:programId/projects', authenticate, async (req, res, next)
     const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
     assertProgramWritable(access.program.status)
     const input = createProgramProjectSchema.parse(req.body)
+    if (toProjectStatus(input.status) !== ProjectStatus.ARCHIVED) {
+      await assertOrgCapacity(access.organization.id, 'projects', 1)
+    }
 
     const baseSlug =
       input.title
@@ -425,6 +462,10 @@ programsRouter.patch('/:programId/projects/:projectId', authenticate, async (req
     assertProgramWritable(access.program.status)
     const target = await findProgramProject(access.program.id, String(req.params.projectId))
     const input = updateProgramProjectSchema.parse(req.body)
+    if (input.status !== undefined && toProjectStatus(input.status) !== ProjectStatus.ARCHIVED) {
+      const current = await prisma.project.findUniqueOrThrow({ where: { id: target.id }, select: { status: true } })
+      if (current.status === ProjectStatus.ARCHIVED) await assertOrgCapacity(access.organization.id, 'projects', 1)
+    }
 
     const project = await prisma.project.update({
       where: { id: target.id },
@@ -675,6 +716,16 @@ programsRouter.post('/:programId/participants', authenticate, async (req, res, n
       ).map((row) => row.userId),
     )
 
+    const pendingToApprove = new Set(
+      participants.flatMap((entry) => {
+        const user = entry.userId ? byId.get(entry.userId) : byEmail.get(entry.email!)
+        return user?.organizationMemberships[0]?.status === OrganizationMemberStatus.PENDING ? [user.id] : []
+      }),
+    )
+    if (pendingToApprove.size > 0) {
+      await assertOrgCapacity(access.organization.id, 'members', pendingToApprove.size)
+    }
+
     const added: string[] = []
     const skipped: { input: string; reason: string }[] = []
     const approvedMemberships: string[] = []
@@ -689,6 +740,10 @@ programsRouter.post('/:programId/participants', authenticate, async (req, res, n
       const membership = user.organizationMemberships[0]
       if (!membership || membership.status === OrganizationMemberStatus.REJECTED) {
         skipped.push({ input: label, reason: '조직에 가입하지 않은 사용자입니다. 먼저 조직 가입을 요청하도록 안내해 주세요.' })
+        continue
+      }
+      if (membership.status === OrganizationMemberStatus.SUSPENDED) {
+        skipped.push({ input: label, reason: '조직에서 이용이 정지된 구성원입니다.' })
         continue
       }
       if (membership.status === OrganizationMemberStatus.PENDING) {
@@ -726,6 +781,13 @@ programsRouter.post('/:programId/participants', authenticate, async (req, res, n
       `/org/${access.organization.id}/programs/${access.program.id}`,
     )
 
+    await audit(req, res, {
+      action: 'program.participants_add',
+      organizationId: access.organization.id,
+      targetType: 'program',
+      targetId: access.program.id,
+      metadata: { added: added.length, skipped: skipped.length, approvedMemberships },
+    })
     res.status(200).json({ added, skipped, approvedMemberships })
   } catch (error) {
     next(error)
@@ -742,6 +804,13 @@ programsRouter.delete('/:programId/participants/:userId', authenticate, async (r
       prisma.projectMember.deleteMany({ where: { userId, project: { programId: access.program.id } } }),
       prisma.programParticipant.deleteMany({ where: { programId: access.program.id, userId } }),
     ])
+    await audit(req, res, {
+      action: 'program.participant_remove',
+      organizationId: access.organization.id,
+      targetType: 'user',
+      targetId: userId,
+      metadata: { programId: access.program.id },
+    })
     res.status(204).send()
   } catch (error) {
     next(error)

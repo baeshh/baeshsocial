@@ -9,6 +9,9 @@ import { Router, type RequestHandler } from 'express'
 import multer from 'multer'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
+import { limits } from '../../middlewares/rateLimit.js'
+import { audit } from '../../services/audit/audit.js'
+import { assertOrgCapacity, bytesToGb } from '../../services/billing/entitlements.js'
 import { UPLOAD_LIMITS, validateUpload, type ValidatedFile } from '../../services/storage/fileValidation.js'
 import {
   buildStorageKey,
@@ -138,6 +141,12 @@ async function storeFiles(evidenceId: string, uploaderId: string, files: Validat
   }
 }
 
+/** Uploads count against the organization's storage allowance. */
+async function assertStorageFor(organizationId: string, files: Express.Multer.File[]) {
+  const bytes = files.reduce((sum, file) => sum + file.size, 0)
+  if (bytes > 0) await assertOrgCapacity(organizationId, 'storageGb', bytesToGb(bytes))
+}
+
 async function validateAll(files: Express.Multer.File[]) {
   const validated: ValidatedFile[] = []
   for (const file of files) validated.push(await validateUpload(file))
@@ -200,10 +209,10 @@ projectEvidenceRouter.get('/', authenticate, async (req, res, next) => {
   }
 })
 
-projectEvidenceRouter.post('/', authenticate, acceptFiles, async (req, res, next) => {
+projectEvidenceRouter.post('/', authenticate, limits.upload, acceptFiles, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
-    const { project, program, isTeamMember } = await loadProjectContext(String(req.params.projectId), authUser.id)
+    const { project, program, isTeamMember, access } = await loadProjectContext(String(req.params.projectId), authUser.id)
     if (!isTeamMember) throw new HttpError(403, '팀원만 활동 증빙을 작성할 수 있습니다.')
     assertProgramAcceptsSubmissions(program.status)
 
@@ -212,6 +221,7 @@ projectEvidenceRouter.post('/', authenticate, acceptFiles, async (req, res, next
     if (files.length > UPLOAD_LIMITS.maxFilesPerEvidence) {
       throw new HttpError(400, `파일은 최대 ${UPLOAD_LIMITS.maxFilesPerEvidence}개까지 올릴 수 있습니다.`)
     }
+    await assertStorageFor(access.organization.id, files)
     const validated = await validateAll(files)
 
     const evidence = await prisma.projectEvidence.create({
@@ -283,13 +293,20 @@ evidenceRouter.delete('/:evidenceId', authenticate, async (req, res, next) => {
     const keys = context.evidence.files.map((file) => file.storageKey)
     await prisma.projectEvidence.delete({ where: { id: context.evidence.id } })
     await Promise.allSettled(keys.map((key) => storage.remove(key)))
+    await audit(req, res, {
+      action: 'evidence.delete',
+      organizationId: context.access.organization.id,
+      targetType: 'evidence',
+      targetId: context.evidence.id,
+      metadata: { files: keys.length },
+    })
     res.status(204).send()
   } catch (error) {
     next(error)
   }
 })
 
-evidenceRouter.post('/:evidenceId/files', authenticate, acceptFiles, async (req, res, next) => {
+evidenceRouter.post('/:evidenceId/files', authenticate, limits.upload, acceptFiles, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
     const context = await loadEvidenceContext(String(req.params.evidenceId), authUser.id)
@@ -300,6 +317,7 @@ evidenceRouter.post('/:evidenceId/files', authenticate, acceptFiles, async (req,
     if (context.evidence.files.length + files.length > UPLOAD_LIMITS.maxFilesPerEvidence) {
       throw new HttpError(400, `증빙 하나에 파일은 최대 ${UPLOAD_LIMITS.maxFilesPerEvidence}개까지 첨부할 수 있습니다.`)
     }
+    await assertStorageFor(context.access.organization.id, files)
     await storeFiles(context.evidence.id, authUser.id, await validateAll(files))
     res.status(201).json({ evidence: await reloadEvidence(context.evidence.id) })
   } catch (error) {
@@ -316,6 +334,13 @@ evidenceRouter.delete('/:evidenceId/files/:fileId', authenticate, async (req, re
     if (!file) throw new HttpError(404, '파일을 찾을 수 없습니다.')
     await prisma.evidenceFile.delete({ where: { id: file.id } })
     await storage.remove(file.storageKey).catch((error) => console.error('Evidence file removal failed:', error))
+    await audit(req, res, {
+      action: 'evidence.file_delete',
+      organizationId: context.access.organization.id,
+      targetType: 'evidence_file',
+      targetId: file.id,
+      metadata: { evidenceId: context.evidence.id },
+    })
     res.status(200).json({ evidence: await reloadEvidence(context.evidence.id) })
   } catch (error) {
     next(error)
@@ -425,6 +450,13 @@ evidenceRouter.post('/:evidenceId/review', authenticate, async (req, res, next) 
       }
     })
 
+    await audit(req, res, {
+      action: approve ? 'evidence.approve' : 'evidence.reject',
+      organizationId: access.organization.id,
+      targetType: 'evidence',
+      targetId: evidence.id,
+      metadata: { programId: program.id, projectId: project.id, authorId: evidence.authorId },
+    })
     await notify(
       [evidence.authorId],
       authUser.id,
@@ -473,6 +505,13 @@ evidenceRouter.post('/:evidenceId/revoke', authenticate, async (req, res, next) 
       await revokeVerifiedRecord(tx, { evidenceId: evidence.id, actorId: authUser.id, reason })
     })
 
+    await audit(req, res, {
+      action: 'evidence.revoke',
+      organizationId: context.access.organization.id,
+      targetType: 'evidence',
+      targetId: evidence.id,
+      metadata: { reason, programId: program.id, authorId: evidence.authorId },
+    })
     await notify(
       [evidence.authorId],
       authUser.id,
@@ -498,10 +537,19 @@ evidenceFilesRouter.get('/:fileId/url', authenticate, async (req, res, next) => 
       select: { evidenceId: true, storageKey: true, mimeType: true, originalName: true },
     })
     if (!file) throw new HttpError(404, '파일을 찾을 수 없습니다.')
-    await loadEvidenceContext(file.evidenceId, authUser.id).catch(() => {
+    const context = await loadEvidenceContext(file.evidenceId, authUser.id).catch(() => {
       throw new HttpError(404, '파일을 찾을 수 없습니다.')
     })
     const download = req.query.download === '1'
+    if (download) {
+      await audit(req, res, {
+        action: 'evidence.file_download',
+        organizationId: context.access.organization.id,
+        targetType: 'evidence_file',
+        targetId: String(req.params.fileId),
+        metadata: { evidenceId: file.evidenceId },
+      })
+    }
     const signed = await storage.signedUrl(file.storageKey, {
       contentType: file.mimeType,
       fileName: file.originalName,

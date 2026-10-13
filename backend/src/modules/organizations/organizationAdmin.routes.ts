@@ -3,6 +3,8 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { authenticate, requireRoles } from '../../middlewares/auth.middleware.js'
+import { audit } from '../../services/audit/audit.js'
+import { ensureTrialSubscription } from '../../services/billing/subscriptions.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import {
   memberUserSelect,
@@ -50,7 +52,7 @@ organizationAdminRouter.get('/', async (req, res, next) => {
 
     res.status(200).json({
       organizations: organizations.map((organization) => ({
-        ...serializeOrganization(organization),
+        ...serializeOrganization(organization, { platformAdmin: true }),
         createdBy: organization.createdBy,
         memberCount: organization._count.members,
         latestVerification: organization.verifications[0]
@@ -83,9 +85,9 @@ organizationAdminRouter.get('/:orgId', async (req, res, next) => {
 
     res.status(200).json({
       organization: {
-        ...serializeOrganization(organization),
+        ...serializeOrganization(organization, { platformAdmin: true }),
         createdBy: organization.createdBy,
-        admins: organization.members.map(serializeMember),
+        admins: organization.members.map((member) => serializeMember(member)),
         verifications: organization.verifications.map((verification) =>
           serializeVerification(verification, { includeDocument: true }),
         ),
@@ -160,7 +162,15 @@ organizationAdminRouter.post('/:orgId/review', async (req, res, next) => {
         .catch((error: unknown) => console.error('Organization review notification failed:', error))
     }
 
-    res.status(200).json({ organization: serializeOrganization(updated) })
+    if (approved) await ensureTrialSubscription(organizationId, authUser.id)
+    await audit(req, res, {
+      action: approved ? 'admin.org_approve' : 'admin.org_reject',
+      organizationId,
+      targetType: 'organization',
+      targetId: organizationId,
+      metadata: { note: input.note ?? null },
+    })
+    res.status(200).json({ organization: serializeOrganization(updated, { platformAdmin: true }) })
   } catch (error) {
     next(error)
   }

@@ -3,6 +3,8 @@ import type { z } from 'zod'
 import { env } from '../../config/env.js'
 import { prisma } from '../../config/prisma.js'
 import { HttpError } from '../../utils/httpError.js'
+import { orgEntitlement } from '../billing/entitlements.js'
+import { personalEntitlement } from '../billing/subscriptions.js'
 import { LlmError, type LlmMessage } from './aiProvider.js'
 import type { GroundingIssue } from './grounding.js'
 import { getLlmProvider } from './index.js'
@@ -48,20 +50,42 @@ export type AiRunResult<G> = {
 
 const EXCLUDED_FROM_QUOTA = [AIUsageStatus.RATE_LIMITED, AIUsageStatus.BUDGET_EXCEEDED]
 
+/** Personal quota: calls made outside an organization context, limited by the user's plan. */
 export async function getAiQuota(userId: string) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
-  const used = await prisma.aIUsageLog.count({
-    where: { userId, createdAt: { gte: since }, status: { notIn: EXCLUDED_FROM_QUOTA } },
-  })
+  const [used, entitlement] = await Promise.all([
+    prisma.aIUsageLog.count({
+      where: { userId, organizationId: null, createdAt: { gte: since }, status: { notIn: EXCLUDED_FROM_QUOTA } },
+    }),
+    personalEntitlement(userId),
+  ])
+  const planLimit = entitlement.limits.aiCallsPerDay
+  const limit = typeof planLimit === 'number' ? planLimit : env.AI_DAILY_LIMIT_PER_USER
   const provider = getLlmProvider()
   return {
-    limit: env.AI_DAILY_LIMIT_PER_USER,
+    limit,
     used,
-    remaining: Math.max(0, env.AI_DAILY_LIMIT_PER_USER - used),
+    remaining: Math.max(0, limit - used),
     window: '최근 24시간',
+    plan: entitlement.plan.key,
     provider: provider.name,
     model: provider.model,
   }
+}
+
+/** Organization quota: calls made on behalf of an organization, limited by its plan. */
+async function getOrgAiQuota(organizationId: string) {
+  const entitlement = await orgEntitlement(organizationId)
+  const limit = typeof entitlement.limits.aiCallsPerDay === 'number' ? entitlement.limits.aiCallsPerDay : null
+  if (limit === null) return { limit: null, remaining: Number.POSITIVE_INFINITY }
+  const used = await prisma.aIUsageLog.count({
+    where: {
+      organizationId,
+      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      status: { notIn: EXCLUDED_FROM_QUOTA },
+    },
+  })
+  return { limit, remaining: Math.max(0, limit - used) }
 }
 
 async function logUsage(data: Prisma.AIUsageLogUncheckedCreateInput) {
@@ -114,7 +138,7 @@ function systemPrompt<I, O, G>(task: AiTask<I, O, G>) {
  */
 export async function runAiTask<I, O, G>(task: AiTask<I, O, G>, input: I, ctx: AiContext): Promise<AiRunResult<G>> {
   const provider = getLlmProvider()
-  const quota = await getAiQuota(ctx.userId)
+  const quota = ctx.organizationId ? await getOrgAiQuota(ctx.organizationId) : await getAiQuota(ctx.userId)
   const base = {
     userId: ctx.userId,
     organizationId: ctx.organizationId ?? null,
@@ -125,7 +149,12 @@ export async function runAiTask<I, O, G>(task: AiTask<I, O, G>, input: I, ctx: A
 
   if (quota.remaining <= 0) {
     await logUsage({ ...base, status: AIUsageStatus.RATE_LIMITED, attempts: 0, errorCode: 'daily_limit' })
-    throw new HttpError(429, `AI 기능은 24시간에 ${quota.limit}회까지 사용할 수 있습니다. 잠시 후 다시 시도해 주세요.`)
+    throw new HttpError(
+      429,
+      ctx.organizationId
+        ? `이 기관의 AI 사용량이 요금제 한도(24시간 ${quota.limit}회)에 도달했습니다.`
+        : `AI 기능은 24시간에 ${quota.limit}회까지 사용할 수 있습니다. 잠시 후 다시 시도해 주세요.`,
+    )
   }
 
   if (provider.name !== 'mock' && env.AI_MONTHLY_BUDGET_USD) {

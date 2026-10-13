@@ -1,5 +1,6 @@
 import cors from 'cors'
 import express from 'express'
+import helmet from 'helmet'
 import multer from 'multer'
 import { ZodError } from 'zod'
 import { env } from './config/env.js'
@@ -30,12 +31,36 @@ import { usersRouter } from './modules/users/users.routes.js'
 import { healthRouter } from './routes/health.route.js'
 import { publicRouter } from './routes/public.routes.js'
 import { seoRouter } from './modules/seo/seo.routes.js'
+import { adminAuditRouter, organizationAuditRouter } from './modules/admin/audit.routes.js'
+import { adminUsersRouter } from './modules/admin/adminUsers.routes.js'
+import { billingRouter, organizationBillingRouter } from './modules/billing/billing.routes.js'
+import { billingAdminRouter } from './modules/billing/billingAdmin.routes.js'
+import { invitesRouter, organizationInvitesRouter } from './modules/onboarding/invites.routes.js'
+import { organizationOnboardingRouter } from './modules/onboarding/onboarding.routes.js'
+import { opsAdminRouter, opsIngestRouter } from './modules/ops/ops.routes.js'
+import { announcementsAdminRouter, announcementsRouter } from './modules/support/announcements.routes.js'
+import { supportAdminRouter, supportRouter } from './modules/support/support.routes.js'
+import { limits } from './middlewares/rateLimit.js'
+import { captureError } from './services/ops/errors.js'
+import { requestId, requestMetrics } from './services/ops/metrics.js'
 
 export const app = express()
+app.disable('x-powered-by')
+app.set('trust proxy', env.TRUST_PROXY)
 const allowedOrigins = Array.from(
   new Set([env.FRONTEND_URL, ...env.FRONTEND_URLS.split(',').map((origin) => origin.trim())]),
 )
 
+app.use(requestId)
+app.use(
+  helmet({
+    // The API also serves SEO HTML and signed media; a strict CSP lives on the frontend host (nginx).
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    hsts: env.NODE_ENV === 'production' ? { maxAge: 31_536_000, includeSubDomains: true } : false,
+  }),
+)
+app.use(requestMetrics)
 app.use(
   cors({
     origin(origin, callback) {
@@ -47,7 +72,7 @@ app.use(
       callback(new Error(`CORS origin not allowed: ${origin}`))
     },
     credentials: true,
-    exposedHeaders: ['Content-Disposition'],
+    exposedHeaders: ['Content-Disposition', 'X-Request-Id', 'Retry-After', 'RateLimit-Remaining'],
   }),
 )
 app.use(express.json({ limit: '25mb' }))
@@ -59,6 +84,8 @@ if (env.STORAGE_DRIVER === 'local') {
 app.use(seoRouter)
 
 app.use('/api', healthRouter)
+app.use('/api/ops', opsIngestRouter)
+app.use('/api', limits.global)
 app.use('/api/public', publicRouter)
 app.use('/api/auth', authRouter)
 app.use('/api/users', usersRouter)
@@ -69,6 +96,14 @@ app.use('/api/projects', projectsRouter)
 app.use('/api/organizations/:orgId/programs', organizationProgramsRouter)
 app.use('/api/organizations/:orgId/reports', organizationReportsRouter)
 app.use('/api/organizations/:orgId/talent', talentRouter)
+app.use('/api/organizations/:orgId/invites', organizationInvitesRouter)
+app.use('/api/organizations/:orgId/onboarding', organizationOnboardingRouter)
+app.use('/api/organizations/:orgId/billing', organizationBillingRouter)
+app.use('/api/organizations/:orgId/audit-logs', organizationAuditRouter)
+app.use('/api/invites', invitesRouter)
+app.use('/api/billing', billingRouter)
+app.use('/api/support', supportRouter)
+app.use('/api/announcements', announcementsRouter)
 app.use('/api/programs', programsRouter)
 app.use('/api/evidence', evidenceRouter)
 app.use('/api/evidence-files', evidenceFilesRouter)
@@ -80,6 +115,12 @@ app.use('/api/opportunities', opportunitiesRouter)
 app.use('/api/organizations', organizationsRouter)
 app.use('/api/admin/organizations', organizationAdminRouter)
 app.use('/api/admin/ai', aiAdminRouter)
+app.use('/api/admin/users', adminUsersRouter)
+app.use('/api/admin/audit-logs', adminAuditRouter)
+app.use('/api/admin/billing', billingAdminRouter)
+app.use('/api/admin/support', supportAdminRouter)
+app.use('/api/admin/announcements', announcementsAdminRouter)
+app.use('/api/admin/ops', opsAdminRouter)
 app.use('/api/ai', aiRouter)
 
 app.use((_req, res) => {
@@ -91,7 +132,7 @@ app.use((_req, res) => {
 app.use(
   (
     error: unknown,
-    _req: express.Request,
+    req: express.Request,
     res: express.Response,
     _next: express.NextFunction,
   ) => {
@@ -104,7 +145,17 @@ app.use(
     }
 
     if (error instanceof HttpError) {
-      res.status(error.status).json({ message: error.message, ...(error.details ? { details: error.details } : {}) })
+      if (error.status >= 500) void captureError(error, req, res)
+      res.status(error.status).json({
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+        ...(error.status >= 500 ? { requestId: res.locals.requestId } : {}),
+      })
+      return
+    }
+
+    if (error instanceof Error && error.message.startsWith('CORS origin not allowed')) {
+      res.status(403).json({ message: 'Origin not allowed' })
       return
     }
 
@@ -119,9 +170,15 @@ app.use(
       return
     }
 
-    console.error(error)
+    if (error instanceof SyntaxError && 'body' in error) {
+      res.status(400).json({ message: '요청 본문(JSON) 형식이 올바르지 않습니다.' })
+      return
+    }
+
+    void captureError(error, req, res)
     res.status(500).json({
       message: 'Internal server error',
+      requestId: res.locals.requestId,
     })
   },
 )

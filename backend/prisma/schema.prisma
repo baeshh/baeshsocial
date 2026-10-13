@@ -116,6 +116,86 @@ enum OrganizationMemberStatus {
   PENDING
   ACTIVE
   REJECTED
+  /// Access to the organization paused by an org admin; data and history are kept.
+  SUSPENDED
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum OrganizationInviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+enum PlanAudience {
+  PERSONAL
+  ORGANIZATION
+}
+
+enum BillingPeriod {
+  MONTH
+  SEMESTER
+  YEAR
+  CUSTOM
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  EXPIRED
+  CANCELED
+}
+
+enum ContractStatus {
+  DRAFT
+  SENT
+  SIGNED
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CARD
+  PG
+  OTHER
+}
+
+enum PaymentStatus {
+  CONFIRMED
+  CANCELED
+  REFUNDED
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum OpsRunKind {
+  DB_BACKUP
+  RESTORE_DRILL
+  FILE_BACKUP_CHECK
+  DEPLOY
+  ROLLBACK
+  INCIDENT_DRILL
 }
 
 enum OrganizationDocumentType {
@@ -224,6 +304,11 @@ model User {
   password                 String
   name                     String
   role                     UserRole                   @default(USER)
+  status                   UserStatus                 @default(ACTIVE)
+  suspendedAt              DateTime?
+  suspendReason            String?
+  passwordChangedAt        DateTime?
+  lastLoginAt              DateTime?
   avatarUrl                String?
   coverUrl                 String?
   createdAt                DateTime                   @default(now())
@@ -276,6 +361,19 @@ model User {
   talentSearches           TalentSearch[]
   matchResults             MatchResult[]              @relation("MatchCandidate")
   matchFeedbackGiven       MatchResult[]              @relation("MatchFeedbackBy")
+  sessions                 Session[]
+  auditLogs                AuditLog[]                 @relation("AuditActor")
+  orgInvitesSent           OrganizationInvite[]       @relation("OrgInviteInviter")
+  orgInvitesAccepted       OrganizationInvite[]       @relation("OrgInviteAcceptedBy")
+  subscriptions            Subscription[]             @relation("SubscriptionUser")
+  subscriptionsCreated     Subscription[]             @relation("SubscriptionCreatedBy")
+  contractsCreated         Contract[]
+  invoices                 Invoice[]                  @relation("InvoiceUser")
+  invoicesCreated          Invoice[]                  @relation("InvoiceCreatedBy")
+  paymentsRecorded         Payment[]
+  supportTickets           SupportTicket[]
+  supportMessages          SupportTicketMessage[]
+  announcements            Announcement[]
 
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_name_trgm_idx")
 }
@@ -879,6 +977,14 @@ model Organization {
   reportTemplates    ReportTemplate[]
   reports            GeneratedReport[]
   talentSearches     TalentSearch[]
+  auditLogs          AuditLog[]
+  invites            OrganizationInvite[]
+  subscriptions      Subscription[]
+  contracts          Contract[]
+  invoices           Invoice[]
+  usageRecords       UsageRecord[]
+  supportTickets     SupportTicket[]
+  announcements      Announcement[]
 
   @@index([verificationStatus])
 }
@@ -942,6 +1048,7 @@ model Program {
   participants    ProgramParticipant[]
   projects        Project[]
   verifiedRecords VerifiedRecord[]
+  invites         OrganizationInvite[]
 
   @@index([organizationId])
 }
@@ -1057,4 +1164,346 @@ model Message {
   createdAt  DateTime  @default(now())
   sender     User      @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
   receiver   User      @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * ------------------------------------------------------------------
+ */
+/**
+ * Stage 6: sessions, audit, onboarding, billing, support, operations
+ */
+/**
+ * ------------------------------------------------------------------
+ */
+
+/// Server-side login session. The JWT carries the session id, so revoking a row signs that
+/// device out immediately (logout, password change, suspension, admin action).
+model Session {
+  id           String    @id @default(cuid())
+  userId       String
+  createdAt    DateTime  @default(now())
+  lastSeenAt   DateTime  @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  revokeReason String?
+  ip           String?
+  userAgent    String?
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+/// Append-only record of security-relevant actions. Rows survive user/org deletion.
+model AuditLog {
+  id             String        @id @default(cuid())
+  actorId        String?
+  actorEmail     String?
+  organizationId String?
+  action         String
+  targetType     String?
+  targetId       String?
+  /// success | denied | failure
+  outcome        String        @default("success")
+  metadata       Json?
+  ip             String?
+  userAgent      String?
+  requestId      String?
+  createdAt      DateTime      @default(now())
+  actor          User?         @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+}
+
+/// Email invitation to an organization (optionally straight into a program). Only the token hash
+/// is stored; the link is shown once at creation and re-issued on resend.
+model OrganizationInvite {
+  id             String                   @id @default(cuid())
+  organizationId String
+  email          String
+  name           String?
+  role           OrganizationRole         @default(MEMBER)
+  programId      String?
+  studentNo      String?
+  department     String?
+  tokenHash      String                   @unique
+  status         OrganizationInviteStatus @default(PENDING)
+  batchId        String?
+  invitedById    String?
+  acceptedById   String?
+  acceptedAt     DateTime?
+  expiresAt      DateTime
+  lastSentAt     DateTime?
+  sendCount      Int                      @default(0)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  program        Program?                 @relation(fields: [programId], references: [id], onDelete: SetNull)
+  invitedBy      User?                    @relation("OrgInviteInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+  acceptedBy     User?                    @relation("OrgInviteAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([email, status])
+}
+
+/// Sellable plan. `limits` keys are defined in services/billing/plans.ts; null price = custom quote.
+model Plan {
+  id            String             @id @default(cuid())
+  key           String             @unique
+  name          String
+  description   String?
+  audience      PlanAudience
+  orgTypes      OrganizationType[]
+  priceKrw      Int?
+  priceMaxKrw   Int?
+  billingPeriod BillingPeriod
+  vatIncluded   Boolean            @default(false)
+  limits        Json
+  features      String[]
+  isPublic      Boolean            @default(true)
+  active        Boolean            @default(true)
+  sortOrder     Int                @default(0)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  subscriptions Subscription[]
+}
+
+/// Entitlement period for an organization (or a person for personal plans).
+model Subscription {
+  id             String             @id @default(cuid())
+  organizationId String?
+  userId         String?
+  planId         String
+  status         SubscriptionStatus
+  startsAt       DateTime
+  endsAt         DateTime?
+  /// Days after `endsAt` during which existing data stays readable but nothing new can be created.
+  graceDays      Int                @default(30)
+  limitOverrides Json?
+  autoRenew      Boolean            @default(false)
+  canceledAt     DateTime?
+  notes          String?
+  createdById    String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  organization   Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?              @relation("SubscriptionUser", fields: [userId], references: [id], onDelete: Cascade)
+  plan           Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  createdBy      User?              @relation("SubscriptionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  contracts      Contract[]
+  invoices       Invoice[]
+  usageRecords   UsageRecord[]
+
+  @@index([organizationId, status])
+  @@index([userId, status])
+  @@index([endsAt])
+}
+
+model Contract {
+  id                  String         @id @default(cuid())
+  organizationId      String
+  subscriptionId      String?
+  contractNo          String         @unique
+  title               String
+  status              ContractStatus @default(DRAFT)
+  amountKrw           Int
+  vatKrw              Int            @default(0)
+  startsAt            DateTime
+  endsAt              DateTime
+  signedAt            DateTime?
+  billingContactName  String?
+  billingContactEmail String?
+  /// Tax invoice recipient details (business number, address, representative ...).
+  taxInfo             Json?
+  documentKey         String?
+  documentName        String?
+  memo                String?
+  createdById         String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  organization        Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription        Subscription?  @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  createdBy           User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  invoices            Invoice[]
+
+  @@index([organizationId, status])
+  @@index([endsAt])
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  invoiceNo      String        @unique
+  organizationId String?
+  userId         String?
+  subscriptionId String?
+  contractId     String?
+  status         InvoiceStatus @default(DRAFT)
+  supplyKrw      Int
+  vatKrw         Int
+  totalKrw       Int
+  items          Json
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  issuedAt       DateTime?
+  dueAt          DateTime?
+  paidAt         DateTime?
+  voidedAt       DateTime?
+  taxInvoiceNo   String?
+  memo           String?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user           User?         @relation("InvoiceUser", fields: [userId], references: [id], onDelete: SetNull)
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  contract       Contract?     @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  createdBy      User?         @relation("InvoiceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  payments       Payment[]
+
+  @@index([organizationId, status])
+  @@index([status, dueAt])
+}
+
+model Payment {
+  id                 String        @id @default(cuid())
+  invoiceId          String
+  method             PaymentMethod
+  status             PaymentStatus @default(CONFIRMED)
+  amountKrw          Int
+  paidAt             DateTime
+  reference          String?
+  provider           String?
+  providerPaymentKey String?       @unique
+  memo               String?
+  recordedById       String?
+  createdAt          DateTime      @default(now())
+  invoice            Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  recordedBy         User?         @relation(fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+}
+
+/// Daily usage snapshot per organization and metric, for history and plan analysis.
+model UsageRecord {
+  id             String        @id @default(cuid())
+  organizationId String
+  subscriptionId String?
+  metric         String
+  value          BigInt
+  day            DateTime      @db.Date
+  recordedAt     DateTime      @default(now())
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, metric, day])
+  @@index([day])
+}
+
+model SupportTicket {
+  id             String                 @id @default(cuid())
+  organizationId String?
+  requesterId    String?
+  category       String
+  subject        String
+  status         SupportTicketStatus    @default(OPEN)
+  priority       String                 @default("normal")
+  lastMessageAt  DateTime               @default(now())
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  organization   Organization?          @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  requester      User?                  @relation(fields: [requesterId], references: [id], onDelete: SetNull)
+  messages       SupportTicketMessage[]
+
+  @@index([organizationId, status])
+  @@index([status, lastMessageAt])
+}
+
+model SupportTicketMessage {
+  id        String        @id @default(cuid())
+  ticketId  String
+  authorId  String?
+  body      String
+  isStaff   Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author    User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
+}
+
+/// Operational notice. audience: all | org_admins | university | institution | company.
+model Announcement {
+  id             String        @id @default(cuid())
+  title          String
+  body           String
+  severity       String        @default("info")
+  audience       String        @default("all")
+  organizationId String?
+  publishedAt    DateTime?
+  expiresAt      DateTime?
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User?         @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([publishedAt])
+}
+
+/// Per-minute API latency/error aggregate, flushed from memory by each API process.
+model RequestMetric {
+  id               String   @id @default(cuid())
+  bucket           DateTime
+  method           String
+  route            String
+  count            Int
+  errorCount       Int
+  clientErrorCount Int
+  totalMs          Int
+  p50Ms            Int
+  p95Ms            Int
+  maxMs            Int
+
+  @@unique([bucket, method, route])
+  @@index([bucket])
+}
+
+/// Unhandled server errors grouped by fingerprint (message + route).
+model ErrorEvent {
+  id            String    @id @default(cuid())
+  fingerprint   String    @unique
+  message       String
+  stack         String?
+  route         String?
+  method        String?
+  count         Int       @default(1)
+  firstSeenAt   DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  lastUserId    String?
+  lastRequestId String?
+  resolvedAt    DateTime?
+  alertedAt     DateTime?
+
+  @@index([lastSeenAt])
+}
+
+/// Backups, restore drills, deploys and rollbacks reported by ops scripts and CI.
+model OpsRun {
+  id          String     @id @default(cuid())
+  kind        OpsRunKind
+  status      String
+  environment String?
+  startedAt   DateTime   @default(now())
+  finishedAt  DateTime?
+  sizeBytes   BigInt?
+  location    String?
+  message     String?
+  details     Json?
+  createdAt   DateTime   @default(now())
+
+  @@index([kind, createdAt])
 }

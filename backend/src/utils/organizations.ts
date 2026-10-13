@@ -59,15 +59,19 @@ export function serializeOrganization(
     | 'createdAt'
     | 'updatedAt'
   >,
+  /** Contact and registration details are only shown to org admins and platform staff. */
+  options: { viewerRole?: OrganizationRole | null; platformAdmin?: boolean } = {},
 ) {
+  const showPrivate =
+    options.platformAdmin === true || (options.viewerRole ? hasOrgRole(options.viewerRole, OrganizationRole.ADMIN) : false)
   return {
     id: organization.id,
     name: organization.name,
     type: toApiOrgType(organization.type),
     description: organization.description,
     website: organization.website,
-    contactEmail: organization.contactEmail,
-    registrationNumber: organization.registrationNumber,
+    contactEmail: showPrivate ? organization.contactEmail : null,
+    registrationNumber: showPrivate ? organization.registrationNumber : null,
     verificationStatus: toApiVerificationStatus(organization.verificationStatus),
     verifiedAt: organization.verifiedAt,
     createdAt: organization.createdAt,
@@ -97,7 +101,10 @@ export function serializeMember(
   > & {
     user?: { id: string; name: string; email: string; avatarUrl: string | null } | null
   },
+  /** Member emails are visible to organization staff (manager and above) only. */
+  options: { showEmail?: boolean } = { showEmail: true },
 ) {
+  const user = member.user ? { ...member.user, email: options.showEmail ? member.user.email : null } : null
   return {
     id: member.id,
     userId: member.userId,
@@ -107,7 +114,7 @@ export function serializeMember(
     message: member.message,
     joinedAt: member.joinedAt,
     createdAt: member.createdAt,
-    user: member.user ?? null,
+    user,
   }
 }
 

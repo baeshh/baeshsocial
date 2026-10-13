@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { EvidenceFileKind } from '@prisma/client'
 import { Router } from 'express'
 import multer from 'multer'
-import sharp from 'sharp'
+import sharp, { type OutputInfo } from 'sharp'
 import { z } from 'zod'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { detectFileType, FileRejectedError, scanWithClamAv } from '../../services/storage/fileValidation.js'
@@ -55,7 +55,7 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
 
     // Re-encoding drops EXIF (including GPS) and any payload smuggled after the image data.
     const source = sharp(file.buffer, { limitInputPixels: MAX_INPUT_PIXELS, failOn: 'error' }).rotate()
-    let display: { data: Buffer; info: sharp.OutputInfo }
+    let display: { data: Buffer; info: OutputInfo }
     let thumb: Buffer
     try {
       display = await source

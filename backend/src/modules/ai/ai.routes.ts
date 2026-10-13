@@ -1,6 +1,7 @@
 import { AIAnalysisType } from '@prisma/client'
 import { Router } from 'express'
 import { prisma } from '../../config/prisma.js'
+import { assertPersonalFeature } from '../../services/billing/entitlements.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { collectCareerSources } from '../../services/ai/careerSources.js'
 import { truncate, type GroundingIssue, type Source } from '../../services/ai/grounding.js'
@@ -122,6 +123,7 @@ aiRouter.post('/portfolio', authenticate, async (req, res, next) => {
     const { projectIds } = portfolioRequestSchema.parse(req.body ?? {})
     const career = await collectCareerSources(authUser.id, { projectIds, maxProjects: 6 })
     if (career.projects.length === 0) throw new HttpError(400, '포트폴리오에 포함할 프로젝트가 없습니다. 프로젝트를 먼저 기록해 주세요.')
+    await assertPersonalFeature(authUser.id, 'portfolio')
     const result = await runAiTask(portfolioTask, career, { userId: authUser.id })
     res.status(201).json({
       analysisId: result.analysisId,
@@ -172,6 +174,7 @@ aiRouter.get('/portfolio/:analysisId/pdf', authenticate, async (req, res, next) 
     const authUser = res.locals.user as AuthTokenPayload
     const analysis = await findPortfolio(authUser.id, String(req.params.analysisId))
     if (!analysis) throw new HttpError(404, '포트폴리오를 찾을 수 없습니다.')
+    await assertPersonalFeature(authUser.id, 'portfolioPdf')
     const user = await prisma.user.findUnique({ where: { id: authUser.id }, select: { name: true } })
     const pdf = await renderPdf(portfolioHtml(analysis.output as unknown as PortfolioResult, { name: user?.name ?? 'BAESH 사용자', generatedAt: analysis.createdAt }), {
       footerLabel: 'BAESH 포트폴리오 · 근거 기반 자동 생성',

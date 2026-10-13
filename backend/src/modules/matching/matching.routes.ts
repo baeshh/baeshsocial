@@ -5,6 +5,8 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization.middleware.js'
 import { runAiTask } from '../../services/ai/runner.js'
+import { audit } from '../../services/audit/audit.js'
+import { assertOrgCapacity } from '../../services/billing/entitlements.js'
 import {
   buildTalentExplanationInput,
   fallbackExplanation,
@@ -97,6 +99,7 @@ talentRouter.post('/searches', ...access, async (req, res, next) => {
       where: { organizationId: organization.id, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
     })
     if (recent >= DAILY_SEARCH_LIMIT) throw new HttpError(429, `인재 검색은 조직별로 24시간에 ${DAILY_SEARCH_LIMIT}회까지 가능합니다.`)
+    await assertOrgCapacity(organization.id, 'talentSearchesPerMonth', 1)
 
     const ranked = await rankCandidates(criteria, [authUser.id])
     const top = ranked.slice(0, EXPLAINED_TOP)
@@ -149,6 +152,13 @@ talentRouter.post('/searches', ...access, async (req, res, next) => {
       return created
     })
 
+    await audit(req, res, {
+      action: 'talent.search',
+      organizationId: organization.id,
+      targetType: 'talent_search',
+      targetId: search.id,
+      metadata: { skills: criteria.skills, candidates: ranked.length },
+    })
     res.status(201).json({
       search: { id: search.id, title: search.title, criteria, scoringVersion: SCORING_VERSION, candidateCount: ranked.length, createdAt: search.createdAt },
       results: await loadResults(search.id),

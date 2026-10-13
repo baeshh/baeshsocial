@@ -5,10 +5,12 @@ import {
   UserRole,
   type Prisma,
 } from '@prisma/client'
-import { Router } from 'express'
+import { Router, type RequestHandler } from 'express'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization.middleware.js'
+import { audit } from '../../services/audit/audit.js'
+import { assertOrgCapacity } from '../../services/billing/entitlements.js'
 import { dashboardQuerySchema } from '../../validators/program.validator.js'
 import { buildInstitutionDashboard } from '../programs/programDashboard.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
@@ -120,7 +122,7 @@ organizationsRouter.get('/me', authenticate, async (_req, res, next) => {
     res.status(200).json({
       memberships: memberships.map((membership) => ({
         ...serializeMember(membership),
-        organization: serializeOrganization(membership.organization),
+        organization: serializeOrganization(membership.organization, { viewerRole: membership.role }),
       })),
     })
   } catch (error) {
@@ -160,7 +162,8 @@ organizationsRouter.post('/', authenticate, async (req, res, next) => {
       },
     })
 
-    res.status(201).json({ organization: serializeOrganization(organization), myRole: 'owner' })
+    await audit(req, res, { action: 'org.create', organizationId: organization.id, targetType: 'organization', targetId: organization.id })
+    res.status(201).json({ organization: serializeOrganization(organization, { viewerRole: OrganizationRole.OWNER }), myRole: 'owner' })
   } catch (error) {
     next(error)
   }
@@ -260,7 +263,7 @@ organizationsRouter.delete('/:orgId/join', authenticate, async (req, res, next) 
 organizationsRouter.get('/:orgId', authenticate, requireOrgAccess(), async (_req, res) => {
   const { organization, membership } = res.locals.orgAccess as OrgAccess
   res.status(200).json({
-    organization: serializeOrganization(organization),
+    organization: serializeOrganization(organization, { viewerRole: membership.role }),
     myRole: toApiOrgRole(membership.role),
   })
 })
@@ -271,7 +274,7 @@ organizationsRouter.patch(
   requireOrgAccess({ minRole: OrganizationRole.ADMIN }),
   async (req, res, next) => {
     try {
-      const { organization } = res.locals.orgAccess as OrgAccess
+      const { organization, membership } = res.locals.orgAccess as OrgAccess
       const input = updateOrganizationSchema.parse(req.body)
 
       // Identity fields were what the platform verified; changing them requires a new review.
@@ -288,7 +291,14 @@ organizationsRouter.patch(
         where: { id: organization.id },
         data: input,
       })
-      res.status(200).json({ organization: serializeOrganization(updated) })
+      await audit(req, res, {
+        action: 'org.update',
+        organizationId: organization.id,
+        targetType: 'organization',
+        targetId: organization.id,
+        metadata: { fields: Object.keys(input) },
+      })
+      res.status(200).json({ organization: serializeOrganization(updated, { viewerRole: membership.role }) })
     } catch (error) {
       next(error)
     }
@@ -331,7 +341,7 @@ organizationsRouter.get('/:orgId/dashboard', authenticate, requireOrgAccess(), a
     }
 
     res.status(200).json({
-      organization: serializeOrganization(organization),
+      organization: serializeOrganization(organization, { viewerRole: membership.role }),
       myRole: toApiOrgRole(membership.role),
       stats: {
         memberCount: Object.values(roleCounts).reduce((sum, count) => sum + count, 0),
@@ -349,25 +359,30 @@ organizationsRouter.get('/:orgId/dashboard', authenticate, requireOrgAccess(), a
 organizationsRouter.get('/:orgId/members', authenticate, requireOrgAccess(), async (_req, res, next) => {
   try {
     const { organization, membership } = res.locals.orgAccess as OrgAccess
-    const canSeePending =
-      organization.verificationStatus === OrganizationVerificationStatus.APPROVED &&
-      hasOrgRole(membership.role, OrganizationRole.MANAGER)
+    const isStaff = hasOrgRole(membership.role, OrganizationRole.MANAGER)
+    const canSeePending = organization.verificationStatus === OrganizationVerificationStatus.APPROVED && isStaff
+    const canSeeSuspended = hasOrgRole(membership.role, OrganizationRole.ADMIN)
 
     const members = await prisma.organizationMember.findMany({
       where: {
         organizationId: organization.id,
-        status: canSeePending
-          ? { in: [OrganizationMemberStatus.ACTIVE, OrganizationMemberStatus.PENDING] }
-          : OrganizationMemberStatus.ACTIVE,
+        status: {
+          in: [
+            OrganizationMemberStatus.ACTIVE,
+            ...(canSeePending ? [OrganizationMemberStatus.PENDING] : []),
+            ...(canSeeSuspended ? [OrganizationMemberStatus.SUSPENDED] : []),
+          ],
+        },
       },
       include: { user: { select: memberUserSelect } },
       orderBy: [{ createdAt: 'asc' }],
     })
 
-    const serialized = members.map(serializeMember)
+    const serialized = members.map((member) => serializeMember(member, { showEmail: isStaff }))
     res.status(200).json({
       members: serialized.filter((member) => member.status === 'active'),
       pendingRequests: canSeePending ? serialized.filter((member) => member.status === 'pending') : [],
+      suspendedMembers: canSeeSuspended ? serialized.filter((member) => member.status === 'suspended') : [],
     })
   } catch (error) {
     next(error)
@@ -391,6 +406,7 @@ organizationsRouter.post(
         res.status(404).json({ message: 'Pending request not found' })
         return
       }
+      if (decision === 'approve') await assertOrgCapacity(organization.id, 'members', 1)
 
       const updated = await prisma.organizationMember.update({
         where: { id: target.id },
@@ -411,6 +427,13 @@ organizationsRouter.post(
         decision === 'approve' ? `/org/${organization.id}` : '/organizations',
       )
 
+      await audit(req, res, {
+        action: decision === 'approve' ? 'org.member_approve' : 'org.member_reject',
+        organizationId: organization.id,
+        targetType: 'member',
+        targetId: target.id,
+        metadata: { userId: target.userId },
+      })
       res.status(200).json({ member: serializeMember(updated) })
     } catch (error) {
       next(error)
@@ -448,6 +471,15 @@ organizationsRouter.patch(
         data: { role: input.role, ...(input.title !== undefined ? { title: input.title } : {}) },
         include: { user: { select: memberUserSelect } },
       })
+      if (target.role !== input.role) {
+        await audit(req, res, {
+          action: 'org.member_role_change',
+          organizationId: organization.id,
+          targetType: 'member',
+          targetId: target.id,
+          metadata: { userId: target.userId, from: target.role, to: input.role },
+        })
+      }
       res.status(200).json({ member: serializeMember(updated) })
     } catch (error) {
       next(error)
@@ -474,12 +506,69 @@ organizationsRouter.delete(
         return
       }
       await prisma.organizationMember.delete({ where: { id: target.id } })
+      await audit(req, res, {
+        action: 'org.member_remove',
+        organizationId: organization.id,
+        targetType: 'member',
+        targetId: target.id,
+        metadata: { userId: target.userId, role: target.role },
+      })
       res.status(204).send()
     } catch (error) {
       next(error)
     }
   },
 )
+
+/** Pause or restore a member's access to this organization without deleting their history. */
+const memberStatusHandler =
+  (suspend: boolean): RequestHandler =>
+  async (req, res, next) => {
+    try {
+      const { organization, membership } = res.locals.orgAccess as OrgAccess
+      const target = await prisma.organizationMember.findFirst({
+        where: {
+          id: String(req.params.memberId),
+          organizationId: organization.id,
+          status: suspend ? OrganizationMemberStatus.ACTIVE : OrganizationMemberStatus.SUSPENDED,
+        },
+        include: { user: { select: memberUserSelect } },
+      })
+      if (!target) {
+        res.status(404).json({ message: 'Member not found' })
+        return
+      }
+      if (target.id === membership.id || !canManageMember(membership.role, target.role)) {
+        res.status(403).json({ message: '자신보다 낮은 역할의 구성원만 정지하거나 복구할 수 있습니다.' })
+        return
+      }
+      if (!suspend) await assertOrgCapacity(organization.id, 'members', 1)
+      const updated = await prisma.organizationMember.update({
+        where: { id: target.id },
+        data: { status: suspend ? OrganizationMemberStatus.SUSPENDED : OrganizationMemberStatus.ACTIVE },
+        include: { user: { select: memberUserSelect } },
+      })
+      await audit(req, res, {
+        action: suspend ? 'org.member_suspend' : 'org.member_reactivate',
+        organizationId: organization.id,
+        targetType: 'member',
+        targetId: target.id,
+        metadata: { userId: target.userId },
+      })
+      res.status(200).json({ member: serializeMember(updated) })
+    } catch (error) {
+      next(error)
+    }
+  }
+
+for (const [action, suspend] of [['suspend', true], ['reactivate', false]] as const) {
+  organizationsRouter.post(
+    `/:orgId/members/:memberId/${action}`,
+    authenticate,
+    requireOrgAccess({ minRole: OrganizationRole.ADMIN, requireApproved: true }),
+    memberStatusHandler(suspend),
+  )
+}
 
 /** Leave an organization. The last OWNER cannot leave (ownership transfer comes later). */
 organizationsRouter.delete('/:orgId/membership', authenticate, requireOrgAccess(), async (_req, res, next) => {
@@ -495,6 +584,7 @@ organizationsRouter.delete('/:orgId/membership', authenticate, requireOrgAccess(
       }
     }
     await prisma.organizationMember.delete({ where: { id: membership.id } })
+    await audit(_req, res, { action: 'org.member_leave', organizationId: organization.id, targetType: 'member', targetId: membership.id })
     res.status(204).send()
   } catch (error) {
     next(error)
@@ -555,6 +645,12 @@ organizationsRouter.post(
         `/admin/organizations?focus=${organization.id}`,
       )
 
+      await audit(req, res, {
+        action: 'org.verification_submit',
+        organizationId: organization.id,
+        targetType: 'verification',
+        targetId: verification.id,
+      })
       res.status(201).json({ verification: serializeVerification(verification) })
     } catch (error) {
       next(error)

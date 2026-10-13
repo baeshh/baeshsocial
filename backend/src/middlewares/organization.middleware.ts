@@ -7,6 +7,7 @@ import {
   type OrganizationRole,
 } from '@prisma/client'
 import { prisma } from '../config/prisma.js'
+import { audit } from '../services/audit/audit.js'
 import { hasOrgRole } from '../utils/organizations.js'
 import type { AuthTokenPayload } from '../utils/auth.js'
 
@@ -42,6 +43,20 @@ export function requireOrgAccess(options: OrgAccessOptions = {}): RequestHandler
       })
 
       if (!membership || membership.status !== OrganizationMemberStatus.ACTIVE) {
+        if (membership?.status === OrganizationMemberStatus.SUSPENDED) {
+          res.status(403).json({ message: '이 조직에서의 이용이 일시 정지되었습니다. 조직 관리자에게 문의해 주세요.' })
+          return
+        }
+        // Cross-organization probing is recorded so it can be reviewed in the audit log.
+        if (!membership) {
+          await audit(req, res, {
+            action: 'org.access_denied',
+            outcome: 'denied',
+            organizationId: (await prisma.organization.count({ where: { id: organizationId } })) ? organizationId : null,
+            targetType: 'route',
+            targetId: `${req.method} ${req.baseUrl}${req.route?.path ?? ''}`.slice(0, 200),
+          })
+        }
         res.status(403).json({ message: 'You are not a member of this organization' })
         return
       }
