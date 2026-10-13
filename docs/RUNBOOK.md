@@ -56,7 +56,7 @@ https가 아닌 `FRONTEND_URL`, `STORAGE_DRIVER≠s3`, `RATE_LIMIT_ENABLED=false
 |------|------|
 | CI | 모든 PR과 `main`·`develop`·`feat/**`·`fix/**`·`hotfix/**`·`chore/**`·`release/**` push마다 `ci.yml` 실행. 작업 4개: **Backend tests**(타입 검사·빌드·통합 테스트, 실제 PostgreSQL), **DB migrations**(빈 DB 적용·스키마 차이·데이터 손실 검사·기준 브랜치 데이터 업그레이드 경로), **Frontend build & lint**, **Security scan**(gitleaks·npm audit·.env 커밋 금지) |
 | 배포 리허설 | `staging-rehearsal.yml`: 배포 스크립트·마이그레이션이 바뀐 PR/push 또는 수동 실행. 일회용 Ubuntu 러너에서 기준 브랜치 DB+시드 → `package-release.sh` → `deploy.sh` → 데이터 보존·API 확인 → 깨진 릴리스 자동 롤백 → `rollback.sh` → `backup-db.sh`까지 실제 스크립트로 검증 (AWS 미사용) |
-| 스테이징 | `main`에 머지되고 CI가 통과하면 `deploy-staging.yml`이 자동 배포 → 스모크 테스트 → 커밋 상태 `deploy/staging` |
+| 스테이징 | `main`에 머지되고 CI가 통과하면 `deploy-staging.yml`이 자동 배포 → 스모크 테스트 → 커밋 상태 `deploy/staging`. AWS 스테이징 생성은 [STAGING-AWS.md](./STAGING-AWS.md) |
 | 운영 | Actions → **Deploy production** → `ref` 입력 → `production` 환경 승인자 승인 |
 
 운영 배포 흐름 (`deploy.sh`):

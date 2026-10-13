@@ -9,6 +9,11 @@ SHARED_DIR="${BAESH_ROOT}/shared"
 CURRENT_LINK="${BAESH_ROOT}/current"
 ENV_FILE="${ENV_FILE:-${SHARED_DIR}/backend.env}"
 KEEP_RELEASES="${KEEP_RELEASES:-5}"
+# RDS requires TLS and node-postgres verifies the server certificate, so Node must trust the RDS CA.
+RDS_CA_BUNDLE="${RDS_CA_BUNDLE:-/etc/ssl/certs/rds-global-bundle.pem}"
+if [ -z "${NODE_EXTRA_CA_CERTS:-}" ] && [ -f "$RDS_CA_BUNDLE" ]; then
+  export NODE_EXTRA_CA_CERTS="$RDS_CA_BUNDLE"
+fi
 
 log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 die() { log "ERROR: $*"; exit 1; }

@@ -6,6 +6,7 @@ const path = require('node:path')
 const envName = process.env.BAESH_ENV || 'staging'
 const root = process.env.BAESH_ROOT || `/srv/baesh/${envName}`
 const current = path.join(root, 'current')
+const rdsCaBundle = process.env.RDS_CA_BUNDLE || '/etc/ssl/certs/rds-global-bundle.pem'
 let version = 'unknown'
 try {
   version = path.basename(fs.realpathSync(current))
@@ -32,6 +33,8 @@ module.exports = {
         NODE_ENV: 'production',
         APP_ENV: envName,
         APP_VERSION: version,
+        // RDS requires TLS and node-postgres verifies the certificate; Node reads this only at startup.
+        ...(fs.existsSync(rdsCaBundle) ? { NODE_EXTRA_CA_CERTS: rdsCaBundle } : {}),
       },
     },
   ],

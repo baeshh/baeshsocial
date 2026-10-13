@@ -2,6 +2,7 @@
 
 정식 배포는 GitHub Actions(`deploy-staging.yml`, `deploy-production.yml`)와 `deploy/scripts/deploy.sh`로 합니다.
 서버 구성·배포·롤백·복원 절차는 [RUNBOOK.md](./RUNBOOK.md)를 따르세요. 이 문서는 구성 요약과 빌드 주의사항입니다.
+스테이징 AWS 리소스는 `deploy/scripts/provision-staging.sh`로 만들고, 순서는 [STAGING-AWS.md](./STAGING-AWS.md) 체크리스트를 따릅니다.
 
 ## 구성
 
