@@ -123,6 +123,8 @@ export function Navbar({ user }: NavbarProps) {
                 <Avatar name={user.name} size="sm" src={user.avatarUrl} />
               </Link>
             </>
+          ) : token ? (
+            <span aria-hidden className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-surface-muted" />
           ) : (
             <Button className="text-sm" to="/auth/login" variant="secondary">
               로그인

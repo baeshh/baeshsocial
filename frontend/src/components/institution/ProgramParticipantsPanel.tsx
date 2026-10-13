@@ -29,6 +29,13 @@ function parseLines(text: string): ParticipantInput[] {
     })
 }
 
+function copyInviteLink(url: string) {
+  void navigator.clipboard?.writeText(url).then(
+    () => showToast('링크를 복사했습니다.'),
+    () => showToast('복사하지 못했습니다.', 'error'),
+  )
+}
+
 type Report = { added: number; skipped: Array<{ input: string; reason: string; needsInvite?: boolean }> }
 
 export function ProgramParticipantsPanel({ program }: { program: Program }) {
@@ -36,6 +43,7 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
   const queryClient = useQueryClient()
   const [text, setText] = useState('')
   const [report, setReport] = useState<Report | null>(null)
+  const [invited, setInvited] = useState<Array<{ email: string; inviteUrl: string }>>([])
   const [search, setSearch] = useState('')
   const [onlyUnassigned, setOnlyUnassigned] = useState(false)
   const writable = program.status !== 'archived'
@@ -50,6 +58,7 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
     mutationFn: () => addProgramParticipants(token!, program.id, parseLines(text)),
     onSuccess: (result) => {
       setReport({ added: result.added.length, skipped: result.skipped })
+      setInvited([])
       if (result.skipped.length === 0) setText('')
       void queryClient.invalidateQueries({ queryKey: ['programs', program.id] })
       void queryClient.invalidateQueries({ queryKey: ['organizations'] })
@@ -63,8 +72,9 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
         rows: rows.map((row) => ({ email: row.email!, studentNo: row.studentNo ?? null, department: row.department ?? null })),
       }),
     onSuccess: (result) => {
-      const sent = result.results.filter((row) => row.status === 'invited' || row.status === 'reinvited').length
-      showToast(`${sent}명에게 초대 링크를 보냈습니다. 수락하면 참여자로 등록됩니다.`)
+      const sent = result.results.filter((row) => row.inviteUrl)
+      showToast(`${sent.length}명에게 초대 링크를 만들었습니다. 수락하면 참여자로 등록됩니다.`)
+      setInvited(sent.map((row) => ({ email: row.email, inviteUrl: row.inviteUrl! })))
       setReport((prev) => (prev ? { ...prev, skipped: prev.skipped.filter((item) => !item.needsInvite) } : prev))
       void queryClient.invalidateQueries({ queryKey: ['organizations', program.organizationId, 'invites'] })
     },
@@ -153,6 +163,21 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
                   <Button disabled={inviteSkipped.isPending} onClick={() => inviteSkipped.mutate(inviteRows)} variant="secondary">
                     {inviteSkipped.isPending ? '보내는 중…' : `${inviteRows.length}명에게 초대 링크 보내기`}
                   </Button>
+                </div>
+              ) : null}
+              {invited.length ? (
+                <div className="mt-3 rounded-xl bg-white px-3 py-2">
+                  <p className="text-xs text-ink-muted">메일이 발송되지 않는 환경이면 링크를 복사해 직접 전달하세요.</p>
+                  <ul className="mt-1 space-y-1">
+                    {invited.map((row) => (
+                      <li className="flex items-center justify-between gap-2 text-xs" key={row.email}>
+                        <span className="truncate text-ink-body">{row.email}</span>
+                        <button className="shrink-0 font-semibold text-brand-700" onClick={() => copyInviteLink(row.inviteUrl)} type="button">
+                          링크 복사
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
             </div>
