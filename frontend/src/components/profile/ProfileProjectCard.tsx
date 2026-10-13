@@ -5,7 +5,7 @@ import { formatDay, formatMonth } from '../../lib/profileFormat'
 import type { ProfileProjectCard as ProjectCardData } from '../../types/profile'
 import { ProjectLinkChips } from '../projects/ProjectLinkChips'
 
-const STATUS_LABELS: Record<ProjectCardData['status'], string> = {
+const STATUS_LABELS: Record<NonNullable<ProjectCardData['status']>, string> = {
   PLANNING: '기획 중',
   ACTIVE: '진행 중',
   COMPLETED: '완료',
@@ -22,7 +22,7 @@ type ProfileProjectCardProps = {
 
 function projectPeriod(project: ProjectCardData) {
   const from = formatMonth(project.startDate)
-  const to = project.endDate ? formatMonth(project.endDate) : project.status === 'COMPLETED' ? null : '진행 중'
+  const to = project.endDate ? formatMonth(project.endDate) : project.status === 'COMPLETED' || !project.status ? null : '진행 중'
   if (from) return to ? `${from} – ${to}` : from
   return `최근 업데이트 ${formatDay(project.updatedAt)}`
 }
@@ -85,9 +85,9 @@ export function ProfileProjectCard({ project, variant = 'list', pin, linkToProje
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="rounded-full bg-surface-muted px-2 py-0.5 font-semibold text-ink-body">
-          {STATUS_LABELS[project.status]}
-        </span>
+        {project.status ? (
+          <span className="rounded-full bg-surface-muted px-2 py-0.5 font-semibold text-ink-body">{STATUS_LABELS[project.status]}</span>
+        ) : null}
         {project.program ? (
           <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
             {project.program.organizationName} · {project.program.title}
@@ -101,7 +101,7 @@ export function ProfileProjectCard({ project, variant = 'list', pin, linkToProje
       {limited ? (
         <p className="mt-3 flex items-start gap-2 rounded-xl bg-surface-muted/70 px-3 py-2 text-xs leading-relaxed text-ink-muted">
           <Lock className="mt-0.5 shrink-0" size={13} />
-          팀 전용 프로젝트입니다. 기관이 검증한 기록만 공개됩니다.
+          팀 전용 프로젝트입니다. 학생이 공개를 허용한 기관 인증 기록만 표시됩니다.
         </p>
       ) : (
         <>
@@ -136,7 +136,15 @@ export function ProfileProjectCard({ project, variant = 'list', pin, linkToProje
       ) : null}
 
       <div className="mt-auto space-y-3 pt-4">
-        {project.verification ? (
+        {project.verification?.official ? (
+          <p className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-emerald-700">
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-white">
+              <ShieldCheck size={13} /> 기관 공식 인증 완료
+            </span>
+            {project.verification.issuer}
+            {project.verification.officialRole ? ` · ${project.verification.officialRole}` : ''}
+          </p>
+        ) : project.verification ? (
           <p className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-emerald-700">
             <ShieldCheck size={14} />
             {project.verification.issuer ?? 'BAESH'} 검증 {project.verification.count}건

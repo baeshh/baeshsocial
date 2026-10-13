@@ -31,8 +31,9 @@ export type AISkillInsights = {
 export type ProfileProjectCard = {
   id: string
   title: string
-  status: ProjectStatus
-  progress: number
+  /** null on limited cards: only the verified record is shared, not the live project. */
+  status: ProjectStatus | null
+  progress: number | null
   skills: string[]
   visibility: ProjectVisibility
   updatedAt: string
@@ -47,7 +48,13 @@ export type ProfileProjectCard = {
   teamName: string | null
   program: { id: string; title: string; organizationName: string } | null
   links: ProjectLink[]
-  verification: { count: number; issuer: string | null; verifiedAt: string | null } | null
+  verification: {
+    count: number
+    issuer: string | null
+    verifiedAt: string | null
+    official?: boolean
+    officialRole?: string | null
+  } | null
   featured: boolean
 }
 
@@ -64,6 +71,16 @@ export type HistoryVerification = {
   verifiedAt: string | null
   programTitle?: string | null
   verifiedBy?: string | null
+  /** An institution signed off the project outcome and this student's role and contribution. */
+  official?: boolean
+}
+
+export type HistoryRecordControl = {
+  id: string
+  kind: 'evidence' | 'contribution'
+  disclosure: 'hidden' | 'summary' | 'full'
+  programCap: 'hidden' | 'summary' | 'full' | null
+  effective: 'hidden' | 'summary' | 'full'
 }
 
 export type HistoryItem = {
@@ -83,6 +100,8 @@ export type HistoryItem = {
   project: { id: string; title: string; accessible: boolean } | null
   editable: boolean
   fields: Record<string, string | null> | null
+  /** Present for the record owner only: lets them choose how much others see. */
+  record?: HistoryRecordControl | null
 }
 
 export type HistoryCounts = Record<HistoryFilter, number>

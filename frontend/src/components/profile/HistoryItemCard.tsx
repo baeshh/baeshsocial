@@ -1,8 +1,14 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Pencil, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn } from '../../lib/cn'
 import { formatPeriod, HISTORY_KIND_META } from '../../lib/profileFormat'
-import type { HistoryItem } from '../../types/profile'
+import { DISCLOSURE_META } from '../../lib/programs'
+import { updateRecordDisclosure } from '../../services/programService'
+import { useAuthStore } from '../../stores/authStore'
+import { showToast } from '../../stores/toastStore'
+import type { HistoryItem, HistoryRecordControl } from '../../types/profile'
+import type { RecordDisclosure } from '../../types/program'
 import { Badge } from '../common/Badge'
 import { VerificationBadge } from './VerificationBadge'
 
@@ -11,6 +17,45 @@ type HistoryItemCardProps = {
   onEdit?: (item: HistoryItem) => void
   onDelete?: (item: HistoryItem) => void
   compact?: boolean
+}
+
+const DISCLOSURE_ORDER: RecordDisclosure[] = ['hidden', 'summary', 'full']
+
+/** Owner-only: how much of this verified record others see. The verified content itself never changes. */
+function RecordDisclosureControl({ record }: { record: HistoryRecordControl }) {
+  const token = useAuthStore((s) => s.token)
+  const queryClient = useQueryClient()
+  const change = useMutation({
+    mutationFn: (disclosure: RecordDisclosure) => updateRecordDisclosure(token!, record.id, disclosure),
+    onSuccess: () => {
+      showToast('공개 범위를 변경했습니다.')
+      void queryClient.invalidateQueries({ queryKey: ['profiles'] })
+    },
+    onError: (error: Error) => showToast(error.message, 'error'),
+  })
+  const capped = record.effective !== record.disclosure
+  return (
+    <label className="flex flex-col items-end gap-0.5 text-xs text-ink-muted">
+      <span className="flex items-center gap-1">
+        공개
+        <select
+          aria-label="인증 기록 공개 범위"
+          className="rounded-full border border-surface-border bg-white px-2 py-0.5 text-xs font-semibold text-ink-strong"
+          disabled={!token || change.isPending}
+          onChange={(event) => change.mutate(event.target.value as RecordDisclosure)}
+          title={DISCLOSURE_META[record.disclosure].description}
+          value={record.disclosure}
+        >
+          {DISCLOSURE_ORDER.map((key) => (
+            <option key={key} value={key}>
+              {DISCLOSURE_META[key].label}
+            </option>
+          ))}
+        </select>
+      </span>
+      {capped ? <span className="text-[11px]">기관 상한으로 {DISCLOSURE_META[record.effective].label} 적용</span> : null}
+    </label>
+  )
 }
 
 function statusLabel(item: HistoryItem) {
@@ -73,6 +118,7 @@ export function HistoryItemCard({ item, onEdit, onDelete, compact = false }: His
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           {item.verification ? <VerificationBadge className="items-end text-right" detailed={!compact} verification={item.verification} /> : null}
+          {!compact && item.record ? <RecordDisclosureControl record={item.record} /> : null}
           {item.editable && (onEdit || onDelete) ? (
             <div className="flex gap-1">
               {onEdit ? (
