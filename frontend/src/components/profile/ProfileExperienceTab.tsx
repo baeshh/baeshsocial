@@ -1,14 +1,14 @@
-import { useInfiniteQuery, useMutation } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { cn } from '../../lib/cn'
 import { HISTORY_FILTERS } from '../../lib/profileFormat'
-import { deleteHistoryItem, getProfileHistory, type EditableHistoryKind } from '../../services/profileService'
+import { deleteHistoryItem, getProfileHistoryPage, type EditableHistoryKind } from '../../services/profileService'
 import type { HistoryCounts, HistoryFilter, HistoryItem } from '../../types/profile'
 import { Button } from '../common/Button'
-import { LoadMore } from '../common/LoadMore'
 import { LoadingState } from '../common/LoadingState'
+import { Pagination } from '../common/Pagination'
 import { HistoryFormModal, type HistoryFormTarget } from './HistoryFormModal'
 import { HistoryItemCard } from './HistoryItemCard'
 
@@ -51,19 +51,34 @@ export function ProfileExperienceTab({
   const [formOpen, setFormOpen] = useState(false)
   const [formTarget, setFormTarget] = useState<HistoryFormTarget>(null)
 
-  const historyQuery = useInfiniteQuery({
-    queryKey: ['profiles', userId, 'history', filter],
-    queryFn: ({ pageParam }) => getProfileHistory(token, userId, { type: filter, cursor: pageParam, limit: PAGE_SIZE }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor,
+  const [pageState, setPageState] = useState({ filter, page: 1 })
+  const requestedPage = pageState.filter === filter ? pageState.page : 1
+  const [knownTotalPages, setKnownTotalPages] = useState<number | null>(null)
+  const page = knownTotalPages ? Math.min(requestedPage, knownTotalPages) : requestedPage
+  const listTopRef = useRef<HTMLDivElement>(null)
+
+  const historyQuery = useQuery({
+    queryKey: ['profiles', userId, 'history', filter, page],
+    queryFn: () => getProfileHistoryPage(token, userId, { type: filter, page, limit: PAGE_SIZE }),
+    placeholderData: keepPreviousData,
   })
+
+  const totalPages = historyQuery.data?.totalPages ?? null
+  if (totalPages !== null && !historyQuery.isPlaceholderData && totalPages !== knownTotalPages) {
+    setKnownTotalPages(totalPages)
+  }
+
+  const goToPage = (next: number) => {
+    setPageState({ filter, page: next })
+    listTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const deleteMutation = useMutation({
     mutationFn: (item: HistoryItem) => deleteHistoryItem(token ?? '', item.kind as EditableHistoryKind, item.sourceId),
     onSuccess: onChanged,
   })
 
-  const items = useMemo(() => historyQuery.data?.pages.flatMap((page) => page.items) ?? [], [historyQuery.data])
+  const items = useMemo(() => historyQuery.data?.items ?? [], [historyQuery.data])
   const groups = useMemo(() => groupByYear(items), [items])
   const chips = HISTORY_FILTERS.filter((chip) => chip.id === 'all' || chip.id === 'verified' || (counts?.[chip.id] ?? 0) > 0 || chip.id === filter)
 
@@ -95,7 +110,10 @@ export function ProfileExperienceTab({
         ) : null}
       </div>
 
-      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        className="-mx-1 flex scroll-mt-24 gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        ref={listTopRef}
+      >
         {chips.map((chip) => (
           <button
             className={cn(
@@ -137,7 +155,7 @@ export function ProfileExperienceTab({
         </div>
       ) : null}
 
-      <ol className="space-y-6">
+      <ol className={cn('space-y-6 transition-opacity', historyQuery.isPlaceholderData && 'opacity-60')}>
         {groups.map((group) => (
           <li key={group.year}>
             <h3 className="mb-3 flex items-center gap-3 text-sm font-bold text-ink-strong">
@@ -166,12 +184,20 @@ export function ProfileExperienceTab({
         ))}
       </ol>
 
-      <LoadMore
-        hasNextPage={Boolean(historyQuery.hasNextPage)}
-        isFetchingNextPage={historyQuery.isFetchingNextPage}
-        label="이력 더 보기"
-        onLoadMore={() => void historyQuery.fetchNextPage()}
-      />
+      {historyQuery.data && historyQuery.data.totalPages > 1 ? (
+        <div className="space-y-2 pt-1">
+          <Pagination
+            disabled={historyQuery.isPlaceholderData}
+            onPageChange={goToPage}
+            page={historyQuery.data.page}
+            totalPages={historyQuery.data.totalPages}
+          />
+          <p className="text-center text-xs text-ink-muted">
+            {(historyQuery.data.page - 1) * PAGE_SIZE + 1}–{Math.min(historyQuery.data.page * PAGE_SIZE, historyQuery.data.total)} /{' '}
+            {historyQuery.data.total}건
+          </p>
+        </div>
+      ) : null}
 
       <HistoryFormModal
         onClose={() => setFormOpen(false)}

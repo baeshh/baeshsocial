@@ -44,11 +44,13 @@ export function VerificationBadge({ verification, detailed = false, className }:
             ? '기관 담당자가 승인된 활동 증빙을 근거로 프로젝트 성과와 이 학생의 역할·기여를 공식 인증했습니다.'
             : institution
               ? '기관 담당자가 제출된 증빙을 확인하고 승인한 활동입니다.'
-              : undefined
+              : verification.kind === 'program'
+                ? `${verification.issuer ?? '프로그램'} 수료가 확인되었습니다.`
+                : 'BAESH 운영팀이 확인한 기록입니다.'
         }
       >
         <Icon className="shrink-0" size={14} />
-        {official ? '기관 공식 인증 완료' : institution ? '기관 검증' : verification.kind === 'program' ? '수료 인증' : 'BAESH 확인'}
+        {official ? '기관 공식 인증 완료' : institution ? '기관 검증' : '인증'}
       </span>
       {detailed ? (
         <span className="text-xs text-ink-muted">

@@ -71,15 +71,23 @@ export function getProfileProjects(
   )
 }
 
-export function getProfileHistory(
+export type HistoryPage = {
+  items: HistoryItem[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+export function getProfileHistoryPage(
   token: string | null,
   userId: string,
-  params: { cursor?: string | null; limit?: number; type?: HistoryFilter } = {},
+  params: { page: number; limit?: number; type?: HistoryFilter },
 ) {
-  return apiRequest<Paged<'items', HistoryItem>>(
+  return apiRequest<HistoryPage>(
     withQuery(`/profiles/${userId}/history`, {
+      page: params.page,
       limit: params.limit ?? 10,
-      cursor: params.cursor,
       type: params.type === 'all' ? undefined : params.type,
     }),
     { token },
