@@ -11,6 +11,12 @@ import { ProfilePage } from '../pages/profile/ProfilePage'
 import { PublicProfilePage } from '../pages/profile/PublicProfilePage'
 import { ProjectsPage } from '../pages/projects/ProjectsPage'
 import { PublicPostPage } from '../pages/posts/PublicPostPage'
+import { AdminOrganizationsPage } from '../pages/admin/AdminOrganizationsPage'
+import { ProgramDetailPage } from '../pages/institution/ProgramDetailPage'
+import { OrganizationDashboardPage } from '../pages/organizations/OrganizationDashboardPage'
+import { OrganizationRegisterPage } from '../pages/organizations/OrganizationRegisterPage'
+import { OrganizationsPage } from '../pages/organizations/OrganizationsPage'
+import { RequireOrgMembership, RequirePlatformAdmin } from './guards'
 
 export function AppRoutes() {
   return (
@@ -38,16 +44,33 @@ export function AppRoutes() {
         }
         path="/talent-db"
       />
+      <Route element={<OrganizationsPage />} path="/organizations" />
+      <Route element={<OrganizationRegisterPage />} path="/organizations/new" />
       <Route
         element={
-          <ComingSoonPage
-            description="기관용 대시보드, 프로그램 관리, KPI 리포트 구조를 연결합니다."
-            phase="Phase 10"
-            title="Institution Admin"
-          />
+          <RequireOrgMembership>
+            <OrganizationDashboardPage />
+          </RequireOrgMembership>
         }
-        path="/institution-admin"
+        path="/org/:orgId"
       />
+      <Route
+        element={
+          <RequireOrgMembership>
+            <ProgramDetailPage />
+          </RequireOrgMembership>
+        }
+        path="/org/:orgId/programs/:programId"
+      />
+      <Route
+        element={
+          <RequirePlatformAdmin>
+            <AdminOrganizationsPage />
+          </RequirePlatformAdmin>
+        }
+        path="/admin/organizations"
+      />
+      <Route element={<Navigate replace to="/organizations" />} path="/institution-admin" />
       <Route element={<Navigate replace to="/" />} path="*" />
     </Routes>
   )

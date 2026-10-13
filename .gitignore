@@ -5,3 +5,4 @@ dist
 *.log
 frontend/dist
 backend/dist
+backend/storage

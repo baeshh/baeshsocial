@@ -1,3 +1,5 @@
+import { ProjectLinkType } from '@prisma/client'
+import { pageQuerySchema } from '../utils/pagination.js'
 import { z } from 'zod'
 
 export const projectSchema = z.object({
@@ -58,3 +60,18 @@ export const projectFileSchema = z.object({
   url: z.string().url(),
   fileType: z.string().min(1).max(80),
 })
+
+const linkTypeSchema = z
+  .enum(['github', 'figma', 'notion', 'google_drive', 'deployment', 'other'])
+  .transform((value) => value.toUpperCase() as ProjectLinkType)
+
+export const projectLinkSchema = z.object({
+  url: z.string().trim().min(1).max(2048),
+  type: linkTypeSchema.optional(),
+  label: z.string().trim().max(80).nullable().optional(),
+  description: z.string().trim().max(300).nullable().optional(),
+})
+
+export const updateProjectLinkSchema = projectLinkSchema.partial()
+
+export const projectListQuerySchema = pageQuerySchema(100, 100)

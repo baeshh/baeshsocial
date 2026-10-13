@@ -1,5 +1,6 @@
-import { apiRequest } from '../lib/api'
-import type { Project, ProjectInvite, TeamCandidates } from '../types/project'
+import { apiRequest, withQuery } from '../lib/api'
+import type { ProjectLink, ProjectLinkType } from '../types/profile'
+import type { Project, ProjectInvite, ProjectSummary, TeamCandidates } from '../types/project'
 import type { PermissionCatalogItem, ProjectPermission, ProjectRole } from '../types/projectRole'
 
 export type ProjectPayload = {
@@ -51,8 +52,47 @@ export type FilePayload = {
   fileType: string
 }
 
-export function getProjects(token: string) {
-  return apiRequest<{ projects: Project[] }>('/projects', { token })
+export function getProjects(token: string, params: { cursor?: string | null; limit?: number } = {}) {
+  return apiRequest<{ projects: ProjectSummary[]; nextCursor: string | null }>(
+    withQuery('/projects', { limit: params.limit, cursor: params.cursor }),
+    { token },
+  )
+}
+
+export type ProjectLinkPayload = {
+  url: string
+  type?: ProjectLinkType
+  label?: string | null
+  description?: string | null
+}
+
+export function getProjectLinks(token: string, projectId: string) {
+  return apiRequest<{ links: ProjectLink[] }>(`/projects/${projectId}/links`, { token })
+}
+
+export function addProjectLink(token: string, projectId: string, payload: ProjectLinkPayload) {
+  return apiRequest<{ link: ProjectLink }>(`/projects/${projectId}/links`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateProjectLink(
+  token: string,
+  projectId: string,
+  linkId: string,
+  payload: Partial<Omit<ProjectLinkPayload, 'url' | 'type'>>,
+) {
+  return apiRequest<{ link: ProjectLink }>(`/projects/${projectId}/links/${linkId}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteProjectLink(token: string, projectId: string, linkId: string) {
+  return apiRequest<void>(`/projects/${projectId}/links/${linkId}`, { method: 'DELETE', token })
 }
 
 export function getProject(token: string, projectId: string) {

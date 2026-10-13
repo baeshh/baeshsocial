@@ -9,6 +9,7 @@ import {
 } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import bcrypt from 'bcryptjs'
+import { randomBytes } from 'node:crypto'
 import {
   avatarUrl,
   buildPersonas,
@@ -16,6 +17,7 @@ import {
   getCommentContent,
   getPostContent,
 } from './seedPeopleData.js'
+import { seedFounderResume } from './seedFounderResume.js'
 
 const adapter = new PrismaPg({
   connectionString:
@@ -25,7 +27,11 @@ const adapter = new PrismaPg({
 
 const prisma = new PrismaClient({ adapter })
 
-const demoPassword = 'password123'
+const demoPassword = process.env.SEED_DEMO_PASSWORD || 'password123'
+// Privileged demo accounts (company/institution/admin) keep their role only when explicitly enabled
+// for local development; otherwise they are seeded as USER with an unguessable password.
+const allowPrivilegedDemoAccounts =
+  process.env.SEED_PRIVILEGED_DEMO_ACCOUNTS === 'true' && process.env.NODE_ENV !== 'production'
 const TARGET_USER_COUNT = 96
 
 const demoUsers = [
@@ -354,16 +360,21 @@ async function seedCommunityPeople(password: string) {
 
 async function main() {
   const password = await bcrypt.hash(demoPassword, 12)
+  const lockedPassword = await bcrypt.hash(randomBytes(32).toString('hex'), 12)
 
   for (const user of demoUsers) {
+    const locked = user.role !== UserRole.USER && !allowPrivilegedDemoAccounts
+    const role = locked ? UserRole.USER : user.role
+    const userPassword = locked ? lockedPassword : password
+
     await prisma.user.upsert({
       where: { email: user.email },
       create: {
         id: user.id,
         email: user.email,
-        password,
+        password: userPassword,
         name: user.name,
-        role: user.role,
+        role,
         avatarUrl: user.avatarUrl,
         coverUrl: user.coverUrl,
         profile: {
@@ -384,9 +395,9 @@ async function main() {
         },
       },
       update: {
-        password,
+        password: userPassword,
         name: user.name,
-        role: user.role,
+        role,
         avatarUrl: user.avatarUrl,
         coverUrl: user.coverUrl,
         profile: {
@@ -701,15 +712,19 @@ async function main() {
   })
 
   await seedCommunityPeople(password)
+  await seedFounderResume(prisma)
 
   const totalUsers = await prisma.user.count()
   const totalPosts = await prisma.post.count()
 
   console.log('Seed complete.')
   console.log(`Users: ${totalUsers} (target ${TARGET_USER_COUNT}) · Posts: ${totalPosts}`)
-  console.log(`Demo password: ${demoPassword}`)
   for (const user of demoUsers) {
-    console.log(`${user.email} / ${demoPassword}`)
+    if (user.role !== UserRole.USER && !allowPrivilegedDemoAccounts) {
+      console.log(`${user.email} / (locked: seeded as USER, set SEED_PRIVILEGED_DEMO_ACCOUNTS=true locally to enable)`)
+    } else {
+      console.log(`${user.email} / ${demoPassword} (${user.role})`)
+    }
   }
   console.log('Community logins: p001@seed.baesh.dev … / password123')
 }

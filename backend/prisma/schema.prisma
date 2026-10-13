@@ -70,6 +70,69 @@ enum OrganizationType {
   COMMUNITY
 }
 
+enum OrganizationVerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MANAGER
+  MEMBER
+}
+
+enum OrganizationMemberStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+}
+
+enum OrganizationDocumentType {
+  BUSINESS_REGISTRATION
+  EMPLOYMENT_CERTIFICATE
+  OFFICIAL_LETTER
+  OTHER
+}
+
+enum ProgramStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum EvidenceStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum EvidenceCategory {
+  DEVELOPMENT
+  MEETING
+  PRESENTATION
+  RESEARCH
+  FIELDWORK
+  REPORT
+  OTHER
+}
+
+enum EvidenceFileKind {
+  IMAGE
+  VIDEO
+  PDF
+}
+
+enum EvidenceReviewAction {
+  SUBMITTED
+  RESUBMITTED
+  APPROVED
+  REJECTED
+}
+
 enum VerifiedRecordStatus {
   PENDING
   VERIFIED
@@ -102,6 +165,21 @@ enum NotificationType {
   FOLLOW
 }
 
+enum ProfileVisibility {
+  PUBLIC
+  MEMBERS
+  FOLLOWERS
+}
+
+enum ProjectLinkType {
+  GITHUB
+  FIGMA
+  NOTION
+  GOOGLE_DRIVE
+  DEPLOYMENT
+  OTHER
+}
+
 enum ProjectInviteStatus {
   PENDING
   ACCEPTED
@@ -110,78 +188,104 @@ enum ProjectInviteStatus {
 }
 
 model User {
-  id                     String             @id @default(cuid())
-  email                  String             @unique
-  password               String
-  name                   String
-  role                   UserRole           @default(USER)
-  avatarUrl              String?
-  coverUrl               String?
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
-  profile                Profile?
-  ownedProjects          Project[]          @relation("ProjectOwner")
-  projectMemberships     ProjectMember[]
-  sentProjectInvites     ProjectInvite[]           @relation("ProjectInviteInviter")
-  receivedProjectInvites ProjectInvite[]           @relation("ProjectInviteInvitee")
-  assignedTasks          ProjectTask[]      @relation("TaskAssignee")
-  projectActivities      ProjectActivity[]
-  uploadedFiles          ProjectFile[]      @relation("FileUploader")
-  posts                  Post[]             @relation("PostAuthor")
-  postLikes              PostLike[]
-  commentLikes           CommentLike[]
-  comments               Comment[]
-  opportunitiesCreated   Opportunity[]      @relation("OpportunityCreator")
-  savedOpportunities     SavedOpportunity[]
-  verifiedRecords        VerifiedRecord[]
-  aiAnalyses             AIAnalysis[]
-  notifications          Notification[]
-  sentMessages           Message[]          @relation("SentMessages")
-  receivedMessages       Message[]          @relation("ReceivedMessages")
-  following              UserFollow[]              @relation("UserFollowsFollower")
-  followers              UserFollow[]              @relation("UserFollowsFollowing")
-  profileViewsMade       ProfileView[]             @relation("ProfileViewsAsViewer")
-  profileViewsReceived   ProfileView[]             @relation("ProfileViewsAsProfile")
-  triggeredNotifications Notification[]            @relation("NotificationActor")
-  opportunityEnrollments OpportunityEnrollment[]   @relation("EnrollmentUser")
-  approvedEnrollments    OpportunityEnrollment[]   @relation("EnrollmentApprover")
+  id                       String                     @id @default(cuid())
+  email                    String                     @unique
+  password                 String
+  name                     String
+  role                     UserRole                   @default(USER)
+  avatarUrl                String?
+  coverUrl                 String?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  profile                  Profile?
+  ownedProjects            Project[]                  @relation("ProjectOwner")
+  projectMemberships       ProjectMember[]
+  sentProjectInvites       ProjectInvite[]            @relation("ProjectInviteInviter")
+  receivedProjectInvites   ProjectInvite[]            @relation("ProjectInviteInvitee")
+  assignedTasks            ProjectTask[]              @relation("TaskAssignee")
+  projectActivities        ProjectActivity[]
+  uploadedFiles            ProjectFile[]              @relation("FileUploader")
+  posts                    Post[]                     @relation("PostAuthor")
+  postLikes                PostLike[]
+  commentLikes             CommentLike[]
+  comments                 Comment[]
+  opportunitiesCreated     Opportunity[]              @relation("OpportunityCreator")
+  savedOpportunities       SavedOpportunity[]
+  verifiedRecords          VerifiedRecord[]
+  aiAnalyses               AIAnalysis[]
+  notifications            Notification[]
+  sentMessages             Message[]                  @relation("SentMessages")
+  receivedMessages         Message[]                  @relation("ReceivedMessages")
+  following                UserFollow[]               @relation("UserFollowsFollower")
+  followers                UserFollow[]               @relation("UserFollowsFollowing")
+  profileViewsMade         ProfileView[]              @relation("ProfileViewsAsViewer")
+  profileViewsReceived     ProfileView[]              @relation("ProfileViewsAsProfile")
+  triggeredNotifications   Notification[]             @relation("NotificationActor")
+  opportunityEnrollments   OpportunityEnrollment[]    @relation("EnrollmentUser")
+  approvedEnrollments      OpportunityEnrollment[]    @relation("EnrollmentApprover")
+  organizationMemberships  OrganizationMember[]
+  organizationsCreated     Organization[]             @relation("OrganizationCreator")
+  submittedVerifications   OrganizationVerification[] @relation("VerificationSubmitter")
+  reviewedVerifications    OrganizationVerification[] @relation("VerificationReviewer")
+  programsCreated          Program[]                  @relation("ProgramCreator")
+  managedPrograms          ProgramManager[]
+  programParticipations    ProgramParticipant[]       @relation("ProgramParticipantUser")
+  programParticipantsAdded ProgramParticipant[]       @relation("ProgramParticipantAddedBy")
+  evidenceAuthored         ProjectEvidence[]          @relation("EvidenceAuthor")
+  evidenceReviewed         ProjectEvidence[]          @relation("EvidenceReviewer")
+  evidenceFilesUploaded    EvidenceFile[]             @relation("EvidenceFileUploader")
+  evidenceReviewActions    EvidenceReview[]           @relation("EvidenceReviewActor")
+  projectLinksCreated      ProjectExternalLink[]      @relation("ProjectLinkCreator")
+
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_name_trgm_idx")
 }
 
 model Profile {
-  id           String        @id @default(cuid())
-  userId       String        @unique
-  headline     String?
-  bio          String?
-  school       String?
-  company      String?
-  location     String?
-  skills       String[]      @default([])
-  interests    String[]      @default([])
-  socialLinks  Json?
-  trustScore   Int           @default(0)
-  verified     Boolean       @default(false)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  certificates Certificate[]
-  careers      Career[]
-  awards       Award[]
-  portfolios   Portfolio[]
+  id                 String            @id @default(cuid())
+  userId             String            @unique
+  headline           String?
+  bio                String?
+  school             String?
+  company            String?
+  location           String?
+  skills             String[]          @default([])
+  interests          String[]          @default([])
+  socialLinks        Json?
+  trustScore         Int               @default(0)
+  verified           Boolean           @default(false)
+  /// Who can see projects, history and posts on the profile. Name/avatar/headline stay visible to members.
+  visibility         ProfileVisibility @default(PUBLIC)
+  /// Ordered, at most 3. Only projects the user owns or belongs to are accepted.
+  featuredProjectIds String[]          @default([])
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  certificates       Certificate[]
+  careers            Career[]
+  awards             Award[]
+  portfolios         Portfolio[]
+
+  @@index([headline(ops: raw("gin_trgm_ops"))], type: Gin, map: "Profile_headline_trgm_idx")
+  @@index([company(ops: raw("gin_trgm_ops"))], type: Gin, map: "Profile_company_trgm_idx")
+  @@index([school(ops: raw("gin_trgm_ops"))], type: Gin, map: "Profile_school_trgm_idx")
+  @@index([skills], type: Gin)
 }
 
 model Certificate {
-  id            String                   @id @default(cuid())
+  id            String                 @id @default(cuid())
   profileId     String
   title         String
   issuer        String
   issuedAt      DateTime?
   credentialUrl String?
-  verified      Boolean                  @default(false)
-  source        CertificateSource        @default(MANUAL)
-  opportunityId String?                  @unique
-  profile       Profile                  @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  opportunity   Opportunity?             @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  verified      Boolean                @default(false)
+  source        CertificateSource      @default(MANUAL)
+  opportunityId String?                @unique
+  profile       Profile                @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity?           @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   enrollment    OpportunityEnrollment?
+
+  @@index([profileId, issuedAt])
 }
 
 model Career {
@@ -193,6 +297,8 @@ model Career {
   endDate     DateTime?
   description String?
   profile     Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, startDate])
 }
 
 model Award {
@@ -203,6 +309,8 @@ model Award {
   awardedAt   DateTime?
   description String?
   profile     Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, awardedAt])
 }
 
 model Portfolio {
@@ -213,23 +321,31 @@ model Portfolio {
   url         String?
   imageUrl    String?
   profile     Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
 }
 
 model Project {
-  id              String             @id @default(cuid())
+  id              String                @id @default(cuid())
   title           String
-  slug            String             @unique
+  slug            String                @unique
   description     String?
   objective       String?
   readme          String?
   ownerId         String
-  status          ProjectStatus      @default(PLANNING)
-  progress        Int                @default(0)
-  visibility      ProjectVisibility  @default(PRIVATE)
-  skills          String[]           @default([])
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  owner           User               @relation("ProjectOwner", fields: [ownerId], references: [id])
+  status          ProjectStatus         @default(PLANNING)
+  progress        Int                   @default(0)
+  visibility      ProjectVisibility     @default(PRIVATE)
+  skills          String[]              @default([])
+  programId       String?
+  teamName        String?
+  startDate       DateTime?
+  endDate         DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  owner           User                  @relation("ProjectOwner", fields: [ownerId], references: [id])
+  program         Program?              @relation(fields: [programId], references: [id], onDelete: SetNull)
+  evidence        ProjectEvidence[]
   roles           ProjectRole[]
   members         ProjectMember[]
   invites         ProjectInvite[]
@@ -239,6 +355,33 @@ model Project {
   posts           Post[]
   verifiedRecords VerifiedRecord[]
   aiAnalyses      AIAnalysis[]
+  externalLinks   ProjectExternalLink[]
+
+  @@index([programId])
+  @@index([ownerId, updatedAt])
+  @@index([visibility, updatedAt])
+}
+
+/// User-registered links to outside tools. A link is never evidence of verified work by itself;
+/// verification only comes from the institution evidence review flow.
+model ProjectExternalLink {
+  id          String          @id @default(cuid())
+  projectId   String
+  type        ProjectLinkType
+  url         String
+  label       String?
+  description String?
+  /// Parsed identifiers (e.g. GitHub owner/repo) kept for the future sync integration.
+  metadata    Json?
+  sortOrder   Int             @default(0)
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy   User?           @relation("ProjectLinkCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, url])
+  @@index([projectId, sortOrder])
 }
 
 model ProjectRole {
@@ -272,6 +415,7 @@ model ProjectMember {
   projectRole  ProjectRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
   @@unique([projectId, userId])
+  @@index([userId])
 }
 
 model ProjectInvite {
@@ -284,7 +428,7 @@ model ProjectInvite {
   contribution String?
   status       ProjectInviteStatus @default(PENDING)
   createdAt    DateTime            @default(now())
-  respondedAt    DateTime?
+  respondedAt  DateTime?
   project      Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
   inviter      User                @relation("ProjectInviteInviter", fields: [inviterId], references: [id], onDelete: Cascade)
   invitee      User                @relation("ProjectInviteInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
@@ -305,6 +449,8 @@ model ProjectTask {
   updatedAt   DateTime          @updatedAt
   project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   assignee    User?             @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  @@index([projectId, createdAt])
 }
 
 model ProjectActivity {
@@ -317,6 +463,9 @@ model ProjectActivity {
   createdAt   DateTime            @default(now())
   project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model ProjectFile {
@@ -329,6 +478,8 @@ model ProjectFile {
   createdAt  DateTime @default(now())
   project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   uploader   User     @relation("FileUploader", fields: [uploadedBy], references: [id])
+
+  @@index([projectId, createdAt])
 }
 
 model Post {
@@ -347,6 +498,11 @@ model Post {
   reposts         Post[]         @relation("PostRepostOf")
   likes           PostLike[]
   comments        Comment[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([authorId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([repostOfId])
+  @@index([linkedProjectId])
 }
 
 model UserFollow {
@@ -357,6 +513,7 @@ model UserFollow {
   following   User     @relation("UserFollowsFollowing", fields: [followingId], references: [id], onDelete: Cascade)
 
   @@id([followerId, followingId])
+  @@index([followingId])
 }
 
 model ProfileView {
@@ -381,6 +538,7 @@ model PostLike {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([postId, userId])
+  @@index([userId])
 }
 
 model Comment {
@@ -398,6 +556,8 @@ model Comment {
   likes     CommentLike[]
 
   @@index([parentId])
+  @@index([postId, createdAt])
+  @@index([authorId])
 }
 
 model CommentLike {
@@ -412,20 +572,20 @@ model CommentLike {
 }
 
 model Opportunity {
-  id                 String             @id @default(cuid())
+  id                 String                  @id @default(cuid())
   title              String
   type               OpportunityType
   organization       String
   description        String
-  skills             String[]           @default([])
+  skills             String[]                @default([])
   location           String?
-  isRemote           Boolean            @default(false)
+  isRemote           Boolean                 @default(false)
   deadline           DateTime?
   applyUrl           String?
   createdBy          String?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  creator            User?                    @relation("OpportunityCreator", fields: [createdBy], references: [id])
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  creator            User?                   @relation("OpportunityCreator", fields: [createdBy], references: [id])
   savedOpportunities SavedOpportunity[]
   enrollments        OpportunityEnrollment[]
   certificates       Certificate[]
@@ -447,6 +607,7 @@ model OpportunityEnrollment {
   certificate   Certificate?                @relation(fields: [certificateId], references: [id], onDelete: SetNull)
 
   @@unique([userId, opportunityId])
+  @@index([opportunityId])
 }
 
 model SavedOpportunity {
@@ -467,11 +628,16 @@ model VerifiedRecord {
   role                String
   contributionSummary String
   evidenceUrl         String?
+  evidenceId          String?              @unique
   trustScore          Int                  @default(0)
   issuedAt            DateTime             @default(now())
   status              VerifiedRecordStatus @default(PENDING)
   user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   project             Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  evidence            ProjectEvidence?     @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+
+  @@index([userId, issuedAt])
+  @@index([projectId])
 }
 
 model AIAnalysis {
@@ -489,25 +655,172 @@ model AIAnalysis {
 }
 
 model Organization {
-  id          String           @id @default(cuid())
-  name        String
-  type        OrganizationType
-  description String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  programs    Program[]
+  id                 String                         @id @default(cuid())
+  name               String
+  type               OrganizationType
+  description        String?
+  website            String?
+  contactEmail       String?
+  registrationNumber String?
+  verificationStatus OrganizationVerificationStatus @default(PENDING)
+  verifiedAt         DateTime?
+  createdById        String?
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
+  createdBy          User?                          @relation("OrganizationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  members            OrganizationMember[]
+  verifications      OrganizationVerification[]
+  programs           Program[]
+
+  @@index([verificationStatus])
+}
+
+model OrganizationMember {
+  id             String                   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrganizationRole         @default(MEMBER)
+  status         OrganizationMemberStatus @default(PENDING)
+  title          String?
+  message        String?
+  joinedAt       DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model OrganizationVerification {
+  id             String                         @id @default(cuid())
+  organizationId String
+  submittedById  String?
+  documentType   OrganizationDocumentType
+  documentName   String?
+  documentUrl    String
+  note           String?
+  status         OrganizationVerificationStatus @default(PENDING)
+  reviewedById   String?
+  reviewNote     String?
+  reviewedAt     DateTime?
+  createdAt      DateTime                       @default(now())
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  submittedBy    User?                          @relation("VerificationSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+  reviewedBy     User?                          @relation("VerificationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([status])
 }
 
 model Program {
-  id             String       @id @default(cuid())
+  id             String               @id @default(cuid())
   organizationId String
   title          String
   description    String?
+  term           String?
+  status         ProgramStatus        @default(ACTIVE)
   startDate      DateTime?
   endDate        DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User?                @relation("ProgramCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  managers       ProgramManager[]
+  participants   ProgramParticipant[]
+  projects       Project[]
+
+  @@index([organizationId])
+}
+
+/// Staff assigned to run a program (e.g. the professor of a capstone course).
+model ProgramManager {
+  id        String   @id @default(cuid())
+  programId String
+  userId    String
+  createdAt DateTime @default(now())
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, userId])
+  @@index([userId])
+}
+
+/// Students registered to a program as a whole, before/independently of team assignment.
+model ProgramParticipant {
+  id         String   @id @default(cuid())
+  programId  String
+  userId     String
+  studentNo  String?
+  department String?
+  addedById  String?
+  createdAt  DateTime @default(now())
+  program    Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  user       User     @relation("ProgramParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+  addedBy    User?    @relation("ProgramParticipantAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@unique([programId, userId])
+  @@index([userId])
+}
+
+model ProjectEvidence {
+  id             String           @id @default(cuid())
+  projectId      String
+  authorId       String
+  title          String
+  description    String?
+  category       EvidenceCategory @default(OTHER)
+  activityDate   DateTime
+  status         EvidenceStatus   @default(DRAFT)
+  submittedAt    DateTime?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author         User             @relation("EvidenceAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  reviewedBy     User?            @relation("EvidenceReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  files          EvidenceFile[]
+  reviews        EvidenceReview[]
+  verifiedRecord VerifiedRecord?
+
+  @@index([projectId, status])
+  @@index([authorId])
+}
+
+model EvidenceFile {
+  id           String           @id @default(cuid())
+  evidenceId   String
+  uploaderId   String?
+  originalName String
+  storageKey   String           @unique
+  mimeType     String
+  kind         EvidenceFileKind
+  sizeBytes    Int
+  sha256       String
+  scanStatus   String
+  createdAt    DateTime         @default(now())
+  evidence     ProjectEvidence  @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  uploader     User?            @relation("EvidenceFileUploader", fields: [uploaderId], references: [id], onDelete: SetNull)
+
+  @@index([evidenceId])
+}
+
+/// Append-only audit trail of evidence status changes.
+model EvidenceReview {
+  id         String               @id @default(cuid())
+  evidenceId String
+  actorId    String?
+  action     EvidenceReviewAction
+  note       String?
+  createdAt  DateTime             @default(now())
+  evidence   ProjectEvidence      @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  actor      User?                @relation("EvidenceReviewActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([evidenceId, createdAt])
 }
 
 model Notification {

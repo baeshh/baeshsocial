@@ -39,7 +39,7 @@ export function AICopilotPage() {
   const [latestOutput, setLatestOutput] = useState<AIOutput | null>(null)
 
   const projectsQuery = useQuery({
-    queryKey: ['projects'],
+    queryKey: ['projects', 'options'],
     queryFn: () => getProjects(token ?? ''),
     enabled: Boolean(token),
   })

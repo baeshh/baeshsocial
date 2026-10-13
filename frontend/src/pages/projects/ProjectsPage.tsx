@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { ProjectEvidencePanel } from '../../components/evidence/ProjectEvidencePanel'
 import {
   ArrowLeft,
   FileText,
@@ -19,10 +20,12 @@ import { Card, CardDescription, CardHeader, CardTitle } from '../../components/c
 import { EmptyState } from '../../components/common/EmptyState'
 import { Input, Select, Textarea } from '../../components/common/Input'
 import { LoadingState } from '../../components/common/LoadingState'
+import { LoadMore } from '../../components/common/LoadMore'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { Modal } from '../../components/common/Modal'
 import { ProjectDeleteModal } from '../../components/projects/ProjectDeleteModal'
 import { ProjectLeaveModal } from '../../components/projects/ProjectLeaveModal'
+import { ProjectLinksPanel } from '../../components/projects/ProjectLinksPanel'
 import { ProjectRolesPanel } from '../../components/projects/ProjectRolesPanel'
 import { TeamInviteModal } from '../../components/projects/TeamInviteModal'
 import { hasProjectPermission, isGuestProjectViewer } from '../../lib/projectPermissions'
@@ -42,7 +45,9 @@ import {
   updateProjectTask,
 } from '../../services/projectService'
 import { useAuthStore } from '../../stores/authStore'
-import type { Project, ProjectTask } from '../../types/project'
+import type { Project, ProjectSummary, ProjectTask } from '../../types/project'
+
+const PROJECT_PAGE_SIZE = 24
 
 function splitTags(value: string) {
   return value
@@ -60,11 +65,11 @@ function toFormDate(value: string | null) {
   return value ? value.slice(0, 10) : ''
 }
 
-function projectHealth(project: Project) {
-  const completedTasks = project.tasks.filter((task) => task.status === 'DONE').length
-  const taskScore = project.tasks.length > 0 ? Math.round((completedTasks / project.tasks.length) * 100) : 0
-  const activityScore = project.activities.length > 0 ? 80 : 30
-  const fileScore = project.files.length > 0 ? 80 : 40
+function projectHealth(project: Pick<ProjectSummary, 'progress' | 'counts'>) {
+  const { tasks, doneTasks, activities, files } = project.counts
+  const taskScore = tasks > 0 ? Math.round((doneTasks / tasks) * 100) : 0
+  const activityScore = activities > 0 ? 80 : 30
+  const fileScore = files > 0 ? 80 : 40
   return Math.round((project.progress + taskScore + activityScore + fileScore) / 4)
 }
 
@@ -105,9 +110,11 @@ function ProjectList({ token }: { token: string }) {
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [form, setForm] = useState(emptyCreateForm)
-  const projectsQuery = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => getProjects(token),
+  const projectsQuery = useInfiniteQuery({
+    queryKey: ['projects', 'list'],
+    queryFn: ({ pageParam }) => getProjects(token, { cursor: pageParam, limit: PROJECT_PAGE_SIZE }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: Boolean(token),
   })
   const createMutation = useMutation({
@@ -128,7 +135,7 @@ function ProjectList({ token }: { token: string }) {
     },
   })
 
-  const projects = projectsQuery.data?.projects ?? []
+  const projects = projectsQuery.data?.pages.flatMap((page) => page.projects) ?? []
 
   return (
     <AppLayout>
@@ -161,6 +168,13 @@ function ProjectList({ token }: { token: string }) {
             ))}
           </main>
         ) : null}
+
+        <LoadMore
+          hasNextPage={Boolean(projectsQuery.hasNextPage)}
+          isFetchingNextPage={projectsQuery.isFetchingNextPage}
+          label="프로젝트 더 보기"
+          onLoadMore={() => void projectsQuery.fetchNextPage()}
+        />
       </div>
 
       <Modal onClose={() => setCreateOpen(false)} open={createOpen} title="프로젝트 생성">
@@ -274,13 +288,20 @@ function ProjectProgressRing({ pct }: { pct: number }) {
   )
 }
 
-function ProjectCard({ project }: { project: Project }) {
+function ProjectCard({ project }: { project: ProjectSummary }) {
   const health = projectHealth(project)
 
   return (
     <article className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:border-slate-300 hover:shadow-lg">
       <div className="mb-4 flex items-start justify-between gap-3">
-        <h3 className="text-lg font-bold leading-snug text-slate-900">{project.title}</h3>
+        <div className="min-w-0">
+          <h3 className="text-lg font-bold leading-snug text-slate-900">{project.title}</h3>
+          {project.program ? (
+            <p className="mt-1 truncate text-xs font-semibold text-emerald-700">
+              {project.program.organization.name} · {project.program.title}
+            </p>
+          ) : null}
+        </div>
         <Badge
           className="shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-bold uppercase tracking-wide"
           tone={projectStatusTone(project.status)}
@@ -293,7 +314,7 @@ function ProjectCard({ project }: { project: Project }) {
       </p>
       <div className="mb-4 flex gap-2">
         <ProjectMetricBox label="Progress" value={`${project.progress}%`} />
-        <ProjectMetricBox label="Tasks" value={String(project.tasks.length)} />
+        <ProjectMetricBox label="Tasks" value={String(project.counts.tasks)} />
         <ProjectMetricBox label="Health" value={String(health)} />
       </div>
       <Button
@@ -344,7 +365,13 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
   const [taskForm, setTaskForm] = useState({ title: '', description: '', dueDate: '' })
   const [activityForm, setActivityForm] = useState({ title: '', description: '' })
   const [fileForm, setFileForm] = useState({ name: '', url: '', fileType: '' })
-  const [detailTab, setDetailTab] = useState('overview')
+  const [searchParams] = useSearchParams()
+  const [detailTab, setDetailTab] = useState(() => searchParams.get('tab') ?? 'overview')
+  const [tabProjectId, setTabProjectId] = useState(projectId)
+  if (tabProjectId !== projectId) {
+    setTabProjectId(projectId)
+    setDetailTab(searchParams.get('tab') ?? 'overview')
+  }
 
   useEffect(() => {
     if (project) {
@@ -352,13 +379,9 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
     }
   }, [project])
 
-  useEffect(() => {
-    setDetailTab('overview')
-  }, [projectId])
-
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ['projects', projectId] })
     queryClient.invalidateQueries({ queryKey: ['projects'] })
+    queryClient.invalidateQueries({ queryKey: ['profiles'] })
   }
   const updateMutation = useMutation({
     mutationFn: () =>
@@ -462,6 +485,7 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
 
   const detailTabs: Array<{ id: string; label: string; count?: number }> = [
     { id: 'overview', label: 'Overview' },
+    ...(project.program ? [{ id: 'evidence', label: '활동 증빙' }] : []),
     ...(canViewTasks ? [{ id: 'tasks', label: 'Tasks', count: project.tasks.length }] : []),
     ...(canViewFiles ? [{ id: 'files', label: 'Files', count: project.files.length }] : []),
     ...(showSettingsTab ? [{ id: 'settings', label: 'Settings' }] : []),
@@ -500,6 +524,14 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Badge tone="purple">{project.status}</Badge>
                   <Badge tone="blue">{project.visibility}</Badge>
+                  {project.program ? (
+                    <Link to={`/org/${project.program.organization.id}/programs/${project.program.id}`}>
+                      <Badge className="hover:border-brand-300" tone="green">
+                        {project.program.organization.name} · {project.program.title}
+                        {project.teamName ? ` · ${project.teamName}` : ''}
+                      </Badge>
+                    </Link>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -563,6 +595,14 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                   </div>
                 </Card>
 
+                <ProjectLinksPanel
+                  canEdit={can('project.edit') && project.program?.status !== 'ARCHIVED'}
+                  links={project.externalLinks ?? []}
+                  onChanged={invalidate}
+                  projectId={project.id}
+                  token={token}
+                />
+
                 {canViewActivities ? (
                   <Card className="rounded-2xl border-surface-border shadow-sm">
                     <CardHeader>
@@ -617,6 +657,8 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                 ) : null}
               </>
             ) : null}
+
+            {effectiveDetailTab === 'evidence' && project.program ? <ProjectEvidencePanel projectId={project.id} /> : null}
 
             {effectiveDetailTab === 'tasks' ? (
               <Panel icon={<ListChecks size={20} />} title="Tasks">

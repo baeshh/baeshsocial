@@ -4,7 +4,9 @@ import { Camera, X } from 'lucide-react'
 import { ImageCropDialog } from './ImageCropDialog'
 import { Avatar } from '../common/Avatar'
 import { cn } from '../../lib/cn'
+import { PROFILE_VISIBILITY_META } from '../../lib/profileFormat'
 import type { ImageUploadPreset } from '../../lib/readImageFile'
+import type { ProfileVisibility } from '../../types/profile'
 
 export type ProfileEditFormState = {
   name: string
@@ -18,7 +20,10 @@ export type ProfileEditFormState = {
   website: string
   github: string
   linkedin: string
+  visibility: Lowercase<ProfileVisibility>
 }
+
+const VISIBILITY_OPTIONS: ProfileVisibility[] = ['PUBLIC', 'MEMBERS', 'FOLLOWERS']
 
 type ProfileEditModalProps = {
   open: boolean
@@ -297,6 +302,23 @@ export function ProfileEditModal({
                     placeholder="자신을 자유롭게 소개해주세요."
                     value={form.bio}
                   />
+                </Field>
+                <Field className="sm:col-span-2" label="프로필 공개 범위">
+                  <select
+                    className={fieldClass}
+                    onChange={(event) => onChange({ visibility: event.target.value as ProfileEditFormState['visibility'] })}
+                    value={form.visibility}
+                  >
+                    {VISIBILITY_OPTIONS.map((option) => (
+                      <option key={option} value={option.toLowerCase()}>
+                        {PROFILE_VISIBILITY_META[option].label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs leading-relaxed text-slate-500">
+                    {PROFILE_VISIBILITY_META[form.visibility.toUpperCase() as ProfileVisibility].description} 이름·사진·직무·기술
+                    태그·소속은 항상 표시됩니다.
+                  </span>
                 </Field>
               </div>
 

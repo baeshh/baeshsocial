@@ -1,97 +1,18 @@
 import type { AuthUser } from './auth'
+import type { ProjectStatus, ProjectVisibility } from './project'
 
-export type Profile = {
+export type Paged<K extends string, T> = { [key in K]: T[] } & { nextCursor: string | null }
+
+export type ProfileVisibility = 'PUBLIC' | 'MEMBERS' | 'FOLLOWERS'
+
+export type ProjectLinkType = 'github' | 'figma' | 'notion' | 'google_drive' | 'deployment' | 'other'
+
+export type ProjectLink = {
   id: string
-  userId: string
-  headline: string | null
-  bio: string | null
-  school: string | null
-  company: string | null
-  location: string | null
-  skills: string[]
-  interests: string[]
-  socialLinks: Record<string, string> | null
-  trustScore: number
-  verified: boolean
-  createdAt: string
-  updatedAt: string
-  user: AuthUser
-  certificates: Certificate[]
-  careers: Career[]
-  awards: Award[]
-  portfolios: Portfolio[]
-}
-
-export type CertificateSource = 'MANUAL' | 'PROGRAM'
-
-export type Certificate = {
-  id: string
-  profileId: string
-  title: string
-  issuer: string
-  issuedAt: string | null
-  credentialUrl: string | null
-  verified: boolean
-  source?: CertificateSource
-  opportunityId?: string | null
-}
-
-export type Career = {
-  id: string
-  profileId: string
-  company: string
-  position: string
-  startDate: string | null
-  endDate: string | null
+  type: ProjectLinkType
+  url: string
+  label: string | null
   description: string | null
-}
-
-export type Award = {
-  id: string
-  profileId: string
-  title: string
-  issuer: string | null
-  awardedAt: string | null
-  description: string | null
-}
-
-export type Portfolio = {
-  id: string
-  profileId: string
-  title: string
-  description: string | null
-  url: string | null
-  imageUrl: string | null
-}
-
-export type ProfileProject = {
-  id: string
-  title: string
-  slug: string
-  description: string | null
-  status: string
-  progress: number
-  skills: string[]
-  updatedAt: string
-  memberRole?: string
-  contribution?: string | null
-}
-
-export type VerifiedRecord = {
-  id: string
-  userId: string
-  projectId: string
-  role: string
-  contributionSummary: string
-  evidenceUrl: string | null
-  trustScore: number
-  issuedAt: string
-  status: string
-  project: {
-    id: string
-    title: string
-    slug: string
-  }
 }
 
 export type SkillBreakdownItem = {
@@ -107,56 +28,101 @@ export type AISkillInsights = {
   skillBreakdown: SkillBreakdownItem[]
 }
 
-export type GrowthTimelineItem = {
+export type ProfileProjectCard = {
   id: string
-  kind: string
   title: string
-  description: string
-  date: string
+  status: ProjectStatus
+  progress: number
+  skills: string[]
+  visibility: ProjectVisibility
+  updatedAt: string
+  startDate: string | null
+  endDate: string | null
+  /** limited: the viewer only sees that an institution verified this team project. */
+  access: 'full' | 'limited'
+  description: string | null
+  highlight: string | null
+  isOwner: boolean
+  role: string
+  teamName: string | null
+  program: { id: string; title: string; organizationName: string } | null
+  links: ProjectLink[]
+  verification: { count: number; issuer: string | null; verifiedAt: string | null } | null
+  featured: boolean
 }
 
-export type ProgramEnrollmentStatus =
-  | 'APPLIED'
-  | 'ENROLLED'
-  | 'COMPLETED'
-  | 'REJECTED'
-  | 'WITHDRAWN'
+export type ProfileProjectFilter = 'all' | 'owned' | 'joined' | 'verified'
 
-export type ProgramEnrollment = {
+export type HistoryKind = 'award' | 'certificate' | 'career' | 'program' | 'project'
+export type HistoryFilter = 'all' | 'verified' | HistoryKind
+
+export type HistoryVerification = {
+  /** institution: an organization approved submitted evidence · program: program completion · baesh: operator-confirmed */
+  kind: 'institution' | 'program' | 'baesh'
+  issuer: string | null
+  label: string
+  verifiedAt: string | null
+  programTitle?: string | null
+}
+
+export type HistoryItem = {
   id: string
-  userId: string
-  opportunityId: string
-  status: ProgramEnrollmentStatus
-  appliedAt: string
-  enrolledAt: string | null
-  completedAt: string | null
-  opportunity: {
-    id: string
-    title: string
-    organization: string
-    type: string
+  sourceId: string
+  kind: HistoryKind
+  title: string
+  subtitle: string | null
+  description: string | null
+  date: string | null
+  endDate: string | null
+  ongoing: boolean
+  category: string | null
+  status: string | null
+  verification: HistoryVerification | null
+  link: string | null
+  project: { id: string; title: string; accessible: boolean } | null
+  editable: boolean
+  fields: Record<string, string | null> | null
+}
+
+export type HistoryCounts = Record<HistoryFilter, number>
+
+export type ProfileAffiliation = {
+  organizationId: string
+  name: string
+  type: string
+  title: string | null
+}
+
+export type ProfileOverview = {
+  user: Pick<AuthUser, 'id' | 'name' | 'avatarUrl' | 'coverUrl'> & { role: string; email?: string; createdAt: string }
+  profile: {
+    headline: string | null
+    skills: string[]
+    school: string | null
+    company: string | null
+    bio: string | null
+    location: string | null
+    interests: string[]
+    socialLinks: Record<string, string> | null
+    visibility?: ProfileVisibility
+    featuredProjectIds?: string[]
   }
-  certificate: {
-    id: string
-    verified: boolean
-    issuedAt: string | null
-  } | null
-}
-
-export type ProfileStats = {
-  followerCount: number
-  followingCount: number
-  postCount: number
-}
-
-export type ProfilePayload = {
-  profile: Profile
-  projects: ProfileProject[]
-  verifiedRecords: VerifiedRecord[]
-  programEnrollments: ProgramEnrollment[]
-  stats: ProfileStats
+  affiliations: ProfileAffiliation[]
+  stats: {
+    followerCount: number
+    followingCount: number
+    postCount: number
+    projectCount: number
+    historyCount: number
+    verifiedCount: number
+  }
+  historyCounts: HistoryCounts | null
   isFollowing: boolean
   isOwnProfile: boolean
-  aiSkillInsights: AISkillInsights
-  growthTimeline: GrowthTimelineItem[]
+  canViewDetails: boolean
+  featuredProjects: ProfileProjectCard[]
+  featuredMode: 'pinned' | 'recent'
+  verifiedHighlights: HistoryItem[]
+  recentHistory: HistoryItem[]
+  aiSkillInsights: AISkillInsights | null
 }

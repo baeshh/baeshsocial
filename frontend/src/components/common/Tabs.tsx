@@ -21,7 +21,7 @@ export function Tabs({ tabs, activeTab, onChange, className = '', variant = 'pil
   if (variant === 'underline') {
     return (
       <div className={className}>
-        <div className="-mb-px overflow-x-auto border-b border-surface-border">
+        <div className="-mb-px overflow-x-auto border-b border-surface-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="flex min-w-full gap-1">
             {tabs.map((tab) => (
               <button

@@ -1,4 +1,7 @@
 import { prisma } from '../config/prisma.js'
+import { getProgramAccess } from './programAccess.js'
+
+export const DEFAULT_OWNER_CONTRIBUTION = 'Project owner and primary contributor'
 
 export const PROJECT_PERMISSIONS = [
   'project.view',
@@ -140,11 +143,25 @@ export async function getOwnerRoleId(projectId: string) {
   return role?.id ?? null
 }
 
+/**
+ * In institution-run projects, team composition only changes through the program routes (which
+ * enforce participant/organization rules), so the generic invite/role permissions are off for
+ * everyone. Students additionally cannot delete the project.
+ */
+const PROGRAM_TEAM_MANAGED = new Set<ProjectPermission>([
+  'roles.manage',
+  'members.invite',
+  'members.remove',
+  'members.assign_role',
+])
+const PROGRAM_STAFF_PERMISSIONS = ALL_PROJECT_PERMISSIONS.filter((permission) => !PROGRAM_TEAM_MANAGED.has(permission))
+
 export async function resolveUserProjectPermissions(projectId: string, userId: string) {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
     select: {
       ownerId: true,
+      programId: true,
       members: {
         where: { userId },
         select: {
@@ -158,6 +175,23 @@ export async function resolveUserProjectPermissions(projectId: string, userId: s
 
   if (!project) {
     return { permissions: [] as ProjectPermission[], isOwner: false }
+  }
+
+  if (project.programId) {
+    const access = await getProgramAccess(project.programId, userId)
+    if (access?.isStaff) {
+      return { permissions: PROGRAM_STAFF_PERMISSIONS, isOwner: false }
+    }
+    if (!access?.membership) {
+      return { permissions: [] as ProjectPermission[], isOwner: false }
+    }
+    const memberPermissions = sanitizePermissions(project.members[0]?.projectRole?.permissions ?? [])
+    return {
+      permissions: memberPermissions.filter(
+        (permission) => permission !== 'project.delete' && !PROGRAM_TEAM_MANAGED.has(permission),
+      ),
+      isOwner: false,
+    }
   }
 
   if (project.ownerId === userId) {

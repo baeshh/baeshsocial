@@ -1,4 +1,5 @@
 import type { AuthUser } from './auth'
+import type { ProjectLink } from './profile'
 import type { ProjectRole } from './projectRole'
 
 export type ProjectStatus = 'PLANNING' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED'
@@ -96,9 +97,46 @@ export type Project = {
   createdAt: string
   updatedAt: string
   owner: Pick<AuthUser, 'id' | 'name' | 'email' | 'avatarUrl'>
+  programId?: string | null
+  teamName?: string | null
+  program?: {
+    id: string
+    title: string
+    status?: string
+    organization: { id: string; name: string; type?: string }
+  } | null
   roles?: ProjectRole[]
   members: ProjectMember[]
   tasks: ProjectTask[]
   activities: ProjectActivity[]
   files: ProjectFile[]
+  externalLinks?: ProjectLink[]
+}
+
+/** List rows from GET /projects: summary fields plus counts instead of nested collections. */
+export type ProjectSummary = Pick<
+  Project,
+  | 'id'
+  | 'title'
+  | 'slug'
+  | 'description'
+  | 'status'
+  | 'progress'
+  | 'visibility'
+  | 'skills'
+  | 'ownerId'
+  | 'createdAt'
+  | 'updatedAt'
+> & {
+  programId: string | null
+  teamName: string | null
+  program: { id: string; title: string; organization: { id: string; name: string } } | null
+  counts: {
+    tasks: number
+    doneTasks: number
+    activities: number
+    files: number
+    members: number
+    externalLinks: number
+  }
 }

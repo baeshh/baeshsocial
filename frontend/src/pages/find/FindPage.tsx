@@ -1,9 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Search, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../../components/common/EmptyState'
 import { LoadingState } from '../../components/common/LoadingState'
+import { LoadMore } from '../../components/common/LoadMore'
 import { PersonResultCard } from '../../components/find/PersonResultCard'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { getRecommendedPeople, searchPeople } from '../../services/searchService'
@@ -47,9 +48,11 @@ export function FindPage() {
     enabled: Boolean(token) && !debouncedQuery,
   })
 
-  const searchQuery = useQuery({
+  const searchQuery = useInfiniteQuery({
     queryKey: ['search', 'people', debouncedQuery],
-    queryFn: () => searchPeople(token ?? '', debouncedQuery),
+    queryFn: ({ pageParam }) => searchPeople(token ?? '', debouncedQuery, { cursor: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: Boolean(token) && debouncedQuery.length >= 1,
   })
 
@@ -63,7 +66,7 @@ export function FindPage() {
     }
   }
 
-  const searchResults = searchQuery.data?.results ?? []
+  const searchResults = searchQuery.data?.pages.flatMap((page) => page.results) ?? []
   const recommended = recommendedQuery.data?.results ?? []
 
   return (
@@ -159,6 +162,16 @@ export function FindPage() {
               </li>
             ))}
           </ul>
+        ) : null}
+
+        {debouncedQuery ? (
+          <LoadMore
+            className="pb-4"
+            hasNextPage={Boolean(searchQuery.hasNextPage)}
+            isFetchingNextPage={searchQuery.isFetchingNextPage}
+            label="검색 결과 더 보기"
+            onLoadMore={() => void searchQuery.fetchNextPage()}
+          />
         ) : null}
       </div>
     </AppLayout>

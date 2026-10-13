@@ -1,10 +1,13 @@
-import { PostVisibility } from '@prisma/client'
+import { PostVisibility, Prisma, ProfileVisibility } from '@prisma/client'
 import { Router, type Response } from 'express'
+import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
+import { decodeCursor, keysetAfter, keysetOrder, pageQuerySchema, toPage } from '../../utils/pagination.js'
 import { commentSchema, postSchema, updatePostSchema } from '../../validators/post.validator.js'
 import { createSocialNotification, notifyCommentCreated } from '../../utils/notifications.js'
+import { requireProfileDetails, resolveProfileViewer, visiblePostsWhere } from '../profiles/profileData.js'
 
 export const postsRouter = Router()
 
@@ -14,10 +17,28 @@ const visibilityMap = {
   private: PostVisibility.PRIVATE,
 } as const
 
+const feedPageSchema = pageQuerySchema(20, 50)
+const profilePageSchema = pageQuerySchema(10, 30)
+const recommendedQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(20).default(8) })
+
+/** Feed and profile post lists share one ordering: newest first, id as the tie-breaker. */
+async function findPostPage<T extends Prisma.PostInclude>(
+  where: Prisma.PostWhereInput,
+  query: { limit: number; cursor?: string },
+  include: T,
+) {
+  const rows = await prisma.post.findMany({
+    where: { AND: [where, keysetAfter('createdAt', decodeCursor(query.cursor)) as Prisma.PostWhereInput] },
+    orderBy: keysetOrder('createdAt') as Prisma.PostOrderByWithRelationInput[],
+    take: query.limit + 1,
+    include,
+  })
+  return toPage(rows, query.limit, (row) => ({ v: row.createdAt, id: row.id }))
+}
+
 const authorSelect = {
   id: true,
   name: true,
-  email: true,
   avatarUrl: true,
 } as const
 
@@ -240,17 +261,28 @@ async function canViewerSeePost(
   return followingIds.has(post.authorId)
 }
 
-postsRouter.get('/', authenticate, async (_req, res, next) => {
+postsRouter.get('/', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
+    const query = feedPageSchema.parse(req.query)
     const followingIds = await getFollowingIds(authUser.id)
-    const posts = await prisma.post.findMany({
-      where: buildFeedWhere(authUser.id, followingIds),
-      include: postInclude,
-      orderBy: { createdAt: 'desc' },
-    })
+    const page = await findPostPage(buildFeedWhere(authUser.id, followingIds), query, postInclude)
 
-    res.status(200).json({ posts })
+    res.status(200).json({ posts: page.items, nextCursor: page.nextCursor })
+  } catch (error) {
+    next(error)
+  }
+})
+
+/** Ids of originals the viewer already reposted, so clients can disable "repost" without loading every own post. */
+postsRouter.get('/me/reposts', authenticate, async (_req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const rows = await prisma.post.findMany({
+      where: { authorId: authUser.id, repostOfId: { not: null } },
+      select: { repostOfId: true },
+    })
+    res.status(200).json({ postIds: rows.map((row) => row.repostOfId) })
   } catch (error) {
     next(error)
   }
@@ -259,7 +291,7 @@ postsRouter.get('/', authenticate, async (_req, res, next) => {
 postsRouter.get('/recommended', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
-    const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 8))
+    const { limit } = recommendedQuerySchema.parse(req.query)
     const followingIds = await getFollowingIds(authUser.id)
 
     const [likes, myComments, myReposts] = await Promise.all([
@@ -294,7 +326,12 @@ postsRouter.get('/recommended', authenticate, async (req, res, next) => {
       engagedIds.size > 0
         ? await prisma.post.findMany({
             where: { id: { in: [...engagedIds] } },
-            include: { likes: { select: { userId: true } } },
+            select: {
+              authorId: true,
+              content: true,
+              linkedProjectId: true,
+              likes: { select: { userId: true } },
+            },
           })
         : []
 
@@ -316,6 +353,7 @@ postsRouter.get('/recommended', authenticate, async (req, res, next) => {
       }
     }
 
+    // Score on a slim projection first, then load the full payload only for the posts returned.
     const feedWhere = buildFeedWhere(authUser.id, followingIds)
     const candidates = await prisma.post.findMany({
       where: {
@@ -327,7 +365,13 @@ postsRouter.get('/recommended', authenticate, async (req, res, next) => {
       },
       take: 120,
       orderBy: { createdAt: 'desc' },
-      include: postInclude,
+      select: {
+        id: true,
+        authorId: true,
+        content: true,
+        linkedProjectId: true,
+        _count: { select: { likes: true, comments: true } },
+      },
     })
 
     const scorePost = (post: (typeof candidates)[0]) => {
@@ -349,20 +393,27 @@ postsRouter.get('/recommended', authenticate, async (req, res, next) => {
       if (coLikerIds.has(post.authorId)) {
         score += 2
       }
-      score += Math.min(4, Math.floor(post.likes.length / 3))
-      if (post.comments.length > 0) {
+      score += Math.min(4, Math.floor(post._count.likes / 3))
+      if (post._count.comments > 0) {
         score += 1
       }
       return score
     }
 
-    const ranked = candidates
-      .map((post) => ({ post, score: scorePost(post) }))
+    const rankedIds = candidates
+      .map((post) => ({ id: post.id, score: scorePost(post) }))
       .filter((row) => row.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
+      .map((row) => row.id)
 
-    res.status(200).json({ posts: ranked.map((row) => row.post) })
+    const fullPosts = rankedIds.length
+      ? await prisma.post.findMany({ where: { id: { in: rankedIds } }, include: postInclude })
+      : []
+    const byId = new Map(fullPosts.map((post) => [post.id, post]))
+    const posts = rankedIds.map((id) => byId.get(id)).filter((post) => post !== undefined)
+
+    res.status(200).json({ posts })
   } catch (error) {
     next(error)
   }
@@ -371,31 +422,11 @@ postsRouter.get('/recommended', authenticate, async (req, res, next) => {
 postsRouter.get('/by-user/:userId', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
-    const targetUserId = String(req.params.userId)
-    const followingIds = await getFollowingIds(authUser.id)
-    const isSelf = targetUserId === authUser.id
-    const canSeeConnections = isSelf || followingIds.has(targetUserId)
+    const viewer = await resolveProfileViewer(String(req.params.userId), authUser.id)
+    requireProfileDetails(viewer)
+    const page = await findPostPage(visiblePostsWhere(viewer), profilePageSchema.parse(req.query), postInclude)
 
-    const posts = await prisma.post.findMany({
-      where: {
-        authorId: targetUserId,
-        OR: isSelf
-          ? [
-              { visibility: PostVisibility.PUBLIC },
-              { visibility: PostVisibility.CONNECTIONS },
-              { visibility: PostVisibility.PRIVATE },
-            ]
-          : [
-              { visibility: PostVisibility.PUBLIC },
-              ...(canSeeConnections ? [{ visibility: PostVisibility.CONNECTIONS }] : []),
-            ],
-      },
-      include: postInclude,
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    })
-
-    res.status(200).json({ posts })
+    res.status(200).json({ posts: page.items, nextCursor: page.nextCursor })
   } catch (error) {
     next(error)
   }
@@ -469,16 +500,12 @@ postsRouter.post('/', authenticate, async (req, res, next) => {
   }
 })
 
-postsRouter.get('/me', authenticate, async (_req, res, next) => {
+postsRouter.get('/me', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
-    const posts = await prisma.post.findMany({
-      where: { authorId: authUser.id },
-      include: postInclude,
-      orderBy: { createdAt: 'desc' },
-    })
+    const page = await findPostPage({ authorId: authUser.id }, feedPageSchema.parse(req.query), postInclude)
 
-    res.status(200).json({ posts })
+    res.status(200).json({ posts: page.items, nextCursor: page.nextCursor })
   } catch (error) {
     next(error)
   }
@@ -487,32 +514,32 @@ postsRouter.get('/me', authenticate, async (_req, res, next) => {
 postsRouter.get('/public/by-user/:userId', async (req, res, next) => {
   try {
     const targetUserId = String(req.params.userId)
-    const user = await prisma.user.findUnique({ where: { id: targetUserId } })
+    const user = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, profile: { select: { visibility: true } } },
+    })
 
     if (!user) {
       res.status(404).json({ message: 'User not found' })
       return
     }
-
-    const posts = await prisma.post.findMany({
-      where: {
-        authorId: targetUserId,
-        visibility: PostVisibility.PUBLIC,
-      },
-      include: publicPostInclude,
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-    })
-
-    const visiblePosts = []
-    for (const post of posts) {
-      const accessible = await isPostPubliclyAccessible(post.id)
-      if (accessible) {
-        visiblePosts.push(sanitizePublicPost(post))
-      }
+    if ((user.profile?.visibility ?? ProfileVisibility.PUBLIC) !== ProfileVisibility.PUBLIC) {
+      res.status(200).json({ posts: [], nextCursor: null })
+      return
     }
 
-    res.status(200).json({ posts: visiblePosts })
+    // Reposts of reposts are rejected at write time, so the original is always one level deep.
+    const page = await findPostPage(
+      {
+        authorId: targetUserId,
+        visibility: PostVisibility.PUBLIC,
+        OR: [{ repostOfId: null }, { repostOf: { visibility: PostVisibility.PUBLIC } }],
+      },
+      profilePageSchema.parse(req.query),
+      publicPostInclude,
+    )
+
+    res.status(200).json({ posts: page.items.map(sanitizePublicPost), nextCursor: page.nextCursor })
   } catch (error) {
     next(error)
   }

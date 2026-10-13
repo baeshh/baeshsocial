@@ -1,5 +1,8 @@
-import { apiRequest } from '../lib/api'
+import { apiRequest, withQuery } from '../lib/api'
 import type { Post } from '../types/post'
+
+export type PostPage = { posts: Post[]; nextCursor: string | null }
+type PageParams = { cursor?: string | null; limit?: number }
 
 export type PostPayload = {
   content?: string
@@ -9,20 +12,27 @@ export type PostPayload = {
   mediaUrls?: string[]
 }
 
-export function getPosts(token: string) {
-  return apiRequest<{ posts: Post[] }>('/posts', { token })
+export function getPosts(token: string, params: PageParams = {}) {
+  return apiRequest<PostPage>(withQuery('/posts', { limit: params.limit ?? 20, cursor: params.cursor }), { token })
 }
 
 export function getRecommendedPosts(token: string, limit = 8) {
   return apiRequest<{ posts: Post[] }>(`/posts/recommended?limit=${limit}`, { token })
 }
 
-export function getPostsByUser(token: string, userId: string) {
-  return apiRequest<{ posts: Post[] }>(`/posts/by-user/${userId}`, { token })
+export function getMyRepostedSourceIds(token: string) {
+  return apiRequest<{ postIds: string[] }>('/posts/me/reposts', { token })
 }
 
-export function getMyPosts(token: string) {
-  return apiRequest<{ posts: Post[] }>('/posts/me', { token })
+export function getPostsByUser(token: string, userId: string, params: PageParams = {}) {
+  return apiRequest<PostPage>(
+    withQuery(`/posts/by-user/${userId}`, { limit: params.limit ?? 10, cursor: params.cursor }),
+    { token },
+  )
+}
+
+export function getMyPosts(token: string, params: PageParams = {}) {
+  return apiRequest<PostPage>(withQuery('/posts/me', { limit: params.limit ?? 10, cursor: params.cursor }), { token })
 }
 
 export function getPost(token: string, postId: string) {
@@ -33,8 +43,10 @@ export function getPublicPost(postId: string) {
   return apiRequest<{ post: Post }>(`/posts/public/${postId}`)
 }
 
-export function getPublicPostsByUser(userId: string) {
-  return apiRequest<{ posts: Post[] }>(`/posts/public/by-user/${userId}`)
+export function getPublicPostsByUser(userId: string, params: PageParams = {}) {
+  return apiRequest<PostPage>(
+    withQuery(`/posts/public/by-user/${userId}`, { limit: params.limit ?? 10, cursor: params.cursor }),
+  )
 }
 
 export function createPost(token: string, payload: PostPayload) {

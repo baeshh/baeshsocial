@@ -1,4 +1,5 @@
 import {
+  Prisma,
   ProjectActivityType,
   ProjectStatus,
   ProjectTaskStatus,
@@ -14,12 +15,24 @@ import {
   projectActivitySchema,
   projectFileSchema,
   projectInviteSchema,
+  projectLinkSchema,
+  projectListQuerySchema,
   projectMemberSchema,
   projectSchema,
   projectTaskSchema,
+  updateProjectLinkSchema,
   updateProjectSchema,
   updateProjectTaskSchema,
 } from '../../validators/project.validator.js'
+import {
+  analyzeExternalLink,
+  MAX_LINKS_PER_PROJECT,
+  projectLinkSelect,
+  type ProjectLinkRecord,
+  serializeLink,
+  sortLinks,
+} from '../../utils/externalLinks.js'
+import { decodeCursor, keysetAfter, keysetOrder, toPage } from '../../utils/pagination.js'
 import {
   acceptProjectInvite,
   createProjectInviteNotification,
@@ -27,10 +40,12 @@ import {
   getProjectTeamCandidates,
 } from '../../utils/projectInvites.js'
 import {
+  DEFAULT_OWNER_CONTRIBUTION,
   DEFAULT_PROJECT_ROLE_TEMPLATES,
   requireProjectPermission,
   resolveUserProjectPermissions,
 } from '../../utils/projectPermissions.js'
+import { assertProgramWritable, programStaffWhere } from '../../utils/programAccess.js'
 import { getProjectRoleById } from '../../utils/projectRoles.js'
 import { registerProjectRoleRoutes } from './projectRoles.routes.js'
 import { ProjectInviteStatus } from '@prisma/client'
@@ -50,6 +65,14 @@ const projectInclude = {
       name: true,
       email: true,
       avatarUrl: true,
+    },
+  },
+  program: {
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      organization: { select: { id: true, name: true, type: true } },
     },
   },
   roles: {
@@ -134,7 +157,12 @@ const projectInclude = {
       createdAt: 'desc',
     },
   },
+  externalLinks: { select: projectLinkSelect },
 } as const
+
+function withSerializedLinks<T extends { externalLinks: ProjectLinkRecord[] }>(project: T) {
+  return { ...project, externalLinks: sortLinks(project.externalLinks).map(serializeLink) }
+}
 
 const statusMap = {
   planning: ProjectStatus.PLANNING,
@@ -220,13 +248,19 @@ async function findAccessibleProject(projectId: string, userId: string) {
     where: {
       id: projectId,
       OR: [
-        { visibility: ProjectVisibility.PUBLIC },
-        { ownerId: userId },
+        { visibility: ProjectVisibility.PUBLIC, programId: null },
+        { ownerId: userId, programId: null },
         { members: { some: { userId } } },
+        { program: programStaffWhere(userId) },
       ],
     },
     include: projectInclude,
   })
+
+  if (project?.programId) {
+    const { permissions } = await resolveUserProjectPermissions(projectId, userId)
+    if (!permissions.includes('project.view')) return null
+  }
 
   return project
 }
@@ -281,31 +315,202 @@ const inviteInclude = {
   },
 } as const
 
-projectsRouter.get('/', authenticate, async (_req, res, next) => {
+/** List cards and pickers only need summary fields; full tasks/files/members load on the detail route. */
+projectsRouter.get('/', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
-    const projects = await prisma.project.findMany({
+    const query = projectListQuerySchema.parse(req.query)
+    const rows = await prisma.project.findMany({
       where: {
-        OR: [
-          { ownerId: authUser.id },
-          { members: { some: { userId: authUser.id } } },
+        AND: [
+          { OR: [{ ownerId: authUser.id, programId: null }, { members: { some: { userId: authUser.id } } }] },
+          keysetAfter('updatedAt', decodeCursor(query.cursor)) as Prisma.ProjectWhereInput,
         ],
       },
-      include: {
-        owner: projectInclude.owner,
-        members: projectInclude.members,
-        tasks: true,
-        activities: {
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        },
-        files: true,
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        description: true,
+        status: true,
+        progress: true,
+        visibility: true,
+        skills: true,
+        ownerId: true,
+        programId: true,
+        teamName: true,
+        createdAt: true,
+        updatedAt: true,
+        program: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
+        _count: { select: { tasks: true, activities: true, files: true, members: true, externalLinks: true } },
       },
-      orderBy: { updatedAt: 'desc' },
+      orderBy: keysetOrder('updatedAt') as Prisma.ProjectOrderByWithRelationInput[],
+      take: query.limit + 1,
     })
+    const page = toPage(rows, query.limit, (row) => ({ v: row.updatedAt, id: row.id }))
+    const doneCounts = page.items.length
+      ? await prisma.projectTask.groupBy({
+          by: ['projectId'],
+          where: { projectId: { in: page.items.map((row) => row.id) }, status: ProjectTaskStatus.DONE },
+          _count: { _all: true },
+        })
+      : []
+    const doneByProject = new Map(doneCounts.map((row) => [row.projectId, row._count._all]))
 
-    res.status(200).json({ projects })
+    res.status(200).json({
+      projects: page.items.map(({ _count, ...row }) => ({
+        ...row,
+        counts: { ..._count, doneTasks: doneByProject.get(row.id) ?? 0 },
+      })),
+      nextCursor: page.nextCursor,
+    })
   } catch (error) {
+    next(error)
+  }
+})
+
+async function requireLinkEditor(projectId: string, userId: string) {
+  await requireProjectPermission(projectId, userId, 'project.edit')
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { program: { select: { status: true } } },
+  })
+  if (project?.program) {
+    assertProgramWritable(project.program.status)
+  }
+}
+
+projectsRouter.get('/:id/links', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const projectId = String(req.params.id)
+    await requireProjectAccess(projectId, authUser.id)
+    const links = await prisma.projectExternalLink.findMany({ where: { projectId }, select: projectLinkSelect })
+    res.status(200).json({ links: sortLinks(links).map(serializeLink) })
+  } catch (error) {
+    if (handleProjectError(error, res)) {
+      return
+    }
+    next(error)
+  }
+})
+
+projectsRouter.post('/:id/links', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const projectId = String(req.params.id)
+    await requireLinkEditor(projectId, authUser.id)
+    const input = projectLinkSchema.parse(req.body)
+    const analyzed = analyzeExternalLink(input.url, input.type)
+
+    const existingCount = await prisma.projectExternalLink.count({ where: { projectId } })
+    if (existingCount >= MAX_LINKS_PER_PROJECT) {
+      res.status(400).json({ message: `외부 링크는 프로젝트당 최대 ${MAX_LINKS_PER_PROJECT}개까지 연결할 수 있습니다.` })
+      return
+    }
+    const duplicate = await prisma.projectExternalLink.findUnique({
+      where: { projectId_url: { projectId, url: analyzed.url } },
+      select: { id: true },
+    })
+    if (duplicate) {
+      res.status(409).json({ message: '이미 연결된 링크입니다.' })
+      return
+    }
+
+    const link = await prisma.projectExternalLink.create({
+      data: {
+        projectId,
+        type: analyzed.type,
+        url: analyzed.url,
+        label: input.label || analyzed.defaultLabel,
+        description: input.description ?? null,
+        metadata: analyzed.metadata ?? undefined,
+        sortOrder: existingCount,
+        createdById: authUser.id,
+      },
+      select: projectLinkSelect,
+    })
+    await prisma.projectActivity.create({
+      data: {
+        projectId,
+        userId: authUser.id,
+        type: ProjectActivityType.FILE,
+        title: `외부 링크 연결: ${link.label ?? analyzed.defaultLabel}`,
+      },
+    })
+    res.status(201).json({ link: serializeLink(link) })
+  } catch (error) {
+    if (handleProjectError(error, res)) {
+      return
+    }
+    next(error)
+  }
+})
+
+projectsRouter.patch('/:id/links/:linkId', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const projectId = String(req.params.id)
+    const linkId = String(req.params.linkId)
+    await requireLinkEditor(projectId, authUser.id)
+    const existing = await prisma.projectExternalLink.findFirst({ where: { id: linkId, projectId } })
+    if (!existing) {
+      res.status(404).json({ message: '링크를 찾을 수 없습니다.' })
+      return
+    }
+    const input = updateProjectLinkSchema.parse(req.body)
+    const analyzed =
+      input.url !== undefined || input.type !== undefined
+        ? analyzeExternalLink(input.url ?? existing.url, input.type ?? existing.type)
+        : null
+    if (analyzed && analyzed.url !== existing.url) {
+      const duplicate = await prisma.projectExternalLink.findUnique({
+        where: { projectId_url: { projectId, url: analyzed.url } },
+        select: { id: true },
+      })
+      if (duplicate) {
+        res.status(409).json({ message: '이미 연결된 링크입니다.' })
+        return
+      }
+    }
+
+    const link = await prisma.projectExternalLink.update({
+      where: { id: linkId },
+      data: {
+        ...(analyzed
+          ? { type: analyzed.type, url: analyzed.url, metadata: analyzed.metadata ?? Prisma.JsonNull }
+          : {}),
+        ...(input.label !== undefined ? { label: input.label || (analyzed ?? existing).url } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+      },
+      select: projectLinkSelect,
+    })
+    res.status(200).json({ link: serializeLink(link) })
+  } catch (error) {
+    if (handleProjectError(error, res)) {
+      return
+    }
+    next(error)
+  }
+})
+
+projectsRouter.delete('/:id/links/:linkId', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const projectId = String(req.params.id)
+    await requireLinkEditor(projectId, authUser.id)
+    const { count } = await prisma.projectExternalLink.deleteMany({
+      where: { id: String(req.params.linkId), projectId },
+    })
+    if (count === 0) {
+      res.status(404).json({ message: '링크를 찾을 수 없습니다.' })
+      return
+    }
+    res.status(204).send()
+  } catch (error) {
+    if (handleProjectError(error, res)) {
+      return
+    }
     next(error)
   }
 })
@@ -347,7 +552,7 @@ projectsRouter.post('/', authenticate, async (req, res, next) => {
           userId: authUser.id,
           roleId: ownerRole?.id,
           role: ownerRole?.name ?? '소유자',
-          contribution: 'Project owner and primary contributor',
+          contribution: DEFAULT_OWNER_CONTRIBUTION,
         },
       })
 
@@ -367,7 +572,7 @@ projectsRouter.post('/', authenticate, async (req, res, next) => {
       })
     })
 
-    res.status(201).json({ project })
+    res.status(201).json({ project: project && withSerializedLinks(project) })
   } catch (error) {
     next(error)
   }
@@ -524,15 +729,16 @@ projectsRouter.get('/:id', authenticate, async (req, res, next) => {
         })
       : []
 
+    const withLinks = withSerializedLinks(project)
     const visibleProject = isGuestViewer
       ? {
-          ...project,
+          ...withLinks,
           tasks: [],
           files: [],
           activities: [],
           roles: [],
         }
-      : project
+      : withLinks
 
     res.status(200).json({
       project: visibleProject,
@@ -555,13 +761,20 @@ projectsRouter.patch('/:id', authenticate, async (req, res, next) => {
     const projectId = String(req.params.id)
     await requireProjectPermission(projectId, authUser.id, 'project.edit')
     const input = updateProjectSchema.parse(req.body)
+    if (input.visibility === 'public') {
+      const target = await prisma.project.findUnique({ where: { id: projectId }, select: { programId: true } })
+      if (target?.programId) {
+        res.status(400).json({ message: '기관 프로그램 프로젝트는 전체 공개로 전환할 수 없습니다.' })
+        return
+      }
+    }
     const project = await prisma.project.update({
       where: { id: projectId },
       data: buildProjectUpdateData(input),
       include: projectInclude,
     })
 
-    res.status(200).json({ project })
+    res.status(200).json({ project: withSerializedLinks(project) })
   } catch (error) {
     if (handleProjectError(error, res)) {
       return
@@ -612,6 +825,11 @@ projectsRouter.delete('/:id/members/me', authenticate, async (req, res, next) =>
     const project = await prisma.project.findUnique({ where: { id: projectId } })
     if (!project) {
       res.status(404).json({ message: 'Project not found' })
+      return
+    }
+
+    if (project.programId) {
+      res.status(400).json({ message: '기관 프로그램 팀 구성은 프로그램 담당자가 관리합니다.' })
       return
     }
 
