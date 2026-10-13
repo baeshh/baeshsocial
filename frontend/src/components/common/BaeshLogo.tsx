@@ -8,7 +8,7 @@ type BaeshLogoProps = {
   onClick?: () => void
 }
 
-export function BaeshLogo({ className, imageClassName, to = '/network', onClick }: BaeshLogoProps) {
+export function BaeshLogo({ className, imageClassName, to = '/dashboard', onClick }: BaeshLogoProps) {
   const image = (
     <img
       alt="BAESH"

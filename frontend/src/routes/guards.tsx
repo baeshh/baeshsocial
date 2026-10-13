@@ -1,7 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
-import { AppLayout } from '../components/layout/AppLayout'
-import { LoadingState } from '../components/common/LoadingState'
+import { ShellSkeleton } from '../components/layout/ShellSkeleton'
 import { useMyOrganizations } from '../hooks/useMyOrganizations'
 import { useAuthStore } from '../stores/authStore'
 import { useOrgContextStore } from '../stores/orgContextStore'
@@ -28,11 +27,7 @@ export function RequireOrgMembership({ children }: { children: ReactNode }) {
   }
 
   if (isLoading) {
-    return (
-      <AppLayout>
-        <LoadingState label="조직 권한을 확인하는 중입니다" />
-      </AppLayout>
-    )
+    return <ShellSkeleton label="조직 권한을 확인하는 중입니다" />
   }
 
   if (isError || !membership) {
@@ -72,15 +67,11 @@ export function RequirePlatformAdmin({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return (
-      <AppLayout>
-        <LoadingState label="권한을 확인하는 중입니다" />
-      </AppLayout>
-    )
+    return <ShellSkeleton label="권한을 확인하는 중입니다" />
   }
 
   if (user.role !== 'admin') {
-    return <Navigate replace to="/network" />
+    return <Navigate replace to="/dashboard" />
   }
 
   return <>{children}</>
