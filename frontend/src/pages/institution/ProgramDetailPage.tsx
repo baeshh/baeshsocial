@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Badge } from '../../components/common/Badge'
 import { LoadingState } from '../../components/common/LoadingState'
 import { Tabs, type TabItem } from '../../components/common/Tabs'
+import { ProgramKpiPanel } from '../../components/institution/KpiPanels'
 import { ProgramParticipantsPanel } from '../../components/institution/ProgramParticipantsPanel'
 import { ProgramProjectsPanel } from '../../components/institution/ProgramProjectsPanel'
 import { ProgramReviewPanel } from '../../components/institution/ProgramReviewPanel'
@@ -55,6 +56,7 @@ export function ProgramDetailPage() {
       ? [
           { id: 'participants', label: `참여 학생 ${program.participantCount ?? ''}`, content: <ProgramParticipantsPanel program={program} /> },
           { id: 'review', label: '증빙 검토', content: <ProgramReviewPanel program={program} /> },
+          { id: 'kpis', label: '성과 분석', content: <ProgramKpiPanel program={program} /> },
           { id: 'settings', label: '설정', content: <ProgramSettingsPanel access={myAccess} key={program.updatedAt} program={program} /> },
         ]
       : []),

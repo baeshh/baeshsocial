@@ -143,6 +143,10 @@ export const reviewEvidenceSchema = z
     message: '반려 사유를 입력해 주세요.',
   })
 
+export const revokeEvidenceSchema = z.object({
+  reason: z.string().trim().min(5, '승인 취소 사유를 5자 이상 입력해 주세요.').max(1000),
+})
+
 export const evidenceQueueSchema = z.object({
   status: z.enum(['submitted', 'approved', 'rejected', 'all']).default('submitted'),
   projectId: id.optional(),

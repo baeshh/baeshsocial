@@ -90,6 +90,26 @@ export function assertProgramWritable(status: ProgramStatus) {
   }
 }
 
+/**
+ * Programs of one organization the caller may manage: every program for approved org admins,
+ * only assigned programs for managers, none otherwise.
+ */
+export async function listManagedPrograms(
+  organization: { id: string; verificationStatus: OrganizationVerificationStatus },
+  membership: { role: OrganizationRole },
+  userId: string,
+) {
+  const approved = organization.verificationStatus === OrganizationVerificationStatus.APPROVED
+  if (!approved || !hasOrgRole(membership.role, OrganizationRole.MANAGER)) return { isOrgAdmin: false, programs: [] }
+  const isOrgAdmin = hasOrgRole(membership.role, OrganizationRole.ADMIN)
+  const programs = await prisma.program.findMany({
+    where: { organizationId: organization.id, ...(isOrgAdmin ? {} : { managers: { some: { userId } } }) },
+    select: { id: true, title: true, term: true, status: true, startDate: true, endDate: true, createdAt: true },
+    orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+  })
+  return { isOrgAdmin, programs }
+}
+
 /** Prisma filter for programs where the user is staff (approved org admin or assigned manager). */
 export function programStaffWhere(userId: string): Prisma.ProgramWhereInput {
   const approvedOrg = { verificationStatus: OrganizationVerificationStatus.APPROVED }

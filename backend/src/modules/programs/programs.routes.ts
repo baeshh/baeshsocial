@@ -17,7 +17,8 @@ import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { hasOrgRole } from '../../utils/organizations.js'
-import { assertProgramWritable, requireProgramAccess } from '../../utils/programAccess.js'
+import { assertProgramWritable, listManagedPrograms, requireProgramAccess } from '../../utils/programAccess.js'
+import { computeProgramKpis, defaultPeriod, kpiTargetsSchema, resolvePeriod } from './programKpis.js'
 import { DEFAULT_PROJECT_ROLE_TEMPLATES } from '../../utils/projectPermissions.js'
 import {
   addParticipantsSchema,
@@ -746,6 +747,54 @@ programsRouter.delete('/:programId/participants/:userId', authenticate, async (r
     next(error)
   }
 })
+
+/* -------------------------------- KPIs ------------------------------- */
+
+programsRouter.get('/:programId/kpis', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    const period = resolvePeriod(req.query, defaultPeriod([access.program]))
+    res.status(200).json(await computeProgramKpis([access.program.id], period))
+  } catch (error) {
+    next(error)
+  }
+})
+
+programsRouter.put('/:programId/kpi-targets', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    assertProgramWritable(access.program.status)
+    const targets = kpiTargetsSchema.parse(req.body?.targets ?? {})
+    const cleaned = Object.fromEntries(Object.entries(targets).filter(([, value]) => value !== null && value !== undefined))
+    await prisma.program.update({ where: { id: access.program.id }, data: { kpiTargets: cleaned } })
+    res.status(200).json({ targets: cleaned })
+  } catch (error) {
+    next(error)
+  }
+})
+
+organizationProgramsRouter.get(
+  '/kpis',
+  authenticate,
+  requireOrgAccess({ minRole: OrganizationRole.MANAGER, requireApproved: true }),
+  async (req, res, next) => {
+    try {
+      const authUser = res.locals.user as AuthTokenPayload
+      const { organization, membership } = res.locals.orgAccess as OrgAccess
+      const { programs, isOrgAdmin } = await listManagedPrograms(organization, membership, authUser.id)
+      const period = resolvePeriod(req.query, defaultPeriod(programs))
+      const result = await computeProgramKpis(
+        programs.map((program) => program.id),
+        period,
+      )
+      res.status(200).json({ ...result, isOrgAdmin })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
 
 /* --------------------------- Review queue --------------------------- */
 
