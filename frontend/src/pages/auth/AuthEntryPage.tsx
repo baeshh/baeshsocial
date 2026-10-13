@@ -49,7 +49,7 @@ export function AuthEntryPage() {
     onSuccess: ({ token: nextToken, user, invite, inviteError }) => {
       setSession(nextToken, user)
       if (invite) {
-        showToast(`${invite.organizationName}에 합류했습니다.`)
+        showToast(invite.participantOnly ? `${invite.organizationName} 프로그램에 참여자로 등록되었습니다.` : `${invite.organizationName}에 합류했습니다.`)
         navigate(invite.programId ? `/org/${invite.organizationId}/programs/${invite.programId}` : `/org/${invite.organizationId}`)
         return
       }

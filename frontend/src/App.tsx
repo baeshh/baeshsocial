@@ -14,6 +14,16 @@ export default function App() {
   const queryClient = useQueryClient()
   useBootstrapAuth()
 
+  // Cached responses can hold another account's personal data (e.g. application answers), so any
+  // sign-in, sign-out or account switch starts from an empty cache.
+  useEffect(
+    () =>
+      useAuthStore.subscribe((state, previous) => {
+        if (state.token !== previous.token) queryClient.clear()
+      }),
+    [queryClient],
+  )
+
   useEffect(() => {
     setSessionEndedHandler((message) => {
       if (!useAuthStore.getState().token) return

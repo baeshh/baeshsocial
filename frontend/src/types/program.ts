@@ -186,7 +186,20 @@ export type ProgramAccess = {
   isOrgAdmin: boolean
   isManager: boolean
   isParticipant: boolean
-  orgRole: OrganizationRole
+  /** Null for participants who take part in the program without belonging to the organization. */
+  orgRole: OrganizationRole | null
+}
+
+export type ParticipatingProgram = {
+  id: string
+  title: string
+  term: string | null
+  status: ProgramStatus
+  startDate: string | null
+  endDate: string | null
+  joinedAt: string
+  organization: { id: string; name: string }
+  isOrgMember: boolean
 }
 
 export type ProgramDetail = {

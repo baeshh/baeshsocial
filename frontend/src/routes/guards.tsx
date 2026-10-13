@@ -42,6 +42,28 @@ export function RequireOrgMembership({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+/**
+ * Gate for `/org/:orgId/programs/:programId`. Program participants do not have to belong to the
+ * organization, so only sign-in is required here; the API decides staff or participant access.
+ */
+export function RequireProgramViewer({ children }: { children: ReactNode }) {
+  const { orgId } = useParams()
+  const token = useAuthStore((state) => state.token)
+  const setActiveOrg = useOrgContextStore((state) => state.setActiveOrg)
+  const { activeMemberships } = useMyOrganizations()
+  const isMember = activeMemberships.some((item) => item.organization.id === orgId)
+
+  useEffect(() => {
+    if (isMember && orgId) setActiveOrg(orgId)
+  }, [isMember, orgId, setActiveOrg])
+
+  if (!token) {
+    const next = encodeURIComponent(`${window.location.pathname}${window.location.search}`)
+    return <Navigate replace to={`/auth/login?next=${next}`} />
+  }
+  return <>{children}</>
+}
+
 export function RequirePlatformAdmin({ children }: { children: ReactNode }) {
   const { token, user } = useAuthStore()
 

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ExternalLink, Star, Trash2 } from 'lucide-react'
 import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
@@ -12,6 +13,7 @@ import { MyEnrollmentsPanel } from '../../components/opportunities/MyEnrollments
 import { InstitutionProgramsSection } from '../../components/programs/InstitutionProgramsSection'
 import { useDiscoverPrograms } from '../../hooks/useDiscoverPrograms'
 import { MyProgramApplications } from '../../components/programs/MyProgramApplications'
+import { MyParticipatingPrograms } from '../../components/programs/MyParticipatingPrograms'
 import {
   OpportunityBrowseControls,
   OpportunityFiltersSidebar,
@@ -77,7 +79,9 @@ export function OpportunitiesPage() {
   const token = useAuthStore((state) => state.token)
   const user = useAuthStore((state) => state.user)
   const queryClient = useQueryClient()
-  const [pageTab, setPageTab] = useState<'browse' | 'my'>('browse')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const pageTab: 'browse' | 'my' = searchParams.get('tab') === 'my' ? 'my' : 'browse'
+  const setPageTab = (tab: 'browse' | 'my') => setSearchParams(tab === 'my' ? { tab: 'my' } : {}, { replace: true })
   const [filterModalOpen, setFilterModalOpen] = useState(false)
   const [sortBy, setSortBy] = useState<'match' | 'recent'>('match')
   const [filters, setFilters] = useState({
@@ -216,6 +220,8 @@ export function OpportunitiesPage() {
             </button>
           </div>
         ) : null}
+
+        {pageTab === 'my' && token ? <MyParticipatingPrograms token={token} /> : null}
 
         {pageTab === 'my' && token ? <MyProgramApplications token={token} /> : null}
 

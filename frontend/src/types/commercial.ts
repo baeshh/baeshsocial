@@ -212,6 +212,8 @@ export type InviteAcceptResult = {
   organizationName: string
   programId: string | null
   role: string
+  /** True when the invite only enrolled the user in a program, without joining the organization. */
+  participantOnly: boolean
 }
 
 export type OnboardingStep = {

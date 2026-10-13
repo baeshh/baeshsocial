@@ -55,6 +55,8 @@ export function ProgramDetailPage() {
   }
 
   const { program, organization, myAccess } = programQuery.data
+  const isOrgMember = myAccess.orgRole !== null
+  const backTo = isOrgMember ? `/org/${orgId}?tab=programs` : '/opportunities?tab=my'
   const status = PROGRAM_STATUS_META[program.status]
   const recruitmentMeta = RECRUITMENT_STATE_META[program.recruitment.state]
 
@@ -86,19 +88,31 @@ export function ProgramDetailPage() {
       <div className="space-y-6">
         <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
           <Link
-            aria-label="조직으로 돌아가기"
+            aria-label={isOrgMember ? '조직으로 돌아가기' : '내 프로그램으로 돌아가기'}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-surface-border bg-white text-ink-strong shadow-sm transition hover:border-brand-200"
-            to={`/org/${orgId}?tab=programs`}
+            to={backTo}
           >
             <ArrowLeft size={18} />
           </Link>
-          <Link className="font-medium text-ink-strong hover:text-brand-600" to={`/org/${orgId}`}>
-            {organization.name}
-          </Link>
-          <span>/</span>
-          <Link className="hover:text-brand-600" to={`/org/${orgId}?tab=programs`}>
-            프로그램
-          </Link>
+          {isOrgMember ? (
+            <>
+              <Link className="font-medium text-ink-strong hover:text-brand-600" to={`/org/${orgId}`}>
+                {organization.name}
+              </Link>
+              <span>/</span>
+              <Link className="hover:text-brand-600" to={backTo}>
+                프로그램
+              </Link>
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-ink-strong">{organization.name}</span>
+              <span>/</span>
+              <Link className="hover:text-brand-600" to={backTo}>
+                내 프로그램
+              </Link>
+            </>
+          )}
         </div>
 
         <div>

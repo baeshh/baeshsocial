@@ -25,7 +25,7 @@ import { ProgramPublicPage } from '../pages/programs/ProgramPublicPage'
 import { OrganizationDashboardPage } from '../pages/organizations/OrganizationDashboardPage'
 import { OrganizationRegisterPage } from '../pages/organizations/OrganizationRegisterPage'
 import { OrganizationsPage } from '../pages/organizations/OrganizationsPage'
-import { RequireOrgMembership, RequirePlatformAdmin } from './guards'
+import { RequireOrgMembership, RequirePlatformAdmin, RequireProgramViewer } from './guards'
 
 export function AppRoutes() {
   return (
@@ -60,9 +60,9 @@ export function AppRoutes() {
       />
       <Route
         element={
-          <RequireOrgMembership>
+          <RequireProgramViewer>
             <ProgramDetailPage />
-          </RequireOrgMembership>
+          </RequireProgramViewer>
         }
         path="/org/:orgId/programs/:programId"
       />

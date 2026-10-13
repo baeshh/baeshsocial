@@ -8,6 +8,7 @@ import {
   removeProgramParticipant,
   type ParticipantInput,
 } from '../../services/programService'
+import { createInvites } from '../../services/commercialService'
 import { useAuthStore } from '../../stores/authStore'
 import { showToast } from '../../stores/toastStore'
 import type { Program } from '../../types/program'
@@ -28,7 +29,7 @@ function parseLines(text: string): ParticipantInput[] {
     })
 }
 
-type Report = { added: number; approved: number; skipped: Array<{ input: string; reason: string }> }
+type Report = { added: number; skipped: Array<{ input: string; reason: string; needsInvite?: boolean }> }
 
 export function ProgramParticipantsPanel({ program }: { program: Program }) {
   const token = useAuthStore((s) => s.token)
@@ -48,10 +49,24 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
   const add = useMutation({
     mutationFn: () => addProgramParticipants(token!, program.id, parseLines(text)),
     onSuccess: (result) => {
-      setReport({ added: result.added.length, approved: result.approvedMemberships.length, skipped: result.skipped })
+      setReport({ added: result.added.length, skipped: result.skipped })
       if (result.skipped.length === 0) setText('')
       void queryClient.invalidateQueries({ queryKey: ['programs', program.id] })
       void queryClient.invalidateQueries({ queryKey: ['organizations'] })
+    },
+    onError: (error: Error) => showToast(error.message, 'error'),
+  })
+  const inviteSkipped = useMutation({
+    mutationFn: (rows: ParticipantInput[]) =>
+      createInvites(token!, program.organizationId, {
+        programId: program.id,
+        rows: rows.map((row) => ({ email: row.email!, studentNo: row.studentNo ?? null, department: row.department ?? null })),
+      }),
+    onSuccess: (result) => {
+      const sent = result.results.filter((row) => row.status === 'invited' || row.status === 'reinvited').length
+      showToast(`${sent}명에게 초대 링크를 보냈습니다. 수락하면 참여자로 등록됩니다.`)
+      setReport((prev) => (prev ? { ...prev, skipped: prev.skipped.filter((item) => !item.needsInvite) } : prev))
+      void queryClient.invalidateQueries({ queryKey: ['organizations', program.organizationId, 'invites'] })
     },
     onError: (error: Error) => showToast(error.message, 'error'),
   })
@@ -77,7 +92,10 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
 
   const total = participantsQuery.data?.participants.length ?? 0
   const unassigned = participantsQuery.data?.participants.filter((p) => !p.team).length ?? 0
-  const lineCount = parseLines(text).length
+  const parsed = parseLines(text)
+  const lineCount = parsed.length
+  const needsInvite = new Set(report?.skipped.filter((item) => item.needsInvite).map((item) => item.input.toLowerCase()))
+  const inviteRows = parsed.filter((row) => row.email && needsInvite.has(row.email))
 
   return (
     <div className="space-y-5">
@@ -88,8 +106,8 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
               {{ invite: '참여자 초대·등록', open: '참여자 직접 등록', preselected: '기선발 참여자 등록', mixed: '기선발 참여자 등록' }[program.recruitment.mode]}
             </CardTitle>
             <CardDescription>
-              한 줄에 한 명씩 <code className="rounded bg-surface-muted px-1">이메일, 소속번호, 소속</code> 형식으로 붙여 넣으세요(소속번호·소속은 학번·학과 또는 사번·부서, 생략 가능). 조직에
-              가입 신청한 사람은 등록과 함께 구성원으로 승인되고, 가입하지 않은 사람은 사유와 함께 제외됩니다.
+              한 줄에 한 명씩 <code className="rounded bg-surface-muted px-1">이메일, 소속번호, 소속</code> 형식으로 붙여 넣으세요(소속번호·소속은 학번·학과 또는 사번·부서, 생략 가능). 조직
+              구성원은 바로 등록되고, 그 밖의 사람에게는 초대 링크를 보내 참여 의사를 확인합니다. 참여자로 등록되어도 조직 구성원이 되지는 않습니다.
             </CardDescription>
           </CardHeader>
           <Link
@@ -117,7 +135,7 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
           {report ? (
             <div className="mt-4 rounded-2xl border border-surface-border bg-surface-muted/40 p-4 text-sm">
               <p className="font-semibold text-ink-strong">
-                {report.added}명 등록{report.approved ? ` · 가입 승인 ${report.approved}명` : ''}
+                {report.added}명 등록
                 {report.skipped.length ? ` · 제외 ${report.skipped.length}명` : ''}
               </p>
               {report.skipped.length ? (
@@ -128,6 +146,14 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
                     </li>
                   ))}
                 </ul>
+              ) : null}
+              {inviteRows.length ? (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white px-3 py-2">
+                  <span className="text-xs text-ink-body">조직 구성원이 아닌 사람은 초대를 수락해야 참여자로 등록됩니다. 조직 구성원으로 가입되지는 않습니다.</span>
+                  <Button disabled={inviteSkipped.isPending} onClick={() => inviteSkipped.mutate(inviteRows)} variant="secondary">
+                    {inviteSkipped.isPending ? '보내는 중…' : `${inviteRows.length}명에게 초대 링크 보내기`}
+                  </Button>
+                </div>
               ) : null}
             </div>
           ) : null}

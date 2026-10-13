@@ -25,8 +25,13 @@ export function InvitePage() {
     mutationFn: () => acceptInvite(token!, inviteToken),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: MY_ORGANIZATIONS_QUERY_KEY })
-      setActiveOrg(result.organizationId)
-      showToast(`${result.organizationName}에 합류했습니다.`)
+      void queryClient.invalidateQueries({ queryKey: ['programs', 'participating'] })
+      if (result.participantOnly) {
+        showToast(`${result.organizationName} 프로그램에 참여자로 등록되었습니다.`)
+      } else {
+        setActiveOrg(result.organizationId)
+        showToast(`${result.organizationName}에 합류했습니다.`)
+      }
       navigate(result.programId ? `/org/${result.organizationId}/programs/${result.programId}` : `/org/${result.organizationId}`)
     },
     onError: (error: Error) => showToast(error.message, 'error'),
@@ -60,6 +65,9 @@ export function InvitePage() {
               {invite.program ? `「${invite.program.title}」 프로그램에 ` : ''}
               {ROLE_LABEL[invite.role] ?? invite.role}(으)로 초대했습니다.
             </p>
+            {invite.program && invite.role === 'member' ? (
+              <p className="mt-2 text-sm text-ink-muted">수락하면 이 프로그램의 참여자로 등록됩니다. {invite.organization.name}의 조직 구성원이 되지는 않습니다.</p>
+            ) : null}
             <dl className="mt-5 space-y-1.5 rounded-2xl bg-surface-muted p-4 text-sm">
               <div className="flex justify-between">
                 <dt className="text-ink-muted">초대받은 이메일</dt>

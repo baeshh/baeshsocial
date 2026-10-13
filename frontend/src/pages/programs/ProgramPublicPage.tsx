@@ -8,6 +8,7 @@ import { Button } from '../../components/common/Button'
 import { Card } from '../../components/common/Card'
 import { LoadingState } from '../../components/common/LoadingState'
 import { AppLayout } from '../../components/layout/AppLayout'
+import { useViewerKey } from '../../hooks/useViewerKey'
 import { ProgramApplicationForm } from '../../components/programs/ProgramApplicationForm'
 import {
   APPLICATION_STATUS_META,
@@ -200,10 +201,11 @@ export function ProgramPublicPage() {
   const token = useAuthStore((s) => s.token)
   const queryClient = useQueryClient()
   const signedIn = Boolean(token)
+  const { viewerKey, ready } = useViewerKey()
   const programQuery = useQuery({
-    queryKey: ['programs', 'discover', 'detail', programId, shareToken, signedIn],
+    queryKey: ['programs', 'discover', viewerKey, 'detail', programId, shareToken],
     queryFn: () => getDiscoverableProgram(token, programId, shareToken),
-    enabled: Boolean(programId),
+    enabled: Boolean(programId) && ready,
     retry: false,
   })
   const program = programQuery.data?.program
@@ -222,7 +224,7 @@ export function ProgramPublicPage() {
     if (loaded && hash === '#apply') document.getElementById('apply')?.scrollIntoView({ behavior: 'smooth' })
   }, [loaded, hash])
 
-  if (programQuery.isLoading) {
+  if (programQuery.isPending) {
     return (
       <Shell signedIn={signedIn}>
         <LoadingState label="프로그램을 불러오는 중입니다" />

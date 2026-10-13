@@ -15,6 +15,7 @@ import type {
   EvidenceCategory,
   LinkableProject,
   MyProgramApplication,
+  ParticipatingProgram,
   MyVerifiedRecord,
   Program,
   ProgramApplication,
@@ -155,6 +156,10 @@ export function saveApplicationForm(token: string, programId: string, fields: Ap
 
 export function updateProgramPublication(token: string, programId: string, action: PublicationAction) {
   return apiRequest<{ program: Program }>(`/programs/${programId}/publication`, { method: 'POST', token, body: json({ action }) })
+}
+
+export function getParticipatingPrograms(token: string) {
+  return apiRequest<{ programs: ParticipatingProgram[] }>('/programs/participating', { token })
 }
 
 export function getMyProgramApplications(token: string) {
@@ -395,7 +400,7 @@ export function getProgramParticipants(token: string, programId: string) {
 }
 
 export function addProgramParticipants(token: string, programId: string, participants: ParticipantInput[]) {
-  return apiRequest<{ added: string[]; skipped: Array<{ input: string; reason: string }>; approvedMemberships: string[] }>(
+  return apiRequest<{ added: string[]; skipped: Array<{ input: string; reason: string; needsInvite?: boolean }> }>(
     `/programs/${programId}/participants`,
     { method: 'POST', token, body: json({ participants }) },
   )
