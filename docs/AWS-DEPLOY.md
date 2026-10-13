@@ -1,43 +1,44 @@
-# AWS(EC2) 배포 — 백엔드 빌드 오류 방지
+# AWS(EC2) 배포
 
-## 원인
+정식 배포는 GitHub Actions(`deploy-staging.yml`, `deploy-production.yml`)와 `deploy/scripts/deploy.sh`로 합니다.
+서버 구성·배포·롤백·복원 절차는 [RUNBOOK.md](./RUNBOOK.md)를 따르세요. 이 문서는 구성 요약과 빌드 주의사항입니다.
 
-`npm install --omit=dev` 또는 `NODE_ENV=production npm install` 후 `npm run build`(`tsc`)를 실행하면, 예전에는 `devDependencies`에만 있던 `@types/express`, `@types/cors`, `typescript` 등이 설치되지 않아 **TS7016 / implicit any** 오류가 수백 개 발생합니다.
+## 구성
 
-## 권장 배포 순서 (EC2)
+| 구성 요소 | 권장 |
+|-----------|------|
+| 서버 | EC2 (Ubuntu, Node 22, PM2, nginx), 환경별 `/srv/baesh/<env>` |
+| DB | RDS PostgreSQL 16 (자동 백업·PITR 켜기) + 일일 `pg_dump`(S3) |
+| 파일 | S3 비공개 버킷 2개: 증빙·보고서(`S3_BUCKET`), 백업(`BACKUP_S3_BUCKET`) — `deploy/scripts/s3-setup.sh`로 보안 설정 |
+| 공개 미디어 | CloudFront (OAC) → `S3_BUCKET`의 `media/` 접두사, `MEDIA_PUBLIC_BASE_URL` |
+| 비밀값 | SSM Parameter Store `/baesh/<env>/*` (SecureString) → `render-env.sh`가 `shared/backend.env` 생성 |
+| 메일 | SES (`MAIL_DRIVER=ses`) |
+| PDF | Playwright Chromium + 한글 폰트: `npx playwright install --with-deps chromium`, `apt install fonts-noto-cjk` |
+| 모니터링 | 앱 내 `/admin/ops`, Sentry(`SENTRY_DSN`), CloudWatch(EC2·RDS), GitHub `uptime.yml` |
+
+EC2 인스턴스 역할(IAM)에 필요한 권한: 두 버킷의 `s3:GetObject/PutObject/DeleteObject/ListBucket/GetObjectVersion/ListBucketVersions`,
+버킷 설정 조회(`GetBucketVersioning/GetBucketEncryption/GetPublicAccessBlock/GetLifecycleConfiguration`),
+`ssm:GetParametersByPath`(`/baesh/<env>/`), `kms:Decrypt/GenerateDataKey`, `ses:SendEmail`.
+
+## 릴리스 묶음
+
+CI가 `deploy/scripts/package-release.sh`로 만듭니다 (서버에서 빌드하지 않음).
 
 ```bash
-cd /var/www/baeshsocial
-git pull origin main
-
-# 백엔드
-cd backend
-npm ci
-npx prisma generate
-npx prisma migrate deploy
-npm run build
-# 선택: 용량 줄이기 — 빌드 후에만 dev 제거 (tsx 등)
-# npm prune --omit=dev
-
-# 프론트
-cd ../frontend
-npm ci
-npm run build
+VITE_API_URL=https://api.baesh.kr/api deploy/scripts/package-release.sh <git-sha> release.tgz
 ```
 
-**주의:** `npm run build` **전에** `npm ci --omit=dev` 하지 마세요.
+포함: `backend/{dist,prisma,scripts,package.json,package-lock.json,prisma.config.ts,tsconfig.json}`, `frontend/dist`, `deploy/`, `RELEASE.json`.
+서버의 `deploy.sh`가 운영 의존성 설치 → `prisma generate` → (운영) 사전 백업 → `migrate deploy` → 전환 → 헬스 확인을 합니다.
 
-## 한 줄 요약
+## 빌드 주의사항
 
-| 단계 | 명령 |
-|------|------|
-| 의존성 | `npm ci` (dev 포함) |
-| DB | `npx prisma migrate deploy` |
-| 백엔드 빌드 | `npm run build` |
-| 실행 | `npm run start` 또는 pm2 |
+`npm install --omit=dev` 후 `npm run build`(`tsc`)를 실행하면 `@types/*`, `typescript`가 없어 TS7016 오류가 수백 개 납니다.
+빌드는 반드시 dev 의존성을 포함한 `npm ci` 후에 하고, 운영 의존성만 남기는 작업은 빌드가 끝난 뒤에 합니다.
 
-백엔드 재시작 후 헬스체크:
+## 상태 확인
 
 ```bash
-curl http://127.0.0.1:4000/api/health
+curl https://api.baesh.kr/api/health         # 프로세스 살아 있음
+curl https://api.baesh.kr/api/health/ready   # DB 연결 + 배포 버전(version = git sha)
 ```
