@@ -1,7 +1,7 @@
 import { ProjectTaskStatus } from '@prisma/client'
 import { prisma } from '../../config/prisma.js'
 import { DEFAULT_OWNER_CONTRIBUTION } from '../../utils/projectPermissions.js'
-import { readSnapshot, trustedRecordWhere } from '../verification/verifiedRecords.js'
+import { readContributionSnapshot, readSnapshot, trustedRecordWhere } from '../verification/verifiedRecords.js'
 import { scrubPii, sourceSet, truncate, type Source, type SourceSet } from './grounding.js'
 
 const LINK_LABEL: Record<string, string> = {
@@ -184,6 +184,23 @@ export async function collectCareerSources(userId: string, options: { projectIds
     }
     const verifiedRefs: string[] = []
     for (const row of project.verifiedRecords) {
+      const contribution = readContributionSnapshot(row.snapshot)
+      if (contribution) {
+        evidence += 1
+        const contributionRef = `E${evidence}`
+        verifiedRefs.push(contributionRef)
+        list.push({
+          ref: contributionRef,
+          kind: 'evidence',
+          label: `기관 공식 인증 · ${contribution.organization.name} · ${contribution.program.title}`,
+          projectId: project.id,
+          verified: true,
+          text: scrubPii(
+            `역할 ${contribution.role} — ${truncate(contribution.contribution, 400)} (승인 증빙 ${contribution.approvedEvidence.length}건 근거, 인증 ${contribution.approvedAt.slice(0, 10)})`,
+          ),
+        })
+        continue
+      }
       const snapshot = readSnapshot(row.snapshot)
       if (!snapshot) continue
       evidence += 1

@@ -6,6 +6,8 @@ import {
   Prisma,
   ProfileVisibility,
   ProjectVisibility,
+  RecordDisclosure,
+  VerifiedRecordKind,
   VerifiedRecordStatus,
 } from '@prisma/client'
 import { prisma } from '../../config/prisma.js'
@@ -20,7 +22,14 @@ import {
   type SortKey,
 } from '../../utils/pagination.js'
 import { DEFAULT_OWNER_CONTRIBUTION } from '../../utils/projectPermissions.js'
-import { readSnapshot, recordIntegrity } from '../../services/verification/verifiedRecords.js'
+import {
+  disclosedRecordWhere,
+  effectiveDisclosure,
+  readContributionSnapshot,
+  readSnapshot,
+  recordIntegrity,
+  trustedRecordWhere,
+} from '../../services/verification/verifiedRecords.js'
 import { buildSkillInsights } from '../../utils/skillInsights.js'
 
 /* ------------------------------ Viewer access ----------------------------- */
@@ -84,23 +93,35 @@ export function involvementWhere(userId: string): Prisma.ProjectWhereInput {
   return { OR: [{ ownerId: userId, programId: null }, { members: { some: { userId } } }] }
 }
 
-function institutionVerifiedWhere(userId: string): Prisma.ProjectWhereInput {
-  return {
-    verifiedRecords: { some: { userId, status: VerifiedRecordStatus.VERIFIED, evidenceId: { not: null } } },
-  }
+/** PUBLIC only counts for program projects while the program allows public projects. */
+const publicProjectWhere: Prisma.ProjectWhereInput = {
+  visibility: ProjectVisibility.PUBLIC,
+  OR: [{ programId: null }, { program: { allowPublicProjects: true } }],
+}
+
+function isPubliclyVisible(row: { visibility: ProjectVisibility; programId: string | null; program: { allowPublicProjects: boolean } | null }) {
+  return row.visibility === ProjectVisibility.PUBLIC && (!row.programId || Boolean(row.program?.allowPublicProjects))
+}
+
+/** Records the subject has verified; for other viewers only the ones neither the student nor the program hid. */
+function shownRecordWhere(viewer: ProfileViewer): Prisma.VerifiedRecordWhereInput {
+  return viewer.isSelf
+    ? { userId: viewer.userId, ...trustedRecordWhere }
+    : { AND: [{ userId: viewer.userId, ...trustedRecordWhere }, disclosedRecordWhere] }
 }
 
 /**
- * Others see public projects, projects they are on themselves, and team-only institution projects
- * with an approved record — the latter as a limited card (no description or links).
+ * Others see public projects, projects they are on themselves, and non-public projects only through
+ * a verified record the student chose to disclose — the latter as a limited card that shows the
+ * verified title, affiliation, role and verification, but no content, skills, progress or links.
  */
 export function visibleProjectsWhere(viewer: ProfileViewer, filter: ProfileProjectFilter = 'all') {
   const and: Prisma.ProjectWhereInput[] = [involvementWhere(viewer.userId)]
   if (!viewer.isSelf) {
     and.push({
       OR: [
-        { visibility: ProjectVisibility.PUBLIC },
-        institutionVerifiedWhere(viewer.userId),
+        publicProjectWhere,
+        { verifiedRecords: { some: shownRecordWhere(viewer) } },
         ...(viewer.viewerId
           ? [{ members: { some: { userId: viewer.viewerId } } }, { ownerId: viewer.viewerId, programId: null }]
           : []),
@@ -109,13 +130,13 @@ export function visibleProjectsWhere(viewer: ProfileViewer, filter: ProfileProje
   }
   if (filter === 'owned') and.push({ ownerId: viewer.userId, programId: null })
   if (filter === 'joined') and.push({ members: { some: { userId: viewer.userId } }, NOT: { ownerId: viewer.userId } })
-  if (filter === 'verified') and.push(institutionVerifiedWhere(viewer.userId))
+  if (filter === 'verified') and.push({ verifiedRecords: { some: shownRecordWhere(viewer) } })
   return { AND: and } satisfies Prisma.ProjectWhereInput
 }
 
 function projectCardSelect(viewer: ProfileViewer) {
   const memberIds = viewer.viewerId && !viewer.isSelf ? [viewer.userId, viewer.viewerId] : [viewer.userId]
-  const verifiedWhere = { userId: viewer.userId, status: VerifiedRecordStatus.VERIFIED }
+  const verifiedWhere = shownRecordWhere(viewer)
   return {
     id: true,
     title: true,
@@ -131,7 +152,9 @@ function projectCardSelect(viewer: ProfileViewer) {
     startDate: true,
     endDate: true,
     updatedAt: true,
-    program: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
+    program: {
+      select: { id: true, title: true, allowPublicProjects: true, organization: { select: { id: true, name: true } } },
+    },
     members: {
       where: { userId: { in: memberIds } },
       select: { userId: true, role: true, contribution: true, projectRole: { select: { name: true } } },
@@ -140,8 +163,8 @@ function projectCardSelect(viewer: ProfileViewer) {
     verifiedRecords: {
       where: verifiedWhere,
       orderBy: { issuedAt: 'desc' },
-      take: 1,
-      select: { issuedAt: true, evidence: { select: { reviewedAt: true } } },
+      take: 20,
+      select: { kind: true, role: true, issuedAt: true, snapshot: true, evidence: { select: { reviewedAt: true } } },
     },
     _count: { select: { verifiedRecords: { where: verifiedWhere } } },
   } satisfies Prisma.ProjectSelect
@@ -162,16 +185,26 @@ function serializeProjectCard(row: ProjectCardRow, viewer: ProfileViewer, featur
   const viewerOnTeam =
     Boolean(viewer.viewerId) &&
     (row.members.some((m) => m.userId === viewer.viewerId) || (row.ownerId === viewer.viewerId && !row.programId))
-  const fullAccess = viewer.isSelf || row.visibility === ProjectVisibility.PUBLIC || viewerOnTeam
+  const fullAccess = viewer.isSelf || isPubliclyVisible(row) || viewerOnTeam
   const isOwner = row.ownerId === viewer.userId && !row.programId
   const latest = row.verifiedRecords[0]
+  const official = row.verifiedRecords.find((record) => record.kind === VerifiedRecordKind.CONTRIBUTION)
+  const officialSnapshot = official ? readContributionSnapshot(official.snapshot) : null
+  const latestSnapshot = latest ? (readContributionSnapshot(latest.snapshot) ?? readSnapshot(latest.snapshot)) : null
+  const verifiedTitle = officialSnapshot?.project.title ?? latestSnapshot?.project.title ?? row.title
+  const issuer =
+    officialSnapshot?.organization.name ??
+    (latestSnapshot && 'evidence' in latestSnapshot ? latestSnapshot.organization?.name : null) ??
+    row.program?.organization.name ??
+    null
+  const memberRole = isOwner ? '프로젝트 리더' : (member?.role ?? member?.projectRole?.name ?? '팀원')
 
   return {
     id: row.id,
-    title: row.title,
-    status: row.status,
-    progress: row.progress,
-    skills: row.skills,
+    title: fullAccess ? row.title : verifiedTitle,
+    status: fullAccess ? row.status : null,
+    progress: fullAccess ? row.progress : null,
+    skills: fullAccess ? row.skills : [],
     visibility: row.visibility,
     updatedAt: row.updatedAt,
     startDate: row.startDate,
@@ -180,8 +213,8 @@ function serializeProjectCard(row: ProjectCardRow, viewer: ProfileViewer, featur
     description: fullAccess ? row.description : null,
     highlight: fullAccess ? projectHighlight(member?.contribution, row.objective) : null,
     isOwner,
-    role: isOwner ? '프로젝트 리더' : (member?.role ?? member?.projectRole?.name ?? '팀원'),
-    teamName: row.teamName,
+    role: officialSnapshot?.role ?? memberRole,
+    teamName: fullAccess ? row.teamName : null,
     program: row.program
       ? { id: row.program.id, title: row.program.title, organizationName: row.program.organization.name }
       : null,
@@ -190,8 +223,10 @@ function serializeProjectCard(row: ProjectCardRow, viewer: ProfileViewer, featur
       row._count.verifiedRecords > 0 && latest
         ? {
             count: row._count.verifiedRecords,
-            issuer: row.program?.organization.name ?? null,
+            issuer,
             verifiedAt: latest.evidence?.reviewedAt ?? latest.issuedAt,
+            official: Boolean(officialSnapshot),
+            officialRole: officialSnapshot?.role ?? null,
           }
         : null,
     featured: featuredIds.includes(row.id),
@@ -260,6 +295,17 @@ type Verification = {
   verifiedAt: Date | null
   programTitle?: string | null
   verifiedBy?: string | null
+  /** Institution sign-off on the whole project with this member's role and contribution. */
+  official?: boolean
+}
+
+/** Only on the student's own profile: the record behind the item and its disclosure setting. */
+type HistoryRecordControl = {
+  id: string
+  kind: 'evidence' | 'contribution'
+  disclosure: 'hidden' | 'summary' | 'full'
+  programCap: 'hidden' | 'summary' | 'full' | null
+  effective: 'hidden' | 'summary' | 'full'
 }
 
 export type HistoryItem = {
@@ -279,6 +325,7 @@ export type HistoryItem = {
   project: { id: string; title: string; accessible: boolean } | null
   editable: boolean
   fields: Record<string, string | null> | null
+  record?: HistoryRecordControl | null
 }
 
 type Entry = { key: SortKey; item: HistoryItem }
@@ -403,16 +450,14 @@ async function careerEntries(viewer: ProfileViewer, opts: SourceOptions): Promis
 }
 
 function verifiedRecordWhere(viewer: ProfileViewer, verifiedOnly: boolean): Prisma.VerifiedRecordWhereInput {
-  const statuses =
-    viewer.isSelf && !verifiedOnly
-      ? [VerifiedRecordStatus.VERIFIED, VerifiedRecordStatus.PENDING, VerifiedRecordStatus.REVOKED]
-      : [VerifiedRecordStatus.VERIFIED]
-  return {
-    userId: viewer.userId,
-    status: { in: statuses },
-    ...(viewer.isSelf ? {} : { OR: [{ project: { visibility: ProjectVisibility.PUBLIC } }, { evidenceId: { not: null } }] }),
-  }
+  if (!viewer.isSelf) return shownRecordWhere(viewer)
+  const statuses = verifiedOnly
+    ? [VerifiedRecordStatus.VERIFIED]
+    : [VerifiedRecordStatus.VERIFIED, VerifiedRecordStatus.PENDING, VerifiedRecordStatus.REVOKED]
+  return { userId: viewer.userId, status: { in: statuses } }
 }
+
+const lowerDisclosure = (value: RecordDisclosure) => value.toLowerCase() as HistoryRecordControl['disclosure']
 
 async function projectRecordEntries(viewer: ProfileViewer, opts: SourceOptions): Promise<Entry[]> {
   const rows = await prisma.verifiedRecord.findMany({
@@ -421,6 +466,8 @@ async function projectRecordEntries(viewer: ProfileViewer, opts: SourceOptions):
     take: opts.take,
     select: {
       id: true,
+      kind: true,
+      disclosure: true,
       role: true,
       contributionSummary: true,
       issuedAt: true,
@@ -431,9 +478,19 @@ async function projectRecordEntries(viewer: ProfileViewer, opts: SourceOptions):
       revokedAt: true,
       revokeReason: true,
       organization: { select: { name: true } },
-      program: { select: { title: true } },
+      program: { select: { title: true, recordDisclosure: true } },
       verifiedBy: { select: { name: true } },
-      project: { select: { id: true, title: true, visibility: true, teamName: true } },
+      project: {
+        select: {
+          id: true,
+          title: true,
+          visibility: true,
+          teamName: true,
+          programId: true,
+          program: { select: { allowPublicProjects: true } },
+          members: viewer.viewerId ? { where: { userId: viewer.viewerId }, select: { userId: true } } : false,
+        },
+      },
       evidence: {
         select: {
           title: true,
@@ -448,51 +505,90 @@ async function projectRecordEntries(viewer: ProfileViewer, opts: SourceOptions):
   return rows.map((row) => {
     // The frozen snapshot wins over live rows so later edits never change what was verified.
     const snapshot = readSnapshot(row.snapshot)
+    const contribution = readContributionSnapshot(row.snapshot)
     const integrity = recordIntegrity(row)
     const liveProgram = row.evidence?.project.program ?? null
-    const issuer = snapshot?.organization?.name ?? row.organization?.name ?? liveProgram?.organization.name ?? null
-    const programTitle = snapshot?.program?.title ?? row.program?.title ?? liveProgram?.title ?? null
+    const issuer =
+      contribution?.organization.name ?? snapshot?.organization?.name ?? row.organization?.name ?? liveProgram?.organization.name ?? null
+    const programTitle = contribution?.program.title ?? snapshot?.program?.title ?? row.program?.title ?? liveProgram?.title ?? null
     const verified = row.status === VerifiedRecordStatus.VERIFIED && integrity !== 'tampered'
+    const approvedBy = contribution?.approvedBy?.name ?? snapshot?.approvedBy?.name ?? row.verifiedBy?.name ?? null
     const verification: Verification | null = !verified
       ? null
       : issuer
         ? {
             kind: 'institution',
             issuer,
-            label: '승인',
+            label: contribution ? '공식 인증' : '승인',
             verifiedAt: row.verifiedAt ?? row.evidence?.reviewedAt ?? row.issuedAt,
             programTitle,
-            verifiedBy: snapshot?.approvedBy?.name ?? row.verifiedBy?.name ?? null,
+            verifiedBy: approvedBy,
+            official: Boolean(contribution),
           }
         : { kind: 'baesh', issuer: null, label: '검증', verifiedAt: row.issuedAt }
-    const projectTitle = snapshot?.project.title ?? row.project.title
-    const teamName = snapshot ? snapshot.project.teamName : row.project.teamName
+    const projectTitle = contribution?.project.title ?? snapshot?.project.title ?? row.project.title
+    const teamName = contribution ? contribution.project.teamName : snapshot ? snapshot.project.teamName : row.project.teamName
+    const role = contribution?.role ?? snapshot?.role ?? row.role
+    const effective = effectiveDisclosure(row.disclosure, row.program?.recordDisclosure)
+    const showDetails = viewer.isSelf || effective === RecordDisclosure.FULL
+    const viewerOnTeam = Array.isArray(row.project.members) && row.project.members.length > 0
+    const revokedNote =
+      row.status === VerifiedRecordStatus.REVOKED && viewer.isSelf
+        ? `${contribution ? '인증 취소' : '승인 취소'}${row.revokeReason ? ` — ${row.revokeReason}` : ''}`
+        : null
+
+    const base = contribution
+      ? {
+          title: projectTitle,
+          subtitle: [issuer, programTitle, role].filter(Boolean).join(' · '),
+          description:
+            revokedNote ??
+            (showDetails
+              ? `${contribution.contribution}\n승인된 활동 증빙 ${contribution.approvedEvidence.length}건을 근거로 인증되었습니다.`
+              : null),
+          date: new Date(contribution.period.start ?? contribution.approvedAt),
+          endDate: contribution.period.end ? new Date(contribution.period.end) : null,
+        }
+      : {
+          title: showDetails ? (snapshot?.evidence.title ?? row.evidence?.title ?? row.project.title) : `${projectTitle} 활동 증빙`,
+          subtitle: showDetails
+            ? [projectTitle, teamName, role].filter(Boolean).join(' · ')
+            : [issuer, programTitle, role].filter(Boolean).join(' · '),
+          description:
+            revokedNote ??
+            (showDetails ? (snapshot?.evidence.description ?? row.evidence?.description ?? row.contributionSummary) : null),
+          date: snapshot ? new Date(snapshot.evidence.activityDate) : (row.evidence?.activityDate ?? row.issuedAt),
+          endDate: null,
+        }
+
     return {
       key: { v: row.issuedAt, id: row.id },
       item: {
         id: `project:${row.id}`,
         sourceId: row.id,
         kind: 'project',
-        title: snapshot?.evidence.title ?? row.evidence?.title ?? row.project.title,
-        subtitle: [projectTitle, teamName, snapshot?.role ?? row.role].filter(Boolean).join(' · '),
-        description:
-          row.status === VerifiedRecordStatus.REVOKED && viewer.isSelf
-            ? `승인 취소${row.revokeReason ? ` — ${row.revokeReason}` : ''}`
-            : (snapshot?.evidence.description ?? row.evidence?.description ?? row.contributionSummary),
-        date: snapshot ? new Date(snapshot.evidence.activityDate) : (row.evidence?.activityDate ?? row.issuedAt),
-        endDate: null,
+        ...base,
         ongoing: false,
-        category: null,
+        category: contribution ? 'CONTRIBUTION' : null,
         status: row.status,
         verification,
         link: null,
         project: {
           id: row.project.id,
-          title: row.project.title,
-          accessible: viewer.isSelf || row.project.visibility === ProjectVisibility.PUBLIC,
+          title: showDetails ? row.project.title : projectTitle,
+          accessible: viewer.isSelf || isPubliclyVisible(row.project) || viewerOnTeam,
         },
         editable: false,
         fields: null,
+        record: viewer.isSelf
+          ? {
+              id: row.id,
+              kind: row.kind === VerifiedRecordKind.CONTRIBUTION ? 'contribution' : 'evidence',
+              disclosure: lowerDisclosure(row.disclosure),
+              programCap: row.program ? lowerDisclosure(row.program.recordDisclosure) : null,
+              effective: lowerDisclosure(effective),
+            }
+          : null,
       },
     }
   })

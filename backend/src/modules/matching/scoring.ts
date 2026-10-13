@@ -1,7 +1,13 @@
-import { ProjectVisibility } from '@prisma/client'
+import { ProjectVisibility, RecordDisclosure } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
-import { readSnapshot, trustedRecordWhere } from '../../services/verification/verifiedRecords.js'
+import {
+  disclosedRecordWhere,
+  effectiveDisclosure,
+  readContributionSnapshot,
+  readSnapshot,
+  trustedRecordWhere,
+} from '../../services/verification/verifiedRecords.js'
 
 export const SCORING_VERSION = 'rules-v1'
 
@@ -79,7 +85,11 @@ async function loadCandidates(criteria: SearchCriteria, excludeUserIds: string[]
         { profile: { skills: { hasSome: skillVariants } } },
         { ownedProjects: { some: publicWithSkills } },
         { projectMemberships: { some: { project: publicWithSkills } } },
-        { verifiedRecords: { some: { ...trustedRecordWhere, project: { skills: { hasSome: skillVariants } } } } },
+        {
+          verifiedRecords: {
+            some: { AND: [trustedRecordWhere, disclosedRecordWhere, { project: { skills: { hasSome: skillVariants } } }] },
+          },
+        },
       ],
     },
     take: MAX_CANDIDATES,
@@ -95,16 +105,63 @@ async function loadCandidates(criteria: SearchCriteria, excludeUserIds: string[]
         select: { project: { select: { id: true, slug: true, title: true, objective: true, description: true, skills: true, status: true, updatedAt: true } } },
       },
       verifiedRecords: {
-        where: trustedRecordWhere,
+        where: { AND: [trustedRecordWhere, disclosedRecordWhere] },
         orderBy: { verifiedAt: 'desc' },
         take: 30,
-        select: { id: true, snapshot: true, verifiedAt: true, project: { select: { id: true, skills: true, visibility: true, slug: true } } },
+        select: {
+          id: true,
+          snapshot: true,
+          verifiedAt: true,
+          disclosure: true,
+          program: { select: { recordDisclosure: true } },
+          project: { select: { id: true, skills: true, visibility: true, slug: true } },
+        },
       },
     },
   })
 }
 
 type LoadedCandidate = Awaited<ReturnType<typeof loadCandidates>>[number]
+
+type SharedRecordView = {
+  evidence: { title: string; description: string | null }
+  project: { title: string }
+  organization: { name: string } | null
+  program: { title: string } | null
+  approvedAt: string
+}
+
+/**
+ * What a recruiter may read from one verified record: SUMMARY exposes only the verified project,
+ * affiliation and role; FULL also exposes the evidence or contribution text.
+ */
+function sharedRecordView(record: LoadedCandidate['verifiedRecords'][number]): SharedRecordView | null {
+  const full = effectiveDisclosure(record.disclosure, record.program?.recordDisclosure) === RecordDisclosure.FULL
+  const contribution = readContributionSnapshot(record.snapshot)
+  if (contribution) {
+    return {
+      evidence: {
+        title: full ? `${contribution.role} · ${contribution.project.title}` : `${contribution.project.title} (${contribution.role})`,
+        description: full ? contribution.contribution : null,
+      },
+      project: { title: contribution.project.title },
+      organization: contribution.organization,
+      program: contribution.program,
+      approvedAt: contribution.approvedAt,
+    }
+  }
+  const snapshot = readSnapshot(record.snapshot)
+  if (!snapshot) return null
+  return {
+    evidence: full
+      ? { title: snapshot.evidence.title, description: snapshot.evidence.description }
+      : { title: `${snapshot.project.title} 활동 증빙 (${snapshot.role})`, description: null },
+    project: { title: snapshot.project.title },
+    organization: snapshot.organization,
+    program: snapshot.program,
+    approvedAt: snapshot.approvedAt,
+  }
+}
 
 function scoreCandidate(candidate: LoadedCandidate, criteria: SearchCriteria, now: Date): ScoredCandidate {
   const required = criteria.skills.map((skill) => ({ skill, key: normalize(skill) }))
@@ -126,8 +183,8 @@ function scoreCandidate(candidate: LoadedCandidate, criteria: SearchCriteria, no
   }
 
   const verified = candidate.verifiedRecords
-    .map((record) => ({ record, snapshot: readSnapshot(record.snapshot) }))
-    .filter((row): row is { record: (typeof candidate.verifiedRecords)[number]; snapshot: NonNullable<ReturnType<typeof readSnapshot>> } => Boolean(row.snapshot))
+    .map((record) => ({ record, snapshot: sharedRecordView(record) }))
+    .filter((row): row is { record: (typeof candidate.verifiedRecords)[number]; snapshot: SharedRecordView } => Boolean(row.snapshot))
     .map(({ record, snapshot }) => {
       const text = `${snapshot.evidence.title} ${snapshot.evidence.description ?? ''} ${snapshot.project.title}`.toLowerCase()
       const skillHits = record.project.skills.filter((s) => required.some((r) => r.key === normalize(s)))
