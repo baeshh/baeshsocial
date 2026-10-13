@@ -79,7 +79,7 @@ nginx 사이트는 첫 배포 뒤 릴리스에 포함된 스크립트로 만듭�
 | Variable | `PUBLIC_API_URL` | `https://staging-api.baesh.kr/api` |
 | Variable | `APP_URL` | `https://staging.baesh.kr` |
 
-`deploy-staging.yml`은 `main`에 머지되고 CI가 통과하면 자동 실행됩니다. 머지 전 검증은 Actions → **Deploy staging** → `ref`에 브랜치 이름을 넣고 수동 실행합니다.
+자동 배포는 저장소 변수 `STAGING_AUTO_DEPLOY=true`일 때만 켜집니다 (Settings → Secrets and variables → Actions → Variables). 첫 수동 배포가 성공한 뒤 설정하면, 그 뒤로는 `main`에 머지되고 CI가 통과할 때마다 `deploy-staging.yml`이 자동 실행됩니다. 머지 전 검증은 Actions → **Deploy staging** → `ref`에 브랜치 이름을 넣고 수동 실행합니다.
 
 ## 6. 첫 배포와 검증
 
