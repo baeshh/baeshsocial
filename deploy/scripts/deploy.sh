@@ -22,10 +22,23 @@ mkdir -p "$RELEASES_DIR" "$SHARED_DIR/storage/private" "$SHARED_DIR/storage/medi
 
 PREVIOUS=""
 if [ -L "$CURRENT_LINK" ]; then PREVIOUS="$(readlink -f "$CURRENT_LINK")"; fi
+if [ -n "$PREVIOUS" ] && [ -d "$RELEASE_DIR" ] && [ "$PREVIOUS" = "$(readlink -f "$RELEASE_DIR")" ]; then
+  die "${VERSION} is already live; restart it with 'pm2 reload baesh-api-${BAESH_ENV}' instead of redeploying (redeploying would delete the serving directory)"
+fi
+
+# Moves a release that never became healthy out of releases/*, so rollback.sh never picks it as a target.
+quarantine_release() {
+  [ -d "$RELEASE_DIR" ] || return 0
+  if [ -L "$CURRENT_LINK" ] && [ "$(readlink -f "$CURRENT_LINK")" = "$(readlink -f "$RELEASE_DIR")" ]; then return 0; fi
+  rm -rf "${RELEASES_DIR}/.failed-${VERSION}"
+  mv "$RELEASE_DIR" "${RELEASES_DIR}/.failed-${VERSION}"
+  log "moved failed release to ${RELEASES_DIR}/.failed-${VERSION}"
+}
 
 fail() {
   local reason="$1"
   log "deploy failed: ${reason}"
+  quarantine_release
   report_run deploy failure "${VERSION}: ${reason}" "" "" "{\"version\":\"${VERSION}\"}"
   alert "배포 실패 ${VERSION}: ${reason}"
   exit 1
@@ -68,6 +81,7 @@ if wait_healthy "$VERSION" 30; then
   ls -1dt "$RELEASES_DIR"/*/ 2>/dev/null | tail -n +"$((KEEP_RELEASES + 1))" | while read -r old; do
     [ "$(readlink -f "$old")" = "$(readlink -f "$CURRENT_LINK")" ] || rm -rf "$old"
   done
+  rm -rf "$RELEASES_DIR"/.failed-*
   report_run deploy success "${VERSION}" "" "" "{\"version\":\"${VERSION}\",\"previous\":\"$(basename "${PREVIOUS:-none}")\",\"durationSec\":${DURATION}}"
   exit 0
 fi

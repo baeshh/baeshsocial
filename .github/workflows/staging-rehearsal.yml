@@ -1,0 +1,77 @@
+name: Staging rehearsal
+
+# Runs the real release/deploy/rollback/backup scripts on a throwaway Ubuntu runner against a database
+# that first runs the base release with seed data. No AWS resources or secrets are used.
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Branch the rehearsal environment starts from (its migrations + seed data)
+        default: main
+        required: true
+  pull_request:
+    paths:
+      - deploy/**
+      - backend/prisma/**
+      - backend/package.json
+      - backend/package-lock.json
+      - backend/src/server.ts
+      - backend/src/config/**
+      - .github/workflows/_deploy.yml
+      - .github/workflows/staging-rehearsal.yml
+  push:
+    branches: [main, develop, 'feat/**', 'fix/**', 'hotfix/**', 'release/**']
+    paths:
+      - deploy/**
+      - backend/prisma/**
+      - backend/package.json
+      - backend/package-lock.json
+      - backend/src/server.ts
+      - backend/src/config/**
+      - .github/workflows/_deploy.yml
+      - .github/workflows/staging-rehearsal.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rehearsal-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rehearse:
+    name: Staging deploy rehearsal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: baesh
+          POSTGRES_PASSWORD: rehearsal-only-not-a-secret
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U baesh"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      REHEARSAL_DATABASE_URL: postgresql://baesh:rehearsal-only-not-a-secret@localhost:5432/baesh_rehearsal?schema=public
+      REHEARSAL_WORK: ${{ runner.temp }}/rehearsal
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Server tooling (PM2, PostgreSQL 16 client)
+        run: |
+          npm install -g pm2@5 --no-audit --no-fund --loglevel=error
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-16 >/dev/null
+          pg_dump --version && pm2 --version
+      - name: Rehearse deploy, auto-rollback, manual rollback and backup
+        env:
+          BASE_BRANCH: ${{ inputs.base || github.base_ref || github.event.repository.default_branch }}
+        run: bash deploy/scripts/rehearse-staging.sh "origin/${BASE_BRANCH}"
+      - name: API logs
+        if: failure()
+        run: tail -n 200 "$REHEARSAL_WORK"/srv/baesh/staging/shared/logs/*.log 2>/dev/null || echo "no API logs"
