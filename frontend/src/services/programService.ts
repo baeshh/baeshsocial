@@ -3,6 +3,7 @@ import type {
   AnswerValue,
   ApplicationField,
   ApplicationFile,
+  ApplicationDecision,
   ApplicationStatus,
   DeliveryMode,
   ProgramAudience,
@@ -166,6 +167,27 @@ export function getMyProgramApplications(token: string) {
   return apiRequest<{ applications: MyProgramApplication[] }>('/programs/applications/me', { token })
 }
 
+export function confirmProgramOffer(token: string, programId: string) {
+  return apiRequest<{ application: { id: string; status: ApplicationStatus } }>(`/programs/${programId}/applications/me/confirm`, {
+    method: 'POST',
+    token,
+  })
+}
+
+export function declineProgramOffer(token: string, programId: string) {
+  return apiRequest<{ application: { id: string; status: ApplicationStatus }; refill: RefillResult }>(
+    `/programs/${programId}/applications/me/decline`,
+    { method: 'POST', token },
+  )
+}
+
+export type RefillResult = { lapsed: number; offered: number }
+
+/** Lapses expired offers and offers the free seats to the waitlist, in order. */
+export function refillProgramApplications(token: string, programId: string) {
+  return apiRequest<RefillResult>(`/programs/${programId}/applications/refill`, { method: 'POST', token })
+}
+
 export function getProgramApplications(token: string, programId: string, status: ApplicationStatus | 'all') {
   return apiRequest<ProgramApplicationsResponse>(`/programs/${programId}/applications?status=${status}`, { token })
 }
@@ -174,13 +196,14 @@ export function decideProgramApplication(
   token: string,
   programId: string,
   applicationId: string,
-  decision: 'accept' | 'reject',
+  decision: ApplicationDecision,
   note?: string,
+  responseDays?: number,
 ) {
   return apiRequest<{ application: ProgramApplication }>(`/programs/${programId}/applications/${applicationId}`, {
     method: 'PATCH',
     token,
-    body: json({ decision, note: note?.trim() || null }),
+    body: json({ decision, note: note?.trim() || null, responseDays }),
   })
 }
 

@@ -10,6 +10,7 @@ import { LoadingState } from '../../components/common/LoadingState'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { useViewerKey } from '../../hooks/useViewerKey'
 import { ProgramApplicationForm } from '../../components/programs/ProgramApplicationForm'
+import { OfferResponse } from '../../components/programs/OfferResponse'
 import {
   APPLICATION_STATUS_META,
   DELIVERY_MODE_LABEL,
@@ -123,7 +124,12 @@ function StatusCard({ program, signedIn, onChanged }: { program: DiscoverablePro
             </Button>
           </>
         ) : null}
-        {application.status === 'accepted' ? <p className="mt-3 text-sm text-ink-body">선발되었습니다. 참여자로 등록됩니다.</p> : null}
+        <OfferResponse application={application} programId={program.id} programTitle={program.title} />
+        {application.status === 'waitlisted' ? (
+          <Button className="mt-3 w-full" disabled={withdraw.isPending} onClick={() => withdraw.mutate()} variant="secondary">
+            대기 취소
+          </Button>
+        ) : null}
         {application.status === 'rejected' && application.reviewNote ? (
           <p className="mt-3 rounded-xl bg-surface-muted/70 px-3 py-2 text-sm text-ink-body">{application.reviewNote}</p>
         ) : null}

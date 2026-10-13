@@ -2,26 +2,67 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { APPLICATION_STATUS_META, RECRUITMENT_STATE_META, formatDate, formatDateTime } from '../../lib/programs'
-import { decideProgramApplication, getProgramApplications } from '../../services/programService'
+import { decideProgramApplication, getProgramApplications, refillProgramApplications } from '../../services/programService'
 import { useAuthStore } from '../../stores/authStore'
 import { showToast } from '../../stores/toastStore'
-import type { AnswerValue, ApplicationStatus, Program, ProgramApplication } from '../../types/program'
+import type { AnswerValue, ApplicationDecision, ApplicationStatus, Program, ProgramApplication } from '../../types/program'
 import { AttachmentLink } from '../programs/ProgramApplicationForm'
 import { Avatar } from '../common/Avatar'
 import { Badge } from '../common/Badge'
 import { Button } from '../common/Button'
 import { Card } from '../common/Card'
 import { EmptyState } from '../common/EmptyState'
-import { Textarea } from '../common/Input'
+import { Select, Textarea } from '../common/Input'
 import { LoadingState } from '../common/LoadingState'
 import { Modal } from '../common/Modal'
 
 const FILTERS: Array<{ id: ApplicationStatus | 'all'; label: string }> = [
   { id: 'pending', label: '심사 중' },
-  { id: 'accepted', label: '선발' },
+  { id: 'waitlisted', label: '대기' },
+  { id: 'accepted', label: '응답 대기' },
+  { id: 'confirmed', label: '참여 확정' },
+  { id: 'declined', label: '포기' },
   { id: 'rejected', label: '미선발' },
   { id: 'all', label: '전체' },
 ]
+
+const DECISION_COPY: Record<ApplicationDecision, { title: string; description: string; noteLabel: string; toast: (name: string) => string }> = {
+  accept: {
+    title: '합격 제안',
+    description:
+      '지원자가 응답 기한 안에 참여를 확정해야 참여자로 등록됩니다. 기한까지 응답하지 않거나 포기하면 자리가 대기자에게 순서대로 넘어갑니다. 조직 구성원으로 가입되지는 않습니다.',
+    noteLabel: '지원자에게 보낼 메모 (선택)',
+    toast: (name) => `${name}님에게 합격을 제안했습니다.`,
+  },
+  waitlist: {
+    title: '대기 등록',
+    description: '합격자가 포기하거나 응답 기한이 지나 자리가 나면, 대기 등록한 순서대로 자동으로 합격이 제안됩니다.',
+    noteLabel: '지원자에게 보낼 메모 (선택)',
+    toast: (name) => `${name}님을 대기자로 등록했습니다.`,
+  },
+  reject: {
+    title: '미선발 처리',
+    description: '지원자에게 결과 알림이 갑니다. 아래 메모는 지원자에게 사유로 표시됩니다.',
+    noteLabel: '지원자에게 보낼 사유 (선택)',
+    toast: () => '미선발로 처리했습니다.',
+  },
+}
+
+function OfferStatusLine({ application }: { application: ProgramApplication }) {
+  if (application.status === 'accepted' && application.offerExpiresAt) {
+    return <p className="mt-1 text-xs font-medium text-emerald-700">응답 기한 {formatDateTime(application.offerExpiresAt)}</p>
+  }
+  if (application.status === 'waitlisted' && application.waitlistedAt) {
+    return <p className="mt-1 text-xs text-ink-muted">대기 등록 {formatDateTime(application.waitlistedAt)}</p>
+  }
+  if (application.status === 'confirmed' && application.respondedAt) {
+    return <p className="mt-1 text-xs text-ink-muted">참여 확정 {formatDateTime(application.respondedAt)}</p>
+  }
+  if (application.status === 'declined') {
+    return <p className="mt-1 text-xs text-ink-muted">{application.lapsed ? '응답 기한까지 확정하지 않음' : `참여 포기 ${formatDateTime(application.respondedAt)}`}</p>
+  }
+  return null
+}
 
 function DecisionModal({
   program,
@@ -31,34 +72,27 @@ function DecisionModal({
 }: {
   program: Program
   application: ProgramApplication
-  decision: 'accept' | 'reject'
+  decision: ApplicationDecision
   onClose: () => void
 }) {
   const token = useAuthStore((s) => s.token)
   const queryClient = useQueryClient()
   const [note, setNote] = useState('')
+  const [responseDays, setResponseDays] = useState(3)
   const decide = useMutation({
-    mutationFn: () => decideProgramApplication(token!, program.id, application.id, decision, note),
+    mutationFn: () => decideProgramApplication(token!, program.id, application.id, decision, note, accept ? responseDays : undefined),
     onSuccess: () => {
-      showToast(decision === 'accept' ? `${application.user.name}님을 선발했습니다.` : '미선발로 처리했습니다.', decision === 'accept' ? 'success' : 'info')
+      showToast(DECISION_COPY[decision].toast(application.user.name), decision === 'reject' ? 'info' : 'success')
       void queryClient.invalidateQueries({ queryKey: ['programs', program.id] })
       onClose()
     },
     onError: (error: Error) => showToast(error.message, 'error'),
   })
   const accept = decision === 'accept'
+  const copy = DECISION_COPY[decision]
 
   return (
-    <Modal
-      description={
-        accept
-          ? '선발하면 이 프로그램의 참여자로 등록됩니다. 조직 구성원으로 가입되지는 않습니다.'
-          : '지원자에게 결과 알림이 갑니다. 아래 메모는 지원자에게 사유로 표시됩니다.'
-      }
-      onClose={onClose}
-      open
-      title={`${application.user.name} ${accept ? '선발' : '미선발 처리'}`}
-    >
+    <Modal description={copy.description} onClose={onClose} open title={`${application.user.name} ${copy.title}`}>
       <form
         className="space-y-4"
         onSubmit={(event) => {
@@ -66,16 +100,25 @@ function DecisionModal({
           decide.mutate()
         }}
       >
+        {accept ? (
+          <Select label="응답 기한" onChange={(event) => setResponseDays(Number(event.target.value))} value={responseDays}>
+            {[1, 2, 3, 5, 7, 14].map((days) => (
+              <option key={days} value={days}>
+                {days}일 안에 확정
+              </option>
+            ))}
+          </Select>
+        ) : null}
         <Textarea
-          label={accept ? '내부 메모 (선택)' : '지원자에게 보낼 사유 (선택)'}
+          label={copy.noteLabel}
           maxLength={1000}
           onChange={(event) => setNote(event.target.value)}
-          placeholder={accept ? '' : '예: 이번 기수는 정원이 마감되었습니다.'}
+          placeholder={decision === 'reject' ? '예: 이번 기수는 정원이 마감되었습니다.' : ''}
           value={note}
         />
         <div className="flex justify-end">
-          <Button disabled={decide.isPending} type="submit" variant={accept ? 'primary' : 'danger'}>
-            {accept ? '선발' : '미선발 처리'}
+          <Button disabled={decide.isPending} type="submit" variant={decision === 'reject' ? 'danger' : 'primary'}>
+            {copy.title}
           </Button>
         </div>
       </form>
@@ -165,6 +208,7 @@ function ApplicationCard({ application, actions }: { application: ProgramApplica
         <Badge tone={status.tone}>{status.label}</Badge>
       </div>
       <p className="mt-3 text-xs text-ink-muted">제출 {formatDateTime(application.submittedAt ?? application.createdAt)}</p>
+      <OfferStatusLine application={application} />
       <ApplicationAnswers application={application} />
       {application.reviewedBy ? (
         <p className="mt-2 text-xs text-ink-muted">
@@ -179,8 +223,9 @@ function ApplicationCard({ application, actions }: { application: ProgramApplica
 
 export function ProgramApplicationsPanel({ program }: { program: Program }) {
   const token = useAuthStore((s) => s.token)
+  const queryClient = useQueryClient()
   const [filter, setFilter] = useState<ApplicationStatus | 'all'>('pending')
-  const [decision, setDecision] = useState<{ application: ProgramApplication; decision: 'accept' | 'reject' } | null>(null)
+  const [decision, setDecision] = useState<{ application: ProgramApplication; decision: ApplicationDecision } | null>(null)
   const writable = program.status !== 'archived'
   const recruitment = program.recruitment
 
@@ -190,7 +235,20 @@ export function ProgramApplicationsPanel({ program }: { program: Program }) {
     enabled: Boolean(token),
   })
   const data = applicationsQuery.data
-  const full = Boolean(data?.capacity && data.participantCount >= data.capacity)
+  const heldSeats = data ? data.participantCount + data.openOffers : 0
+  const full = Boolean(data?.capacity && heldSeats >= data.capacity)
+  const waitlisted = data?.counts.waitlisted ?? 0
+  const refill = useMutation({
+    mutationFn: () => refillProgramApplications(token!, program.id),
+    onSuccess: (result) => {
+      showToast(
+        result.offered > 0 ? `대기자 ${result.offered}명에게 합격을 제안했습니다.` : '지금은 채울 빈자리가 없습니다.',
+        result.offered > 0 ? 'success' : 'info',
+      )
+      void queryClient.invalidateQueries({ queryKey: ['programs', program.id] })
+    },
+    onError: (error: Error) => showToast(error.message, 'error'),
+  })
 
   return (
     <div className="space-y-5">
@@ -205,10 +263,15 @@ export function ProgramApplicationsPanel({ program }: { program: Program }) {
         {recruitment.announceAt ? <span className="text-ink-body">발표 {formatDateTime(recruitment.announceAt)}</span> : null}
         {data ? (
           <span className={`font-semibold ${full ? 'text-red-600' : 'text-ink-strong'}`}>
-            선발 {data.participantCount}
-            {data.capacity ? ` / ${data.capacity}명` : '명'}
+            참여 확정 {data.participantCount}명{data.openOffers ? ` · 응답 대기 ${data.openOffers}명` : ''}
+            {data.capacity ? ` / 정원 ${data.capacity}명` : ''}
             {full ? ' · 정원 마감' : ''}
           </span>
+        ) : null}
+        {data?.capacity && waitlisted > 0 && writable ? (
+          <Button className="min-h-8 px-3 text-xs" disabled={full || refill.isPending} onClick={() => refill.mutate()} variant="secondary">
+            빈자리 대기자에게 제안
+          </Button>
         ) : null}
         {!program.publishedAt ? (
           <span className="text-xs font-medium text-amber-700">아직 게시하지 않아 지원을 받을 수 없습니다. 설정 탭에서 모집 공고를 게시해 주세요.</span>
@@ -245,11 +308,21 @@ export function ProgramApplicationsPanel({ program }: { program: Program }) {
           {data!.applications.map((application) => (
             <ApplicationCard
               actions={
-                application.status === 'pending' && writable ? (
+                (application.status === 'pending' || application.status === 'waitlisted') && writable ? (
                   <>
-                    <Button className="min-h-9 px-4" disabled={full} onClick={() => setDecision({ application, decision: 'accept' })}>
-                      선발
+                    <Button
+                      className="min-h-9 px-4"
+                      disabled={full}
+                      onClick={() => setDecision({ application, decision: 'accept' })}
+                      title={full ? '정원이 찼습니다. 응답 대기 중인 합격자가 포기하거나 기한이 지나면 자리가 납니다.' : undefined}
+                    >
+                      합격 제안
                     </Button>
+                    {application.status === 'pending' ? (
+                      <Button className="min-h-9 px-4" onClick={() => setDecision({ application, decision: 'waitlist' })} variant="secondary">
+                        대기
+                      </Button>
+                    ) : null}
                     <Button className="min-h-9 px-4" onClick={() => setDecision({ application, decision: 'reject' })} variant="secondary">
                       미선발
                     </Button>

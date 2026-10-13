@@ -93,7 +93,13 @@ export type Program = {
   shareToken?: string | null
 }
 
-export type ApplicationStatus = 'draft' | 'pending' | 'accepted' | 'rejected' | 'withdrawn'
+/**
+ * `accepted` is an offer that holds a seat until `offerExpiresAt`; the applicant becomes a participant
+ * only after confirming it (`confirmed`). `declined` covers offers turned down or left to lapse.
+ */
+export type ApplicationStatus = 'draft' | 'pending' | 'waitlisted' | 'accepted' | 'confirmed' | 'declined' | 'rejected' | 'withdrawn'
+
+export type ApplicationDecision = 'accept' | 'waitlist' | 'reject'
 
 export type MyApplicationSummary = {
   id: string
@@ -102,6 +108,12 @@ export type MyApplicationSummary = {
   submittedAt: string | null
   reviewedAt: string | null
   reviewNote: string | null
+  /** Set while an offer is waiting for the applicant's answer. */
+  offerExpiresAt: string | null
+  respondedAt: string | null
+  waitlistedAt: string | null
+  /** Declined because the response deadline passed. */
+  lapsed: boolean
   answers?: Record<string, AnswerValue>
   files?: ApplicationFile[]
 }
@@ -145,6 +157,12 @@ export type ProgramApplication = {
   reviewedBy: { id: string; name: string } | null
   createdAt: string
   submittedAt: string | null
+  /** Set while an offer is waiting for the applicant's answer. */
+  offerExpiresAt: string | null
+  respondedAt: string | null
+  waitlistedAt: string | null
+  /** Declined because the response deadline passed. */
+  lapsed: boolean
   user: MemberUser & { headline: string | null }
   answers: Array<{ fieldId: string; label: string; type: ApplicationFieldType; archived: boolean; value: AnswerValue }>
   files: Array<ApplicationFile & { fieldLabel: string }>
@@ -155,6 +173,8 @@ export type ProgramApplicationsResponse = {
   counts: Partial<Record<ApplicationStatus, number>>
   capacity: number | null
   participantCount: number
+  /** Offers still waiting for an answer; they hold seats like participants. */
+  openOffers: number
 }
 
 export type MyProgramApplication = {
@@ -166,6 +186,12 @@ export type MyProgramApplication = {
   submittedAt: string | null
   updatedAt: string
   reviewedAt: string | null
+  /** Set while an offer is waiting for the applicant's answer. */
+  offerExpiresAt: string | null
+  respondedAt: string | null
+  waitlistedAt: string | null
+  /** Declined because the response deadline passed. */
+  lapsed: boolean
   program: {
     id: string
     title: string

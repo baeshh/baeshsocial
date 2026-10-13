@@ -164,7 +164,10 @@ export function programShareUrl(programId: string, shareToken?: string | null) {
 export const APPLICATION_STATUS_META: Record<ApplicationStatus, { label: string; tone: Tone }> = {
   draft: { label: '작성 중', tone: 'gray' },
   pending: { label: '심사 중', tone: 'purple' },
-  accepted: { label: '선발', tone: 'green' },
+  waitlisted: { label: '대기', tone: 'blue' },
+  accepted: { label: '합격 · 응답 대기', tone: 'green' },
+  confirmed: { label: '참여 확정', tone: 'green' },
+  declined: { label: '참여 포기', tone: 'gray' },
   rejected: { label: '미선발', tone: 'gray' },
   withdrawn: { label: '지원 취소', tone: 'gray' },
 }
