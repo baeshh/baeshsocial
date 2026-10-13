@@ -41,7 +41,14 @@ async function noticeOnce(organizationId: string, dedupeKey: string, title: stri
   const admins = await orgAdmins(organizationId)
   if (admins.length) {
     await prisma.notification.createMany({
-      data: admins.map((admin) => ({ userId: admin.userId, type: 'SYSTEM' as const, title, body, link: `/org/${organizationId}?tab=billing` })),
+      data: admins.map((admin) => ({
+        userId: admin.userId,
+        fromPlatform: true,
+        type: 'SYSTEM' as const,
+        title,
+        body,
+        link: `/org/${organizationId}?tab=billing`,
+      })),
     })
     for (const admin of admins) {
       await sendMail({ to: admin.user.email, subject: `[BAESH] ${title}`, text: body }).catch(() => undefined)

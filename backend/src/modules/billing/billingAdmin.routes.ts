@@ -170,7 +170,9 @@ async function notifyOrgAdmins(organizationId: string, actorId: string, title: s
   })
   if (admins.length === 0) return
   await prisma.notification
-    .createMany({ data: admins.map((admin) => ({ userId: admin.userId, actorId, type: 'SYSTEM' as const, title, body, link })) })
+    .createMany({
+      data: admins.map((admin) => ({ userId: admin.userId, actorId, fromPlatform: true, type: 'SYSTEM' as const, title, body, link })),
+    })
     .catch(() => undefined)
 }
 

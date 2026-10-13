@@ -15,6 +15,11 @@ const actorSelect = {
   avatarUrl: true,
 } as const
 
+/** Platform notices are shown as BAESH, so the operator who triggered them is never exposed. */
+function serializeNotification<T extends { fromPlatform: boolean; actorId: string | null; actor: unknown }>(notification: T) {
+  return notification.fromPlatform ? { ...notification, actorId: null, actor: null } : notification
+}
+
 notificationsRouter.get('/', authenticate, async (_req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
@@ -30,7 +35,7 @@ notificationsRouter.get('/', authenticate, async (_req, res, next) => {
       }),
     )
 
-    res.status(200).json({ notifications })
+    res.status(200).json({ notifications: notifications.map(serializeNotification) })
   } catch (error) {
     next(error)
   }
@@ -87,7 +92,7 @@ notificationsRouter.patch('/:id/read', authenticate, async (req, res, next) => {
       include: { actor: { select: actorSelect } },
     })
 
-    res.status(200).json({ notification })
+    res.status(200).json({ notification: serializeNotification(notification) })
   } catch (error) {
     next(error)
   }

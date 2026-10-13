@@ -151,6 +151,7 @@ organizationAdminRouter.post('/:orgId/review', async (req, res, next) => {
           data: managers.map(({ userId }) => ({
             userId,
             actorId: authUser.id,
+            fromPlatform: true,
             type: 'SYSTEM' as const,
             title: approved ? '조직 인증 승인' : '조직 인증 반려',
             body: approved

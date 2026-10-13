@@ -1297,17 +1297,19 @@ model EvidenceReview {
 }
 
 model Notification {
-  id        String           @id @default(cuid())
-  userId    String
-  actorId   String?
-  title     String
-  body      String
-  type      NotificationType @default(SYSTEM)
-  read      Boolean          @default(false)
-  link      String?
-  createdAt DateTime         @default(now())
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  actor     User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  id           String           @id @default(cuid())
+  userId       String
+  actorId      String?
+  title        String
+  body         String
+  type         NotificationType @default(SYSTEM)
+  read         Boolean          @default(false)
+  link         String?
+  /// Sent by BAESH itself (platform admin actions, scheduled notices). Shown as BAESH, never as the operator.
+  fromPlatform Boolean          @default(false)
+  createdAt    DateTime         @default(now())
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actor        User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
 }
 
 model Message {

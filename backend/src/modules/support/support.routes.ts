@@ -210,6 +210,7 @@ supportAdminRouter.post('/tickets/:ticketId/messages', async (req, res, next) =>
           data: {
             userId: ticket.requesterId,
             actorId: authUser.id,
+            fromPlatform: true,
             type: 'SYSTEM',
             title: '지원 문의에 답변이 등록되었습니다',
             body: ticket.subject,
