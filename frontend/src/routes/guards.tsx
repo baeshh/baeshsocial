@@ -58,7 +58,7 @@ export function RequirePlatformAdmin({ children }: { children: ReactNode }) {
   }
 
   if (user.role !== 'admin') {
-    return <Navigate replace to="/dashboard" />
+    return <Navigate replace to="/network" />
   }
 
   return <>{children}</>

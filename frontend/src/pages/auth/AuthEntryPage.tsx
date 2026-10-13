@@ -52,12 +52,12 @@ export function AuthEntryPage() {
         navigate(`/invite/${encodeURIComponent(inviteToken)}`)
         return
       }
-      navigate(isRegister && purpose !== 'personal' ? `/organizations/new?type=${purpose}` : '/dashboard')
+      navigate(isRegister && purpose !== 'personal' ? `/organizations/new?type=${purpose}` : '/network')
     },
   })
 
   if (token && !authMutation.isPending && !authMutation.isSuccess) {
-    return <Navigate replace to={inviteToken ? `/invite/${encodeURIComponent(inviteToken)}` : '/dashboard'} />
+    return <Navigate replace to={inviteToken ? `/invite/${encodeURIComponent(inviteToken)}` : '/network'} />
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {

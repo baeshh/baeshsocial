@@ -6,7 +6,7 @@ import { generalNavItems } from './navigation'
 export function Sidebar() {
   return (
     <aside className="hidden min-h-screen w-72 shrink-0 border-r border-surface-border bg-white px-4 py-5 lg:block">
-      <BaeshLogo className="px-2" imageClassName="h-10 w-10" to="/dashboard" />
+      <BaeshLogo className="px-2" imageClassName="h-10 w-10" to="/network" />
 
       <nav className="mt-8 space-y-1">
         {generalNavItems.map(({ label, to, icon: Icon }) => (

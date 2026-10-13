@@ -1,5 +1,4 @@
 import {
-  Activity,
   BriefcaseBusiness,
   LayoutGrid,
   Network,
@@ -21,7 +20,6 @@ export const generalNavItems: NavItem[] = [
   { label: 'Projects', to: '/projects', icon: LayoutGrid },
   { label: 'Find', to: '/find', icon: Search },
   { label: 'Jobs', to: '/opportunities', icon: BriefcaseBusiness },
-  { label: '내 활동', to: '/dashboard', icon: Activity },
 ]
 
 /** 하단 탭 네비 */

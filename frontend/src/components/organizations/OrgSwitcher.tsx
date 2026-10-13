@@ -44,7 +44,7 @@ export function OrgSwitcher() {
 
   const selectPersonal = () => {
     setActiveOrg(null)
-    go('/dashboard')
+    go('/network')
   }
 
   const selectOrganization = (orgId: string) => {
