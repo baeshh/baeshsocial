@@ -298,17 +298,24 @@ enum ProjectInviteStatus {
   CANCELLED
 }
 
-/// Who can discover a program. PRIVATE = staff and participants only (the original behaviour).
+/// Who can see a program's public page. PRIVATE = staff and participants only (the original behaviour),
+/// ORGANIZATION = active members of the organization, UNLISTED = anyone holding the share link (never
+/// listed or searched), PUBLIC = listed on Jobs.
 enum ProgramVisibility {
   PRIVATE
   ORGANIZATION
+  UNLISTED
   PUBLIC
 }
 
-/// SELECTED = participants are already chosen and registered by staff; RECRUITING = applications are taken.
+/// How participants get in. OPEN = applications; INVITE = email/CSV invitations that must be accepted;
+/// PRESELECTED = staff register an already-chosen roster; MIXED = a preselected roster plus applications
+/// for the remaining seats.
 enum ProgramRecruitmentMode {
-  SELECTED
-  RECRUITING
+  PRESELECTED
+  OPEN
+  INVITE
+  MIXED
 }
 
 enum ProgramDeliveryMode {
@@ -317,11 +324,53 @@ enum ProgramDeliveryMode {
   HYBRID
 }
 
+enum ProgramCategory {
+  EDUCATION
+  STARTUP
+  CAPSTONE
+  INTERNSHIP
+  COMPETITION
+  MENTORING
+  RESEARCH
+  OTHER
+}
+
+enum ProgramAudience {
+  HIGH_SCHOOL
+  UNDERGRADUATE
+  GRADUATE
+  ALUMNI
+  JOB_SEEKER
+  EMPLOYEE
+  GENERAL
+}
+
+enum ProgramBenefit {
+  CERTIFICATE
+  TRAINING
+  MENTORING
+  FUNDING
+  NETWORKING
+  WORKSPACE
+}
+
+/// DRAFT applications are only visible to the applicant until submitted.
 enum ProgramApplicationStatus {
+  DRAFT
   PENDING
   ACCEPTED
   REJECTED
   WITHDRAWN
+}
+
+enum ApplicationFieldType {
+  SHORT_TEXT
+  LONG_TEXT
+  SINGLE_CHOICE
+  MULTI_CHOICE
+  URL
+  FILE
+  CONSENT
 }
 
 enum ProgramProjectRegistrationStatus {
@@ -1138,8 +1187,22 @@ model Program {
   /// Highest level of verified-record detail students of this program may disclose.
   recordDisclosure       RecordDisclosure             @default(SUMMARY)
   visibility             ProgramVisibility            @default(PRIVATE)
-  recruitmentMode        ProgramRecruitmentMode       @default(SELECTED)
+  recruitmentMode        ProgramRecruitmentMode       @default(PRESELECTED)
+  /// Null = not published yet (임시저장). Only published programs appear outside the staff pages.
+  publishedAt            DateTime?
+  /// Set when staff close recruitment before applyEndAt.
+  recruitmentClosedAt    DateTime?
+  /// Random token for UNLISTED share links. Regenerating it invalidates old links.
+  shareToken             String?                      @unique
+  category               ProgramCategory?
+  coverImageUrl          String?
+  audiences              ProgramAudience[]            @default([])
   targetAudience         String?
+  /// Display-only conditions: { schools, grades, majors, regions, requirements }.
+  eligibility            Json?
+  benefits               ProgramBenefit[]             @default([])
+  benefitsNote           String?
+  /// Total seats. For MIXED programs the open seats are capacity minus registered participants.
   capacity               Int?
   applyStartAt           DateTime?
   applyEndAt             DateTime?
@@ -1161,30 +1224,87 @@ model Program {
   projectReviews         ProjectReview[]
   projectVerifications   ProjectVerification[]
   applications           ProgramApplication[]
+  applicationFields      ProgramApplicationField[]
 
   @@index([organizationId])
   @@index([visibility, status])
 }
 
-/// An application to a RECRUITING program. Acceptance is the only way it turns into a ProgramParticipant.
+/// One question of a program's application form. Fields that already have answers are archived
+/// instead of deleted so submitted applications stay readable.
+model ProgramApplicationField {
+  id          String                     @id @default(cuid())
+  programId   String
+  position    Int
+  type        ApplicationFieldType
+  label       String
+  description String?
+  required    Boolean                    @default(false)
+  options     String[]                   @default([])
+  archivedAt  DateTime?
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+  program     Program                    @relation(fields: [programId], references: [id], onDelete: Cascade)
+  answers     ProgramApplicationAnswer[]
+  files       ProgramApplicationFile[]
+
+  @@index([programId, archivedAt, position])
+}
+
+/// An application to an OPEN or MIXED program. Acceptance is the only way it turns into a ProgramParticipant.
 model ProgramApplication {
-  id           String                   @id @default(cuid())
+  id           String                     @id @default(cuid())
   programId    String
   userId       String
-  status       ProgramApplicationStatus @default(PENDING)
+  status       ProgramApplicationStatus   @default(PENDING)
   message      String?
   reviewNote   String?
   reviewedById String?
   reviewedAt   DateTime?
-  createdAt    DateTime                 @default(now())
-  updatedAt    DateTime                 @updatedAt
-  program      Program                  @relation(fields: [programId], references: [id], onDelete: Cascade)
-  user         User                     @relation("ProgramApplicant", fields: [userId], references: [id], onDelete: Cascade)
-  reviewedBy   User?                    @relation("ProgramApplicationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  submittedAt  DateTime?
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+  program      Program                    @relation(fields: [programId], references: [id], onDelete: Cascade)
+  user         User                       @relation("ProgramApplicant", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy   User?                      @relation("ProgramApplicationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  answers      ProgramApplicationAnswer[]
+  files        ProgramApplicationFile[]
 
   @@unique([programId, userId])
   @@index([programId, status, createdAt])
   @@index([userId])
+}
+
+/// The label is copied at save time so an answer stays meaningful after the question is edited.
+model ProgramApplicationAnswer {
+  id            String                  @id @default(cuid())
+  applicationId String
+  fieldId       String
+  label         String
+  value         Json
+  updatedAt     DateTime                @updatedAt
+  application   ProgramApplication      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  field         ProgramApplicationField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, fieldId])
+}
+
+/// Private attachment of an application. Served only through short-lived signed URLs.
+model ProgramApplicationFile {
+  id            String                  @id @default(cuid())
+  applicationId String
+  fieldId       String
+  originalName  String
+  storageKey    String                  @unique
+  mimeType      String
+  sizeBytes     Int
+  sha256        String
+  scanStatus    String
+  createdAt     DateTime                @default(now())
+  application   ProgramApplication      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  field         ProgramApplicationField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
 }
 
 /// A request to manage a project inside a program. The project row itself is never copied: approval

@@ -47,13 +47,55 @@ const programPolicyShape = {
   recordDisclosure: recordDisclosureSchema.optional(),
 }
 
-export const programVisibilitySchema = z.enum(['private', 'organization', 'public'])
-export const recruitmentModeSchema = z.enum(['selected', 'recruiting'])
+export const programVisibilitySchema = z.enum(['private', 'organization', 'unlisted', 'public'])
+export const recruitmentModeSchema = z.enum(['preselected', 'open', 'invite', 'mixed'])
+export const programCategorySchema = z.enum([
+  'education',
+  'startup',
+  'capstone',
+  'internship',
+  'competition',
+  'mentoring',
+  'research',
+  'other',
+])
+export const programAudienceSchema = z.enum([
+  'high_school',
+  'undergraduate',
+  'graduate',
+  'alumni',
+  'job_seeker',
+  'employee',
+  'general',
+])
+export const programBenefitSchema = z.enum(['certificate', 'training', 'mentoring', 'funding', 'networking', 'workspace'])
+
+/** Display-only conditions. Empty values are dropped so only the conditions a program needs are shown. */
+export const eligibilitySchema = z
+  .object({
+    schools: optionalText(300),
+    grades: z.array(z.number().int().min(1).max(6)).max(6).optional(),
+    majors: optionalText(300),
+    regions: optionalText(300),
+    requirements: optionalText(1000),
+  })
+  .transform((value) => {
+    const cleaned = Object.fromEntries(
+      Object.entries(value).filter(([, item]) => (Array.isArray(item) ? item.length > 0 : Boolean(item))),
+    )
+    return Object.keys(cleaned).length ? cleaned : null
+  })
 
 const programRecruitmentShape = {
   visibility: programVisibilitySchema.optional(),
   recruitmentMode: recruitmentModeSchema.optional(),
+  category: programCategorySchema.nullable().optional(),
+  coverImageUrl: z.string().trim().url().max(500).nullable().optional(),
+  audiences: z.array(programAudienceSchema).max(7).optional(),
   targetAudience: optionalText(500),
+  eligibility: eligibilitySchema.nullable().optional(),
+  benefits: z.array(programBenefitSchema).max(6).optional(),
+  benefitsNote: optionalText(1000),
   capacity: z.number().int().min(1).max(10_000).nullable().optional(),
   applyStartAt: optionalDate,
   applyEndAt: optionalDate,
@@ -62,6 +104,43 @@ const programRecruitmentShape = {
   deliveryMode: z.enum(['online', 'offline', 'hybrid']).nullable().optional(),
   location: optionalText(200),
 }
+
+export const applicationFieldTypeSchema = z.enum([
+  'short_text',
+  'long_text',
+  'single_choice',
+  'multi_choice',
+  'url',
+  'file',
+  'consent',
+])
+
+const applicationFieldSchema = z
+  .object({
+    id: id.optional(),
+    type: applicationFieldTypeSchema,
+    label: z.string().trim().min(1, '질문을 입력해 주세요.').max(200),
+    description: optionalText(1000),
+    required: z.boolean().default(false),
+    options: z.array(z.string().trim().min(1).max(100)).max(20).default([]),
+  })
+  .superRefine((value, ctx) => {
+    const choice = value.type === 'single_choice' || value.type === 'multi_choice'
+    if (choice && value.options.length < 2) {
+      ctx.addIssue({ code: 'custom', path: ['options'], message: `'${value.label}' 질문에 선택지를 2개 이상 입력해 주세요.` })
+    }
+    if (choice && new Set(value.options).size !== value.options.length) {
+      ctx.addIssue({ code: 'custom', path: ['options'], message: `'${value.label}' 질문의 선택지가 중복되었습니다.` })
+    }
+  })
+  .transform((value) => ({
+    ...value,
+    options: value.type === 'single_choice' || value.type === 'multi_choice' ? value.options : [],
+  }))
+
+export const applicationFormSchema = z.object({
+  fields: z.array(applicationFieldSchema).max(30, '질문은 30개까지 만들 수 있습니다.'),
+})
 
 export const createProgramSchema = z
   .object({
@@ -72,10 +151,16 @@ export const createProgramSchema = z
     startDate: optionalDate,
     endDate: optionalDate,
     managerUserIds: z.array(id).max(30).default([]),
+    publish: z.boolean().default(false),
+    applicationFields: applicationFormSchema.shape.fields.optional(),
     ...programPolicyShape,
     ...programRecruitmentShape,
   })
   .superRefine(checkProgramDates)
+
+export const publishProgramSchema = z.object({
+  action: z.enum(['publish', 'unpublish', 'close_recruitment', 'reopen_recruitment', 'rotate_share_link']),
+})
 
 export const updateProgramSchema = z
   .object({
@@ -95,10 +180,22 @@ export const discoverProgramsSchema = z.object({
   page: z.coerce.number().int().min(1).max(100).default(1),
   pageSize: z.coerce.number().int().min(1).max(30).default(6),
   q: z.string().trim().max(80).optional(),
+  category: programCategorySchema.optional(),
+  openOnly: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => value === 'true'),
 })
 
-export const programApplySchema = z.object({
-  message: optionalText(2000),
+export const programViewQuerySchema = z.object({
+  t: z.string().trim().max(64).optional(),
+})
+
+/** Answers keyed by field id. Values are checked against each field's type on the server. */
+export const saveApplicationSchema = z.object({
+  answers: z.record(z.string().max(64), z.unknown()).default({}),
+  submit: z.boolean().default(false),
+  shareToken: z.string().trim().max(64).optional(),
 })
 
 export const programApplicationQuerySchema = z.object({

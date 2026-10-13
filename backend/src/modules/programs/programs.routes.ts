@@ -1,8 +1,10 @@
+import { randomBytes } from 'node:crypto'
 import {
   EvidenceStatus,
   OrganizationMemberStatus,
   OrganizationRole,
   OrganizationVerificationStatus,
+  Prisma,
   ProgramDeliveryMode,
   ProgramRecruitmentMode,
   ProgramStatus,
@@ -11,10 +13,17 @@ import {
   ProjectStatus,
   ProjectTaskStatus,
   ProjectVisibility,
-  type Prisma,
+  type ProgramAudience,
+  type ProgramBenefit,
+  type ProgramCategory,
   type RecordDisclosure,
 } from '@prisma/client'
 import { Router } from 'express'
+import { isHostedMediaUrl } from '../../services/storage/mediaStorage.js'
+import {
+  replaceApplicationFields,
+  type ApplicationFieldInput,
+} from '../../services/programs/applicationForm.js'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization.middleware.js'
@@ -28,16 +37,26 @@ import { computeProgramKpis, defaultPeriod, kpiTargetsSchema, resolvePeriod } fr
 import { DEFAULT_PROJECT_ROLE_TEMPLATES } from '../../utils/projectPermissions.js'
 import {
   addParticipantsSchema,
+  applicationFormSchema,
   assignTeamMembersSchema,
   createProgramProjectSchema,
   createProgramSchema,
   evidenceQueueSchema,
   moveProgramProjectSchema,
+  publishProgramSchema,
   updateProgramProjectSchema,
   updateProgramSchema,
 } from '../../validators/program.validator.js'
 import { findTeamConflicts, isStudentLed, loadStudentLed } from '../../services/programs/programProjects.js'
-import { evidenceInclude, serializeEvidence, serializeProgram, teamRoleOf, userBriefSelect } from './program.serializers.js'
+import {
+  evidenceInclude,
+  serializeApplicationField,
+  serializeEvidence,
+  serializeProgram,
+  takesApplications,
+  teamRoleOf,
+  userBriefSelect,
+} from './program.serializers.js'
 import { registerProjectRegistrationRoutes } from './programProjectRegistrations.routes.js'
 import { registerProjectReviewRoutes } from './programProjectReviews.routes.js'
 import { registerProgramRecruitmentRoutes } from './programRecruitment.routes.js'
@@ -77,9 +96,15 @@ function policyData(input: PolicyInput) {
 }
 
 type RecruitmentInput = {
-  visibility?: 'private' | 'organization' | 'public'
-  recruitmentMode?: 'selected' | 'recruiting'
+  visibility?: 'private' | 'organization' | 'unlisted' | 'public'
+  recruitmentMode?: 'preselected' | 'open' | 'invite' | 'mixed'
+  category?: string | null
+  coverImageUrl?: string | null
+  audiences?: string[]
   targetAudience?: string | null
+  eligibility?: Record<string, unknown> | null
+  benefits?: string[]
+  benefitsNote?: string | null
   capacity?: number | null
   applyStartAt?: Date | null
   applyEndAt?: Date | null
@@ -89,12 +114,24 @@ type RecruitmentInput = {
   location?: string | null
 }
 
+const upper = <T extends string>(value: T) => value.toUpperCase() as Uppercase<T>
+
 function recruitmentData(input: RecruitmentInput) {
-  const upper = <T extends string>(value: T) => value.toUpperCase() as Uppercase<T>
+  if (input.coverImageUrl && !isHostedMediaUrl(input.coverImageUrl)) {
+    throw new HttpError(400, '대표 이미지는 BAESH에 업로드한 이미지만 사용할 수 있습니다.')
+  }
   return {
     ...(input.visibility !== undefined ? { visibility: upper(input.visibility) as ProgramVisibility } : {}),
     ...(input.recruitmentMode !== undefined ? { recruitmentMode: upper(input.recruitmentMode) as ProgramRecruitmentMode } : {}),
+    ...(input.category !== undefined ? { category: input.category ? (upper(input.category) as ProgramCategory) : null } : {}),
+    ...(input.coverImageUrl !== undefined ? { coverImageUrl: input.coverImageUrl } : {}),
+    ...(input.audiences !== undefined ? { audiences: [...new Set(input.audiences)].map((a) => upper(a) as ProgramAudience) } : {}),
     ...(input.targetAudience !== undefined ? { targetAudience: input.targetAudience } : {}),
+    ...(input.eligibility !== undefined
+      ? { eligibility: input.eligibility ? (input.eligibility as Prisma.InputJsonValue) : Prisma.DbNull }
+      : {}),
+    ...(input.benefits !== undefined ? { benefits: [...new Set(input.benefits)].map((b) => upper(b) as ProgramBenefit) } : {}),
+    ...(input.benefitsNote !== undefined ? { benefitsNote: input.benefitsNote } : {}),
     ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
     ...(input.applyStartAt !== undefined ? { applyStartAt: input.applyStartAt } : {}),
     ...(input.applyEndAt !== undefined ? { applyEndAt: input.applyEndAt } : {}),
@@ -107,22 +144,46 @@ function recruitmentData(input: RecruitmentInput) {
   }
 }
 
-/** Checks the merged (stored + incoming) recruitment settings, since a PATCH may send only part of them. */
-function assertRecruitmentConsistent(merged: {
+type RecruitmentSnapshot = {
   visibility: ProgramVisibility
   recruitmentMode: ProgramRecruitmentMode
   applyStartAt: Date | null
   applyEndAt: Date | null
-}) {
-  if (merged.recruitmentMode !== ProgramRecruitmentMode.RECRUITING) return
-  if (merged.visibility === ProgramVisibility.PRIVATE) {
-    throw new HttpError(400, '지원을 받으려면 공개 범위를 조직 내부 공개 또는 전체 공개로 설정해 주세요.')
-  }
-  if (!merged.applyEndAt) throw new HttpError(400, '모집 마감 일시를 입력해 주세요.')
-  if (merged.applyStartAt && merged.applyStartAt > merged.applyEndAt) {
+  capacity: number | null
+  publishedAt: Date | null
+}
+
+/**
+ * Checks the merged (stored + incoming) settings, since a PATCH may send only part of them. Drafts may be
+ * incomplete; what applicants depend on is enforced once the program is (or is being) published.
+ */
+function assertRecruitmentConsistent(merged: RecruitmentSnapshot) {
+  if (merged.applyStartAt && merged.applyEndAt && merged.applyStartAt > merged.applyEndAt) {
     throw new HttpError(400, '모집 마감 일시는 모집 시작 일시 이후여야 합니다.')
   }
+  if (!takesApplications(merged)) return
+  if (merged.visibility === ProgramVisibility.PRIVATE) {
+    throw new HttpError(400, '지원을 받으려면 공개 범위를 전체 공개, 링크 공개 또는 조직 내부 공개로 설정해 주세요.')
+  }
+  if (!merged.publishedAt) return
+  if (!merged.applyEndAt) throw new HttpError(400, '모집 마감 일시를 입력해 주세요.')
+  if (merged.recruitmentMode === ProgramRecruitmentMode.MIXED && !merged.capacity) {
+    throw new HttpError(400, '혼합 모집은 전체 정원을 입력해야 추가 모집 인원을 계산할 수 있습니다.')
+  }
 }
+
+const newShareToken = () => randomBytes(16).toString('base64url')
+
+const DEFAULT_APPLICATION_FIELDS: ApplicationFieldInput[] = [
+  { type: 'long_text', label: '지원 동기', description: '참여하고 싶은 이유와 관련 경험을 적어 주세요.', required: true, options: [] },
+  {
+    type: 'consent',
+    label: '개인정보 수집·이용 동의',
+    description: '지원서와 BAESH 프로필은 선발 심사를 위해 이 프로그램 담당자에게만 공개됩니다.',
+    required: true,
+    options: [],
+  },
+]
 
 const programInclude = {
   _count: { select: { projects: true, participants: true } },
@@ -302,6 +363,7 @@ organizationProgramsRouter.get('/', authenticate, requireOrgAccess(), async (_re
     if (approved) {
       visibility.push({
         visibility: { in: [ProgramVisibility.ORGANIZATION, ProgramVisibility.PUBLIC] },
+        publishedAt: { not: null },
         status: { not: ProgramStatus.ARCHIVED },
       })
     }
@@ -362,29 +424,41 @@ organizationProgramsRouter.post(
       const managerIds = await resolveManagerIds(organization.id, requested)
       const status = toProgramStatus(input.status)
       const recruitment = recruitmentData(input)
+      const visibility = recruitment.visibility ?? ProgramVisibility.PRIVATE
+      const recruitmentMode = recruitment.recruitmentMode ?? ProgramRecruitmentMode.PRESELECTED
+      const publishedAt = input.publish ? new Date() : null
       assertRecruitmentConsistent({
-        visibility: recruitment.visibility ?? ProgramVisibility.PRIVATE,
-        recruitmentMode: recruitment.recruitmentMode ?? ProgramRecruitmentMode.SELECTED,
+        visibility,
+        recruitmentMode,
         applyStartAt: recruitment.applyStartAt ?? null,
         applyEndAt: recruitment.applyEndAt ?? null,
+        capacity: recruitment.capacity ?? null,
+        publishedAt,
       })
       await assertOrgCapacity(organization.id, 'activePrograms', status === ProgramStatus.ACTIVE ? 1 : 0)
 
-      const program = await prisma.program.create({
-        data: {
-          organizationId: organization.id,
-          title: input.title,
-          description: input.description ?? null,
-          term: input.term ?? null,
-          status,
-          startDate: input.startDate ?? null,
-          endDate: input.endDate ?? null,
-          createdById: authUser.id,
-          managers: { create: managerIds.map((userId) => ({ userId })) },
-          ...policyData(input),
-          ...recruitment,
-        },
-        include: programInclude,
+      const program = await prisma.$transaction(async (tx) => {
+        const created = await tx.program.create({
+          data: {
+            organizationId: organization.id,
+            title: input.title,
+            description: input.description ?? null,
+            term: input.term ?? null,
+            status,
+            startDate: input.startDate ?? null,
+            endDate: input.endDate ?? null,
+            createdById: authUser.id,
+            managers: { create: managerIds.map((userId) => ({ userId })) },
+            ...policyData(input),
+            ...recruitment,
+            publishedAt,
+            shareToken: visibility === ProgramVisibility.UNLISTED ? newShareToken() : null,
+          },
+        })
+        if (takesApplications({ recruitmentMode })) {
+          await replaceApplicationFields(tx, created.id, input.applicationFields ?? DEFAULT_APPLICATION_FIELDS)
+        }
+        return tx.program.findUniqueOrThrow({ where: { id: created.id }, include: programInclude })
       })
 
       await audit(req, res, {
@@ -399,6 +473,7 @@ organizationProgramsRouter.post(
           policy: policyData(input),
           visibility: program.visibility,
           recruitmentMode: program.recruitmentMode,
+          published: Boolean(program.publishedAt),
         },
       })
       await notify(
@@ -409,7 +484,7 @@ organizationProgramsRouter.post(
         `/org/${organization.id}/programs/${program.id}`,
       )
 
-      res.status(201).json({ program: serializeProgram(program) })
+      res.status(201).json({ program: { ...serializeProgram(program), shareToken: program.shareToken } })
     } catch (error) {
       next(error)
     }
@@ -427,7 +502,7 @@ programsRouter.get('/:programId', authenticate, async (req, res, next) => {
     const program = await prisma.program.findUniqueOrThrow({ where: { id: access.program.id }, include: programInclude })
 
     res.status(200).json({
-      program: serializeProgram(program),
+      program: { ...serializeProgram(program), shareToken: access.isStaff ? program.shareToken : null },
       organization: {
         id: access.organization.id,
         name: access.organization.name,
@@ -465,12 +540,21 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
 
     const policy = policyData(input)
     const recruitment = recruitmentData(input)
+    const nextVisibility = recruitment.visibility ?? access.program.visibility
+    const nextMode = recruitment.recruitmentMode ?? access.program.recruitmentMode
     assertRecruitmentConsistent({
-      visibility: recruitment.visibility ?? access.program.visibility,
-      recruitmentMode: recruitment.recruitmentMode ?? access.program.recruitmentMode,
+      visibility: nextVisibility,
+      recruitmentMode: nextMode,
       applyStartAt: recruitment.applyStartAt !== undefined ? recruitment.applyStartAt : access.program.applyStartAt,
       applyEndAt: recruitment.applyEndAt !== undefined ? recruitment.applyEndAt : access.program.applyEndAt,
+      capacity: recruitment.capacity !== undefined ? recruitment.capacity : access.program.capacity,
+      publishedAt: access.program.publishedAt,
     })
+    const needsShareToken = nextVisibility === ProgramVisibility.UNLISTED && !access.program.shareToken
+    const needsDefaultForm =
+      takesApplications({ recruitmentMode: nextMode }) &&
+      !takesApplications(access.program) &&
+      (await prisma.programApplicationField.count({ where: { programId: access.program.id, archivedAt: null } })) === 0
     const closingPublic = policy.allowPublicProjects === false && access.program.allowPublicProjects
     const program = await prisma.$transaction(async (tx) => {
       if (managerIds) {
@@ -486,6 +570,7 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
           data: { visibility: ProjectVisibility.TEAM },
         })
       }
+      if (needsDefaultForm) await replaceApplicationFields(tx, access.program.id, DEFAULT_APPLICATION_FIELDS)
       return tx.program.update({
         where: { id: access.program.id },
         data: {
@@ -497,6 +582,7 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
           ...(input.endDate !== undefined ? { endDate: input.endDate } : {}),
           ...policy,
           ...recruitment,
+          ...(needsShareToken ? { shareToken: newShareToken() } : {}),
         },
         include: programInclude,
       })
@@ -522,7 +608,93 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
       },
     })
 
-    res.status(200).json({ program: serializeProgram(program) })
+    res.status(200).json({ program: { ...serializeProgram(program), shareToken: program.shareToken } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+/** Publishing, early close and share-link rotation are separate from editing so each is audited on its own. */
+programsRouter.post('/:programId/publication', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    assertProgramWritable(access.program.status)
+    const { action } = publishProgramSchema.parse(req.body)
+    const now = new Date()
+    let data: Prisma.ProgramUpdateInput
+    switch (action) {
+      case 'publish':
+        assertRecruitmentConsistent({ ...access.program, publishedAt: now })
+        data = { publishedAt: access.program.publishedAt ?? now }
+        break
+      case 'unpublish':
+        data = { publishedAt: null }
+        break
+      case 'close_recruitment':
+        if (!takesApplications(access.program)) throw new HttpError(400, '지원을 받는 프로그램이 아닙니다.')
+        data = { recruitmentClosedAt: now }
+        break
+      case 'reopen_recruitment':
+        if (access.program.applyEndAt && access.program.applyEndAt <= now) {
+          throw new HttpError(400, '모집 마감 일시가 지났습니다. 마감 일시를 먼저 늦춰 주세요.')
+        }
+        data = { recruitmentClosedAt: null }
+        break
+      case 'rotate_share_link':
+        if (access.program.visibility !== ProgramVisibility.UNLISTED) throw new HttpError(400, '링크 공개 프로그램만 링크를 다시 만들 수 있습니다.')
+        data = { shareToken: newShareToken() }
+        break
+    }
+    const program = await prisma.program.update({ where: { id: access.program.id }, data, include: programInclude })
+    await audit(req, res, {
+      action: `program.${action}`,
+      organizationId: access.organization.id,
+      targetType: 'program',
+      targetId: access.program.id,
+      metadata: { visibility: program.visibility, recruitmentMode: program.recruitmentMode },
+    })
+    res.status(200).json({ program: { ...serializeProgram(program), shareToken: program.shareToken } })
+  } catch (error) {
+    next(error)
+  }
+})
+
+/* -------------------------- Application form ------------------------- */
+
+programsRouter.get('/:programId/application-form', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    const [fields, submitted] = await Promise.all([
+      prisma.programApplicationField.findMany({ where: { programId: access.program.id, archivedAt: null }, orderBy: { position: 'asc' } }),
+      prisma.programApplication.count({ where: { programId: access.program.id, status: { not: 'DRAFT' } } }),
+    ])
+    res.status(200).json({ fields: fields.map(serializeApplicationField), submittedCount: submitted })
+  } catch (error) {
+    next(error)
+  }
+})
+
+programsRouter.put('/:programId/application-form', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    assertProgramWritable(access.program.status)
+    if (!takesApplications(access.program)) throw new HttpError(400, '공개 모집 또는 혼합 모집 프로그램에서만 지원서를 받을 수 있습니다.')
+    const { fields } = applicationFormSchema.parse(req.body)
+    const saved = await prisma.$transaction(async (tx) => {
+      await replaceApplicationFields(tx, access.program.id, fields)
+      return tx.programApplicationField.findMany({ where: { programId: access.program.id, archivedAt: null }, orderBy: { position: 'asc' } })
+    })
+    await audit(req, res, {
+      action: 'program.application_form_update',
+      organizationId: access.organization.id,
+      targetType: 'program',
+      targetId: access.program.id,
+      metadata: { fields: saved.length },
+    })
+    res.status(200).json({ fields: saved.map(serializeApplicationField) })
   } catch (error) {
     next(error)
   }

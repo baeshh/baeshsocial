@@ -7,6 +7,7 @@ type Discovered = { id: string; title: string; recruitment: { state: string }; m
 
 const DAY = 86_400_000
 const inDays = (days: number) => new Date(Date.now() + days * DAY)
+const PDF = Buffer.from('%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n')
 
 let admin: Actor
 let professor: Actor
@@ -16,20 +17,27 @@ let second: Actor
 let ownerB: Actor
 let orgId: string
 let recruitingId: string
+let fields: { motivation: string; portfolio: string; consent: string }
 
-const discover = async (viewer: Actor) => {
-  const response = await api().get('/api/programs/discover?pageSize=30').set(bearer(viewer.token))
+const discover = async (viewer?: Actor) => {
+  const request = api().get('/api/programs/discover?pageSize=30')
+  const response = viewer ? await request.set(bearer(viewer.token)) : await request
   expect(response.status).toBe(200)
   return response.body.programs as Discovered[]
 }
 
-const recruitingProgram = async (organizationId: string, title: string, data: Record<string, unknown> = {}) => {
+const publicProgram = async (organizationId: string, title: string, data: Record<string, unknown> = {}) => {
   const program = await createProgram(organizationId, { managerIds: [professor.user.id], title })
-  return prisma.program.update({
-    where: { id: program.id },
-    data: { visibility: 'PUBLIC', recruitmentMode: 'RECRUITING', applyStartAt: inDays(-1), applyEndAt: inDays(7), ...data },
-  })
+  return prisma.program.update({ where: { id: program.id }, data: { visibility: 'PUBLIC', publishedAt: new Date(), ...data } })
 }
+
+const recruitingProgram = (organizationId: string, title: string, data: Record<string, unknown> = {}) =>
+  publicProgram(organizationId, title, { recruitmentMode: 'OPEN', applyStartAt: inDays(-1), applyEndAt: inDays(7), ...data })
+
+const save = (actor: Actor, programId: string, body: Record<string, unknown>) =>
+  api().put(`/api/programs/${programId}/applications/me`).set(bearer(actor.token)).send(body)
+
+const completeAnswers = () => ({ [fields.motivation]: '창업 경험을 쌓고 싶습니다.', [fields.consent]: true })
 
 beforeAll(async () => {
   await resetDb()
@@ -45,120 +53,235 @@ beforeAll(async () => {
   await addMember(org.id, professor.user.id, OrganizationRole.MANAGER)
   await addMember(org.id, member.user.id)
   recruitingId = (await recruitingProgram(org.id, '공개 모집 캠프')).id
+  const [motivation, portfolio, consent] = await Promise.all([
+    prisma.programApplicationField.create({ data: { programId: recruitingId, position: 0, type: 'LONG_TEXT', label: '지원 동기', required: true } }),
+    prisma.programApplicationField.create({ data: { programId: recruitingId, position: 1, type: 'FILE', label: '포트폴리오' } }),
+    prisma.programApplicationField.create({ data: { programId: recruitingId, position: 2, type: 'CONSENT', label: '개인정보 동의', required: true } }),
+  ])
+  fields = { motivation: motivation.id, portfolio: portfolio.id, consent: consent.id }
 
   await createProgram(org.id, { title: '비공개 캡스톤' })
   const internal = await createProgram(org.id, { title: '재학생 전용 특강' })
-  await prisma.program.update({ where: { id: internal.id }, data: { visibility: 'ORGANIZATION' } })
-  const archived = await createProgram(org.id, { title: '보관된 공개 프로그램' })
-  await prisma.program.update({ where: { id: archived.id }, data: { visibility: 'PUBLIC', status: ProgramStatus.ARCHIVED } })
+  await prisma.program.update({ where: { id: internal.id }, data: { visibility: 'ORGANIZATION', publishedAt: new Date() } })
+  await publicProgram(org.id, '보관된 공개 프로그램', { status: ProgramStatus.ARCHIVED })
+  await publicProgram(org.id, '게시 전 공개 프로그램', { publishedAt: null })
+  await publicProgram(org.id, '링크 공개 교육', { visibility: 'UNLISTED', shareToken: 'share-token-0123456789' })
 
   const unapproved = await createOrg(ownerB.user.id, { name: '미인증 기관', approved: false })
   const hidden = await createProgram(unapproved.id, { title: '미인증 기관 공개 프로그램' })
-  await prisma.program.update({ where: { id: hidden.id }, data: { visibility: 'PUBLIC' } })
+  await prisma.program.update({ where: { id: hidden.id }, data: { visibility: 'PUBLIC', publishedAt: new Date() } })
 })
 
 describe('program visibility', () => {
-  it('lists public programs to everyone and organization-only programs to members', async () => {
+  it('lists published public programs to everyone, including signed-out visitors, and organization-only ones to members', async () => {
+    const anonymousTitles = (await discover()).map((program) => program.title)
     const outsiderTitles = (await discover(outsider)).map((program) => program.title)
-    expect(outsiderTitles).toContain('공개 모집 캠프')
-    expect(outsiderTitles).not.toContain('재학생 전용 특강')
-
     const memberTitles = (await discover(member)).map((program) => program.title)
+    expect(anonymousTitles).toContain('공개 모집 캠프')
+    expect(outsiderTitles).not.toContain('재학생 전용 특강')
     expect(memberTitles).toEqual(expect.arrayContaining(['공개 모집 캠프', '재학생 전용 특강']))
 
-    for (const titles of [outsiderTitles, memberTitles]) {
-      expect(titles).not.toContain('비공개 캡스톤')
-      expect(titles).not.toContain('보관된 공개 프로그램')
-      expect(titles).not.toContain('미인증 기관 공개 프로그램')
+    for (const titles of [anonymousTitles, outsiderTitles, memberTitles]) {
+      for (const hidden of ['비공개 캡스톤', '보관된 공개 프로그램', '게시 전 공개 프로그램', '링크 공개 교육', '미인증 기관 공개 프로그램']) {
+        expect(titles).not.toContain(hidden)
+      }
     }
   })
 
-  it('hides private and organization-only programs from outsiders on the detail endpoint too', async () => {
+  it('serves unlisted programs only with the share token and drafts only to staff', async () => {
+    const unlisted = await prisma.program.findFirstOrThrow({ where: { title: '링크 공개 교육' } })
+    expect((await api().get(`/api/programs/discover/${unlisted.id}`).set(bearer(outsider.token))).status).toBe(404)
+    expect((await api().get(`/api/programs/discover/${unlisted.id}?t=wrong`)).status).toBe(404)
+    expect((await api().get(`/api/programs/discover/${unlisted.id}?t=share-token-0123456789`)).status).toBe(200)
+
     const internal = await prisma.program.findFirstOrThrow({ where: { title: '재학생 전용 특강' } })
     expect((await api().get(`/api/programs/discover/${internal.id}`).set(bearer(outsider.token))).status).toBe(404)
     expect((await api().get(`/api/programs/discover/${internal.id}`).set(bearer(member.token))).status).toBe(200)
+
+    const draft = await prisma.program.findFirstOrThrow({ where: { title: '게시 전 공개 프로그램' } })
+    expect((await api().get(`/api/programs/discover/${draft.id}`).set(bearer(outsider.token))).status).toBe(404)
+    expect((await api().get(`/api/programs/discover/${draft.id}`).set(bearer(professor.token))).status).toBe(200)
   })
 
-  it('shows organization-visible programs in the organization list for regular members', async () => {
+  it('shows published organization-visible programs in the organization list for regular members', async () => {
     const response = await api().get(`/api/organizations/${orgId}/programs`).set(bearer(member.token))
     expect(response.status).toBe(200)
     const titles = (response.body.programs as { title: string }[]).map((program) => program.title)
     expect(titles).toEqual(expect.arrayContaining(['공개 모집 캠프', '재학생 전용 특강']))
     expect(titles).not.toContain('비공개 캡스톤')
+    expect(titles).not.toContain('게시 전 공개 프로그램')
+    expect(titles).not.toContain('링크 공개 교육')
   })
 
-  it('refuses recruiting settings that nobody could apply to', async () => {
+  it('validates recruitment settings, allowing incomplete drafts but not incomplete publications', async () => {
     const fresh = (await createOrg(admin.user.id, { name: 'C대학교' })).id
-    const privateRecruit = await api()
-      .post(`/api/organizations/${fresh}/programs`)
-      .set(bearer(admin.token))
-      .send({ title: '모집하는 비공개', visibility: 'private', recruitmentMode: 'recruiting', applyEndAt: inDays(5).toISOString() })
-    expect(privateRecruit.status).toBe(400)
+    const create = (body: Record<string, unknown>) => api().post(`/api/organizations/${fresh}/programs`).set(bearer(admin.token)).send(body)
 
-    const noDeadline = await api()
-      .post(`/api/organizations/${fresh}/programs`)
-      .set(bearer(admin.token))
-      .send({ title: '마감 없는 모집', visibility: 'public', recruitmentMode: 'recruiting' })
-    expect(noDeadline.status).toBe(400)
+    expect((await create({ title: '모집하는 비공개', visibility: 'private', recruitmentMode: 'open' })).status).toBe(400)
+    expect((await create({ title: '마감 없는 게시', visibility: 'public', recruitmentMode: 'open', publish: true })).status).toBe(400)
+    expect(
+      (await create({ title: '정원 없는 혼합', visibility: 'public', recruitmentMode: 'mixed', applyEndAt: inDays(5).toISOString(), publish: true })).status,
+    ).toBe(400)
 
-    const created = await api()
-      .post(`/api/organizations/${fresh}/programs`)
-      .set(bearer(admin.token))
-      .send({
-        title: '정상 모집',
-        visibility: 'public',
-        recruitmentMode: 'recruiting',
-        targetAudience: '전공 무관 대학생',
-        capacity: 20,
-        applyEndAt: inDays(5).toISOString(),
-        deliveryMode: 'hybrid',
-      })
+    const draft = await create({ title: '작성 중인 모집', visibility: 'public', recruitmentMode: 'open', status: 'draft' })
+    expect(draft.status).toBe(201)
+    expect(draft.body.program.recruitment.state).toBe('draft')
+    expect(await prisma.programApplicationField.count({ where: { programId: draft.body.program.id } })).toBe(2)
+
+    const created = await create({
+      title: '정상 모집',
+      visibility: 'unlisted',
+      recruitmentMode: 'open',
+      category: 'startup',
+      audiences: ['undergraduate', 'alumni'],
+      eligibility: { grades: [3, 4], majors: '', regions: '대구·경북' },
+      benefits: ['certificate', 'funding'],
+      capacity: 20,
+      applyEndAt: inDays(5).toISOString(),
+      deliveryMode: 'hybrid',
+      publish: true,
+      applicationFields: [{ type: 'short_text', label: '학교', required: true }],
+    })
     expect(created.status).toBe(201)
-    expect(created.body.program.visibility).toBe('public')
-    expect(created.body.program.recruitment).toMatchObject({ mode: 'recruiting', state: 'open', capacity: 20, deliveryMode: 'hybrid' })
+    expect(created.body.program.shareToken).toEqual(expect.any(String))
+    expect(created.body.program.recruitment).toMatchObject({
+      mode: 'open',
+      state: 'open',
+      category: 'startup',
+      audiences: ['undergraduate', 'alumni'],
+      eligibility: { grades: [3, 4], regions: '대구·경북' },
+      benefits: ['certificate', 'funding'],
+      capacity: 20,
+    })
+    const form = await api().get(`/api/programs/${created.body.program.id}/application-form`).set(bearer(admin.token))
+    expect(form.body.fields).toHaveLength(1)
 
-    const closeVisibility = await api()
+    const toPrivate = await api().patch(`/api/programs/${created.body.program.id}`).set(bearer(admin.token)).send({ visibility: 'private' })
+    expect(toPrivate.status).toBe(400)
+    const foreignCover = await api()
       .patch(`/api/programs/${created.body.program.id}`)
       .set(bearer(admin.token))
-      .send({ visibility: 'private' })
-    expect(closeVisibility.status).toBe(400)
+      .send({ coverImageUrl: 'https://evil.example.com/a.png' })
+    expect(foreignCover.status).toBe(400)
+  })
+
+  it('publishes, closes and reopens recruitment and rotates share links', async () => {
+    const program = await recruitingProgram(orgId, '게시 관리 테스트', { publishedAt: null })
+    const act = (action: string) => api().post(`/api/programs/${program.id}/publication`).set(bearer(professor.token)).send({ action })
+    expect((await act('publish')).body.program.recruitment.state).toBe('open')
+    expect((await discover(outsider)).map((p) => p.title)).toContain('게시 관리 테스트')
+
+    expect((await act('close_recruitment')).body.program.recruitment.state).toBe('closed')
+    expect((await save(outsider, program.id, {})).status).toBe(409)
+    expect((await act('reopen_recruitment')).body.program.recruitment.state).toBe('open')
+
+    await act('unpublish')
+    expect((await discover(outsider)).map((p) => p.title)).not.toContain('게시 관리 테스트')
+    expect((await api().post(`/api/programs/${program.id}/publication`).set(bearer(member.token)).send({ action: 'publish' })).status).toBe(404)
+
+    const unlisted = await prisma.program.findFirstOrThrow({ where: { title: '링크 공개 교육' } })
+    const rotated = await api().post(`/api/programs/${unlisted.id}/publication`).set(bearer(professor.token)).send({ action: 'rotate_share_link' })
+    expect(rotated.status).toBe(200)
+    expect((await api().get(`/api/programs/discover/${unlisted.id}?t=share-token-0123456789`)).status).toBe(404)
+    expect((await api().get(`/api/programs/discover/${unlisted.id}?t=${rotated.body.program.shareToken}`)).status).toBe(200)
   })
 })
 
 describe('program applications', () => {
-  it('only accepts applications while recruitment is open', async () => {
-    const selected = await createProgram(orgId, { title: '선발 완료 프로그램' })
-    await prisma.program.update({ where: { id: selected.id }, data: { visibility: 'PUBLIC' } })
-    const upcoming = await recruitingProgram(orgId, '모집 예정', { applyStartAt: inDays(3), applyEndAt: inDays(10) })
-    const closed = await recruitingProgram(orgId, '모집 마감', { applyStartAt: inDays(-10), applyEndAt: inDays(-1) })
+  it('derives the recruitment state and only accepts applications while open', async () => {
+    await publicProgram(orgId, '기선발 프로그램')
+    await publicProgram(orgId, '초대 전용 프로그램', { recruitmentMode: 'INVITE' })
+    const scheduled = await recruitingProgram(orgId, '모집 예정', { applyStartAt: inDays(3), applyEndAt: inDays(10) })
+    const closed = await recruitingProgram(orgId, '모집 마감', { applyStartAt: inDays(-10), applyEndAt: inDays(-2) })
+    await recruitingProgram(orgId, '발표 완료', { applyStartAt: inDays(-10), applyEndAt: inDays(-3), announceAt: inDays(-1) })
 
-    for (const id of [selected.id, upcoming.id, closed.id]) {
-      const response = await api().post(`/api/programs/${id}/applications`).set(bearer(outsider.token)).send({})
-      expect(response.status).toBe(409)
-    }
+    expect((await save(outsider, scheduled.id, { submit: true })).status).toBe(409)
+    expect((await save(outsider, scheduled.id, {})).status).toBe(200)
+    expect((await save(outsider, closed.id, {})).status).toBe(409)
+
     const states = Object.fromEntries((await discover(outsider)).map((program) => [program.title, program.recruitment.state]))
-    expect(states).toMatchObject({ '선발 완료 프로그램': 'selected', '모집 예정': 'upcoming', '모집 마감': 'closed', '공개 모집 캠프': 'open' })
+    expect(states).toMatchObject({
+      '기선발 프로그램': 'selected',
+      '초대 전용 프로그램': 'invite_only',
+      '모집 예정': 'scheduled',
+      '모집 마감': 'closed',
+      '발표 완료': 'selected',
+      '공개 모집 캠프': 'open',
+    })
   })
 
-  it('lets outsiders apply once and staff review the queue', async () => {
-    const applied = await api()
-      .post(`/api/programs/${recruitingId}/applications`)
+  it('saves drafts privately and enforces required answers on submit', async () => {
+    const draft = await save(outsider, recruitingId, { answers: { [fields.motivation]: '초안' } })
+    expect(draft.status).toBe(200)
+    expect(draft.body.application.status).toBe('draft')
+
+    const staffView = await api().get(`/api/programs/${recruitingId}/applications?status=all`).set(bearer(professor.token))
+    expect(staffView.body.applications).toHaveLength(0)
+
+    const incomplete = await save(outsider, recruitingId, { answers: { [fields.motivation]: '초안' }, submit: true })
+    expect(incomplete.status).toBe(400)
+    expect(incomplete.body.message).toContain('개인정보 동의')
+
+    const badChoice = await save(outsider, recruitingId, { answers: { [fields.consent]: 'yes' } })
+    expect(badChoice.status).toBe(400)
+
+    const detail = await api().get(`/api/programs/discover/${recruitingId}`).set(bearer(outsider.token))
+    expect(detail.body.program.myStatus.application.answers[fields.motivation]).toBe('초안')
+    expect(detail.body.program.applicationFields).toHaveLength(3)
+  })
+
+  it('keeps attachments private to the applicant and, after submission, the program staff', async () => {
+    const uploaded = await api()
+      .post(`/api/programs/${recruitingId}/applications/me/files`)
       .set(bearer(outsider.token))
-      .send({ message: '창업 경험을 쌓고 싶습니다.' })
-    expect(applied.status).toBe(201)
-    expect((await api().post(`/api/programs/${recruitingId}/applications`).set(bearer(outsider.token)).send({})).status).toBe(409)
+      .field('fieldId', fields.portfolio)
+      .attach('file', PDF, 'portfolio.pdf')
+    expect(uploaded.status).toBe(201)
+    const fileId = uploaded.body.file.id as string
 
-    const listed = (await discover(outsider)).find((program) => program.id === recruitingId)
-    expect(listed?.myStatus.application?.status).toBe('pending')
+    expect((await api().get(`/api/programs/application-files/${fileId}/url`).set(bearer(outsider.token))).status).toBe(200)
+    expect((await api().get(`/api/programs/application-files/${fileId}/url`).set(bearer(professor.token))).status).toBe(404)
 
+    const submitted = await save(outsider, recruitingId, { answers: completeAnswers(), submit: true })
+    expect(submitted.status).toBe(200)
+    expect(submitted.body.application.status).toBe('pending')
+    expect((await save(outsider, recruitingId, { answers: completeAnswers() })).status).toBe(409)
+
+    expect((await api().get(`/api/programs/application-files/${fileId}/url`).set(bearer(professor.token))).status).toBe(200)
+    expect((await api().get(`/api/programs/application-files/${fileId}/url`).set(bearer(member.token))).status).toBe(404)
+    expect((await api().delete(`/api/programs/${recruitingId}/applications/me/files/${fileId}`).set(bearer(outsider.token))).status).toBe(409)
+  })
+
+  it('shows staff the submitted answers and notifies them', async () => {
     expect((await api().get(`/api/programs/${recruitingId}/applications`).set(bearer(member.token))).status).toBe(404)
     const queue = await api().get(`/api/programs/${recruitingId}/applications`).set(bearer(professor.token))
     expect(queue.status).toBe(200)
     expect(queue.body.applications).toHaveLength(1)
-    expect(queue.body.applications[0].message).toBe('창업 경험을 쌓고 싶습니다.')
+    expect(queue.body.applications[0].answers.map((answer: { label: string }) => answer.label)).toEqual(['지원 동기', '개인정보 동의'])
+    expect(queue.body.applications[0].files).toHaveLength(1)
 
     const notice = await prisma.notification.findFirst({ where: { userId: professor.user.id, title: '새 프로그램 지원자가 있습니다' } })
     expect(notice).not.toBeNull()
+  })
+
+  it('archives answered questions when the form changes so submitted applications stay readable', async () => {
+    const replaced = await api()
+      .put(`/api/programs/${recruitingId}/application-form`)
+      .set(bearer(professor.token))
+      .send({ fields: [{ id: fields.consent, type: 'consent', label: '개인정보 동의', required: true }, { type: 'url', label: 'GitHub' }] })
+    expect(replaced.status).toBe(200)
+    expect(replaced.body.fields.map((field: { label: string }) => field.label)).toEqual(['개인정보 동의', 'GitHub'])
+    expect(await prisma.programApplicationField.findUniqueOrThrow({ where: { id: fields.motivation } })).toMatchObject({ archivedAt: expect.any(Date) })
+
+    const queue = await api().get(`/api/programs/${recruitingId}/applications`).set(bearer(professor.token))
+    const motivation = queue.body.applications[0].answers.find((answer: { fieldId: string }) => answer.fieldId === fields.motivation)
+    expect(motivation).toMatchObject({ archived: true, value: '창업 경험을 쌓고 싶습니다.' })
+
+    const invalid = await api()
+      .put(`/api/programs/${recruitingId}/application-form`)
+      .set(bearer(professor.token))
+      .send({ fields: [{ type: 'single_choice', label: '트랙', options: ['A'] }] })
+    expect(invalid.status).toBe(400)
   })
 
   it('turns an accepted application into a participant and organization member', async () => {
@@ -166,10 +289,7 @@ describe('program applications', () => {
     const applicationId = queue.body.applications[0].id as string
     expect((await api().patch(`/api/programs/${recruitingId}/applications/${applicationId}`).set(bearer(member.token)).send({ decision: 'accept' })).status).toBe(404)
 
-    const accepted = await api()
-      .patch(`/api/programs/${recruitingId}/applications/${applicationId}`)
-      .set(bearer(professor.token))
-      .send({ decision: 'accept' })
+    const accepted = await api().patch(`/api/programs/${recruitingId}/applications/${applicationId}`).set(bearer(professor.token)).send({ decision: 'accept' })
     expect(accepted.status).toBe(200)
     expect(accepted.body.application.status).toBe('accepted')
 
@@ -179,28 +299,24 @@ describe('program applications', () => {
     expect(membership).toMatchObject({ status: OrganizationMemberStatus.ACTIVE, role: OrganizationRole.MEMBER })
     expect((await api().get(`/api/programs/${recruitingId}`).set(bearer(outsider.token))).status).toBe(200)
 
-    const again = await api()
-      .patch(`/api/programs/${recruitingId}/applications/${applicationId}`)
-      .set(bearer(professor.token))
-      .send({ decision: 'reject' })
+    const again = await api().patch(`/api/programs/${recruitingId}/applications/${applicationId}`).set(bearer(professor.token)).send({ decision: 'reject' })
     expect(again.status).toBe(409)
   })
 
   it('stops accepting once the capacity is filled', async () => {
     await prisma.program.update({ where: { id: recruitingId }, data: { capacity: 1 } })
-    expect((await api().post(`/api/programs/${recruitingId}/applications`).set(bearer(second.token)).send({})).status).toBe(201)
+    const answers = { [fields.consent]: true }
+    expect((await save(second, recruitingId, { answers, submit: true })).status).toBe(200)
     const application = await prisma.programApplication.findFirstOrThrow({ where: { programId: recruitingId, userId: second.user.id } })
-    const response = await api()
-      .patch(`/api/programs/${recruitingId}/applications/${application.id}`)
-      .set(bearer(professor.token))
-      .send({ decision: 'accept' })
+    const response = await api().patch(`/api/programs/${recruitingId}/applications/${application.id}`).set(bearer(professor.token)).send({ decision: 'accept' })
     expect(response.status).toBe(409)
     expect(await prisma.programParticipant.count({ where: { programId: recruitingId } })).toBe(1)
   })
 
   it('allows reapplying after withdrawal but not after rejection, and shows the rejection note', async () => {
+    const answers = { [fields.consent]: true }
     expect((await api().delete(`/api/programs/${recruitingId}/applications/me`).set(bearer(second.token))).status).toBe(204)
-    expect((await api().post(`/api/programs/${recruitingId}/applications`).set(bearer(second.token)).send({})).status).toBe(201)
+    expect((await save(second, recruitingId, { answers, submit: true })).status).toBe(200)
 
     const application = await prisma.programApplication.findFirstOrThrow({ where: { programId: recruitingId, userId: second.user.id } })
     const rejected = await api()
@@ -208,11 +324,25 @@ describe('program applications', () => {
       .set(bearer(professor.token))
       .send({ decision: 'reject', note: '정원이 마감되었습니다.' })
     expect(rejected.status).toBe(200)
-    expect((await api().post(`/api/programs/${recruitingId}/applications`).set(bearer(second.token)).send({})).status).toBe(409)
+    expect((await save(second, recruitingId, { answers, submit: true })).status).toBe(409)
 
     const mine = await api().get('/api/programs/applications/me').set(bearer(second.token))
     expect(mine.status).toBe(200)
     expect(mine.body.applications[0]).toMatchObject({ status: 'rejected', reviewNote: '정원이 마감되었습니다.' })
     expect(await prisma.organizationMember.count({ where: { organizationId: orgId, userId: second.user.id } })).toBe(0)
+  })
+
+  it('discards a draft together with its files', async () => {
+    const program = await recruitingProgram(orgId, '임시저장 삭제')
+    const field = await prisma.programApplicationField.create({ data: { programId: program.id, position: 0, type: 'FILE', label: '첨부' } })
+    const uploaded = await api()
+      .post(`/api/programs/${program.id}/applications/me/files`)
+      .set(bearer(member.token))
+      .field('fieldId', field.id)
+      .attach('file', PDF, 'draft.pdf')
+    expect(uploaded.status).toBe(201)
+    expect((await api().delete(`/api/programs/${program.id}/applications/me`).set(bearer(member.token))).status).toBe(204)
+    expect(await prisma.programApplication.count({ where: { programId: program.id } })).toBe(0)
+    expect(await prisma.programApplicationFile.count({ where: { fieldId: field.id } })).toBe(0)
   })
 })

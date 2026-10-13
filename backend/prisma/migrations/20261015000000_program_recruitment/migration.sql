@@ -1,10 +1,10 @@
 -- Program visibility, recruitment details and applications.
--- Existing programs keep PRIVATE + SELECTED, so they stay visible only to staff and participants.
+-- Existing programs keep PRIVATE + PRESELECTED, so they stay visible only to staff and participants.
 
-CREATE TYPE "ProgramVisibility" AS ENUM ('PRIVATE', 'ORGANIZATION', 'PUBLIC');
-CREATE TYPE "ProgramRecruitmentMode" AS ENUM ('SELECTED', 'RECRUITING');
+CREATE TYPE "ProgramVisibility" AS ENUM ('PRIVATE', 'ORGANIZATION', 'UNLISTED', 'PUBLIC');
+CREATE TYPE "ProgramRecruitmentMode" AS ENUM ('PRESELECTED', 'OPEN', 'INVITE', 'MIXED');
 CREATE TYPE "ProgramDeliveryMode" AS ENUM ('ONLINE', 'OFFLINE', 'HYBRID');
-CREATE TYPE "ProgramApplicationStatus" AS ENUM ('PENDING', 'ACCEPTED', 'REJECTED', 'WITHDRAWN');
+CREATE TYPE "ProgramApplicationStatus" AS ENUM ('DRAFT', 'PENDING', 'ACCEPTED', 'REJECTED', 'WITHDRAWN');
 
 ALTER TABLE "Program" ADD COLUMN "announceAt" TIMESTAMP(3),
 ADD COLUMN "applyEndAt" TIMESTAMP(3),
@@ -12,7 +12,7 @@ ADD COLUMN "applyStartAt" TIMESTAMP(3),
 ADD COLUMN "capacity" INTEGER,
 ADD COLUMN "deliveryMode" "ProgramDeliveryMode",
 ADD COLUMN "location" TEXT,
-ADD COLUMN "recruitmentMode" "ProgramRecruitmentMode" NOT NULL DEFAULT 'SELECTED',
+ADD COLUMN "recruitmentMode" "ProgramRecruitmentMode" NOT NULL DEFAULT 'PRESELECTED',
 ADD COLUMN "selectionProcess" TEXT,
 ADD COLUMN "targetAudience" TEXT,
 ADD COLUMN "visibility" "ProgramVisibility" NOT NULL DEFAULT 'PRIVATE';

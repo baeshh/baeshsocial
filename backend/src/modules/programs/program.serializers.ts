@@ -28,33 +28,80 @@ export function serializeProgram(
     managers: program.managers?.map((manager) => manager.user) ?? [],
     policy: serializeProgramPolicy(program),
     visibility: lower(program.visibility),
-    recruitment: serializeRecruitment(program),
+    publishedAt: program.publishedAt,
+    recruitment: serializeRecruitment(program, program._count?.participants),
   }
 }
 
-export type RecruitmentState = 'selected' | 'upcoming' | 'open' | 'closed'
+export type RecruitmentState = 'draft' | 'scheduled' | 'open' | 'closed' | 'selected' | 'invite_only'
 
-/** SELECTED programs take no applications; RECRUITING ones are open only inside the apply window of a live program. */
+export const takesApplications = (program: Pick<Program, 'recruitmentMode'>) =>
+  program.recruitmentMode === 'OPEN' || program.recruitmentMode === 'MIXED'
+
+/**
+ * Recruitment progress, kept separate from the operating status and from visibility:
+ * - PRESELECTED / INVITE programs never take applications ('selected' / 'invite_only').
+ * - OPEN / MIXED programs are 'draft' until published, then follow the apply window. Staff can close
+ *   early; a closed recruitment becomes 'selected' once the announcement time has passed.
+ */
 export function recruitmentState(program: Program, now = new Date()): RecruitmentState {
-  if (program.recruitmentMode === 'SELECTED') return 'selected'
-  if (program.status === 'COMPLETED' || program.status === 'ARCHIVED') return 'closed'
-  if (program.applyStartAt && now < program.applyStartAt) return 'upcoming'
-  if (program.applyEndAt && now > program.applyEndAt) return 'closed'
+  if (program.recruitmentMode === 'PRESELECTED') return 'selected'
+  if (program.recruitmentMode === 'INVITE') return 'invite_only'
+  if (!program.publishedAt) return 'draft'
+  const closed =
+    program.status === 'COMPLETED' ||
+    program.status === 'ARCHIVED' ||
+    Boolean(program.recruitmentClosedAt && program.recruitmentClosedAt <= now) ||
+    Boolean(program.applyEndAt && now > program.applyEndAt)
+  if (closed) return program.announceAt && now >= program.announceAt ? 'selected' : 'closed'
+  if (program.applyStartAt && now < program.applyStartAt) return 'scheduled'
   return 'open'
 }
 
-export function serializeRecruitment(program: Program) {
+type Eligibility = { schools?: string; grades?: number[]; majors?: string; regions?: string; requirements?: string }
+
+export function serializeRecruitment(program: Program, participantCount?: number | null) {
+  const openSeats =
+    program.capacity && participantCount !== undefined && participantCount !== null
+      ? Math.max(0, program.capacity - participantCount)
+      : null
   return {
     mode: lower(program.recruitmentMode),
     state: recruitmentState(program),
+    category: program.category ? lower(program.category) : null,
+    coverImageUrl: program.coverImageUrl,
+    audiences: program.audiences.map(lower),
     targetAudience: program.targetAudience,
+    eligibility: (program.eligibility as Eligibility | null) ?? null,
+    benefits: program.benefits.map(lower),
+    benefitsNote: program.benefitsNote,
     capacity: program.capacity,
+    openSeats,
     applyStartAt: program.applyStartAt,
     applyEndAt: program.applyEndAt,
     announceAt: program.announceAt,
+    closedEarlyAt: program.recruitmentClosedAt,
     selectionProcess: program.selectionProcess,
     deliveryMode: program.deliveryMode ? lower(program.deliveryMode) : null,
     location: program.location,
+  }
+}
+
+export function serializeApplicationField(field: {
+  id: string
+  type: string
+  label: string
+  description: string | null
+  required: boolean
+  options: string[]
+}) {
+  return {
+    id: field.id,
+    type: lower(field.type),
+    label: field.label,
+    description: field.description,
+    required: field.required,
+    options: field.options,
   }
 }
 

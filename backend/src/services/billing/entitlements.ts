@@ -23,7 +23,7 @@ export async function computeOrgUsage(organizationId: string, subscription: Subs
   const now = Date.now()
   const periodStart = subscription?.startsAt ?? new Date(now - 365 * DAY)
   const programWhere = { program: { organizationId } }
-  const [members, activePrograms, projects, evidenceBytes, reportBytes, reports, searches, aiCalls] = await Promise.all([
+  const [members, activePrograms, projects, evidenceBytes, reportBytes, reports, searches, aiCalls, applicationBytes] = await Promise.all([
     prisma.organizationMember.count({ where: { organizationId, status: OrganizationMemberStatus.ACTIVE } }),
     prisma.program.count({ where: { organizationId, status: ProgramStatus.ACTIVE } }),
     prisma.project.count({ where: { ...programWhere, status: { not: ProjectStatus.ARCHIVED } } }),
@@ -36,8 +36,10 @@ export async function computeOrgUsage(organizationId: string, subscription: Subs
     prisma.aIUsageLog.count({
       where: { organizationId, createdAt: { gte: new Date(now - DAY) }, status: { notIn: ['RATE_LIMITED', 'BUDGET_EXCEEDED'] } },
     }),
+    prisma.programApplicationFile.aggregate({ _sum: { sizeBytes: true }, where: { application: programWhere } }),
   ])
-  const storageBytes = (evidenceBytes._sum.sizeBytes ?? 0) + (reportBytes._sum.sizeBytes ?? 0)
+  const storageBytes =
+    (evidenceBytes._sum.sizeBytes ?? 0) + (reportBytes._sum.sizeBytes ?? 0) + (applicationBytes._sum.sizeBytes ?? 0)
   return {
     members,
     activePrograms,
