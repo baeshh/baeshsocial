@@ -29,7 +29,9 @@ if (!/upgrade/i.test(database)) {
 
 const backendDir = path.resolve('.')
 const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
-const env = { ...process.env, DATABASE_URL: url, NODE_ENV: 'development' }
+// The smoke test logs in as the seeded company and institution accounts, which newer seeds lock
+// unless privileged demo accounts are enabled. Older seeds ignore the flag.
+const env = { ...process.env, DATABASE_URL: url, NODE_ENV: 'development', SEED_PRIVILEGED_DEMO_ACCOUNTS: 'true' }
 const SMOKE_ENV = {
   JWT_SECRET: 'upgrade-check-secret-0123456789abcdefghijkl',
   APP_ENV: 'local',
