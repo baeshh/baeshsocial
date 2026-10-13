@@ -26,11 +26,23 @@ export function serializeProgram(
     projectCount: program._count?.projects ?? null,
     participantCount: program._count?.participants ?? null,
     managers: program.managers?.map((manager) => manager.user) ?? [],
+    policy: serializeProgramPolicy(program),
+  }
+}
+
+export function serializeProgramPolicy(program: Program) {
+  return {
+    allowStudentProjects: program.allowStudentProjects,
+    requireProjectApproval: program.requireProjectApproval,
+    allowStudentTeams: program.allowStudentTeams,
+    allowPublicProjects: program.allowPublicProjects,
+    allowMultipleProjects: program.allowMultipleProjects,
+    recordDisclosure: lower(program.recordDisclosure),
   }
 }
 
 export function teamRoleOf(roleSlug: string | null | undefined) {
-  return roleSlug === 'admin' ? ('leader' as const) : ('member' as const)
+  return roleSlug === 'admin' || roleSlug === 'owner' ? ('leader' as const) : ('member' as const)
 }
 
 export function serializeEvidenceFile(file: EvidenceFile) {

@@ -298,82 +298,131 @@ enum ProjectInviteStatus {
   CANCELLED
 }
 
+enum ProgramProjectRegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+  REMOVED
+}
+
+enum ProgramProjectRegistrationSource {
+  NEW_PROJECT
+  EXISTING_PROJECT
+}
+
+enum ProjectReviewKind {
+  FEEDBACK
+  REVISION_REQUEST
+  RESPONSE
+  REMOVAL_REQUEST
+}
+
+enum ProjectReviewStatus {
+  OPEN
+  RESOLVED
+}
+
+enum ProjectVerificationStatus {
+  VERIFIED
+  REVOKED
+}
+
+enum VerifiedRecordKind {
+  EVIDENCE
+  CONTRIBUTION
+}
+
+/// How much of a verified record others may see. Effective level = min(record choice, program cap).
+enum RecordDisclosure {
+  HIDDEN
+  SUMMARY
+  FULL
+}
+
 model User {
-  id                       String                     @id @default(cuid())
-  email                    String                     @unique
-  password                 String
-  name                     String
-  role                     UserRole                   @default(USER)
-  status                   UserStatus                 @default(ACTIVE)
-  suspendedAt              DateTime?
-  suspendReason            String?
-  passwordChangedAt        DateTime?
-  lastLoginAt              DateTime?
-  avatarUrl                String?
-  coverUrl                 String?
-  createdAt                DateTime                   @default(now())
-  updatedAt                DateTime                   @updatedAt
-  profile                  Profile?
-  ownedProjects            Project[]                  @relation("ProjectOwner")
-  projectMemberships       ProjectMember[]
-  sentProjectInvites       ProjectInvite[]            @relation("ProjectInviteInviter")
-  receivedProjectInvites   ProjectInvite[]            @relation("ProjectInviteInvitee")
-  assignedTasks            ProjectTask[]              @relation("TaskAssignee")
-  projectActivities        ProjectActivity[]
-  uploadedFiles            ProjectFile[]              @relation("FileUploader")
-  posts                    Post[]                     @relation("PostAuthor")
-  postLikes                PostLike[]
-  commentLikes             CommentLike[]
-  comments                 Comment[]
-  opportunitiesCreated     Opportunity[]              @relation("OpportunityCreator")
-  savedOpportunities       SavedOpportunity[]
-  verifiedRecords          VerifiedRecord[]
-  aiAnalyses               AIAnalysis[]
-  notifications            Notification[]
-  sentMessages             Message[]                  @relation("SentMessages")
-  receivedMessages         Message[]                  @relation("ReceivedMessages")
-  following                UserFollow[]               @relation("UserFollowsFollower")
-  followers                UserFollow[]               @relation("UserFollowsFollowing")
-  profileViewsMade         ProfileView[]              @relation("ProfileViewsAsViewer")
-  profileViewsReceived     ProfileView[]              @relation("ProfileViewsAsProfile")
-  triggeredNotifications   Notification[]             @relation("NotificationActor")
-  opportunityEnrollments   OpportunityEnrollment[]    @relation("EnrollmentUser")
-  approvedEnrollments      OpportunityEnrollment[]    @relation("EnrollmentApprover")
-  organizationMemberships  OrganizationMember[]
-  organizationsCreated     Organization[]             @relation("OrganizationCreator")
-  submittedVerifications   OrganizationVerification[] @relation("VerificationSubmitter")
-  reviewedVerifications    OrganizationVerification[] @relation("VerificationReviewer")
-  programsCreated          Program[]                  @relation("ProgramCreator")
-  managedPrograms          ProgramManager[]
-  programParticipations    ProgramParticipant[]       @relation("ProgramParticipantUser")
-  programParticipantsAdded ProgramParticipant[]       @relation("ProgramParticipantAddedBy")
-  evidenceAuthored         ProjectEvidence[]          @relation("EvidenceAuthor")
-  evidenceReviewed         ProjectEvidence[]          @relation("EvidenceReviewer")
-  evidenceFilesUploaded    EvidenceFile[]             @relation("EvidenceFileUploader")
-  evidenceReviewActions    EvidenceReview[]           @relation("EvidenceReviewActor")
-  projectLinksCreated      ProjectExternalLink[]      @relation("ProjectLinkCreator")
-  recordsVerified          VerifiedRecord[]           @relation("VerifiedRecordVerifier")
-  recordsRevoked           VerifiedRecord[]           @relation("VerifiedRecordRevoker")
-  verifiedRecordEvents     VerifiedRecordEvent[]
-  aiUsageLogs              AIUsageLog[]
-  reportTemplatesCreated   ReportTemplate[]
-  reportsCreated           GeneratedReport[]
-  talentSearches           TalentSearch[]
-  matchResults             MatchResult[]              @relation("MatchCandidate")
-  matchFeedbackGiven       MatchResult[]              @relation("MatchFeedbackBy")
-  sessions                 Session[]
-  auditLogs                AuditLog[]                 @relation("AuditActor")
-  orgInvitesSent           OrganizationInvite[]       @relation("OrgInviteInviter")
-  orgInvitesAccepted       OrganizationInvite[]       @relation("OrgInviteAcceptedBy")
-  subscriptions            Subscription[]             @relation("SubscriptionUser")
-  subscriptionsCreated     Subscription[]             @relation("SubscriptionCreatedBy")
-  contractsCreated         Contract[]
-  invoices                 Invoice[]                  @relation("InvoiceUser")
-  invoicesCreated          Invoice[]                  @relation("InvoiceCreatedBy")
-  paymentsRecorded         Payment[]
-  supportTickets           SupportTicket[]
-  supportMessages          SupportTicketMessage[]
-  announcements            Announcement[]
+  id                          String                       @id @default(cuid())
+  email                       String                       @unique
+  password                    String
+  name                        String
+  role                        UserRole                     @default(USER)
+  status                      UserStatus                   @default(ACTIVE)
+  suspendedAt                 DateTime?
+  suspendReason               String?
+  passwordChangedAt           DateTime?
+  lastLoginAt                 DateTime?
+  avatarUrl                   String?
+  coverUrl                    String?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  profile                     Profile?
+  ownedProjects               Project[]                    @relation("ProjectOwner")
+  projectMemberships          ProjectMember[]
+  sentProjectInvites          ProjectInvite[]              @relation("ProjectInviteInviter")
+  receivedProjectInvites      ProjectInvite[]              @relation("ProjectInviteInvitee")
+  assignedTasks               ProjectTask[]                @relation("TaskAssignee")
+  projectActivities           ProjectActivity[]
+  uploadedFiles               ProjectFile[]                @relation("FileUploader")
+  posts                       Post[]                       @relation("PostAuthor")
+  postLikes                   PostLike[]
+  commentLikes                CommentLike[]
+  comments                    Comment[]
+  opportunitiesCreated        Opportunity[]                @relation("OpportunityCreator")
+  savedOpportunities          SavedOpportunity[]
+  verifiedRecords             VerifiedRecord[]
+  aiAnalyses                  AIAnalysis[]
+  notifications               Notification[]
+  sentMessages                Message[]                    @relation("SentMessages")
+  receivedMessages            Message[]                    @relation("ReceivedMessages")
+  following                   UserFollow[]                 @relation("UserFollowsFollower")
+  followers                   UserFollow[]                 @relation("UserFollowsFollowing")
+  profileViewsMade            ProfileView[]                @relation("ProfileViewsAsViewer")
+  profileViewsReceived        ProfileView[]                @relation("ProfileViewsAsProfile")
+  triggeredNotifications      Notification[]               @relation("NotificationActor")
+  opportunityEnrollments      OpportunityEnrollment[]      @relation("EnrollmentUser")
+  approvedEnrollments         OpportunityEnrollment[]      @relation("EnrollmentApprover")
+  organizationMemberships     OrganizationMember[]
+  organizationsCreated        Organization[]               @relation("OrganizationCreator")
+  submittedVerifications      OrganizationVerification[]   @relation("VerificationSubmitter")
+  reviewedVerifications       OrganizationVerification[]   @relation("VerificationReviewer")
+  programsCreated             Program[]                    @relation("ProgramCreator")
+  managedPrograms             ProgramManager[]
+  programParticipations       ProgramParticipant[]         @relation("ProgramParticipantUser")
+  programParticipantsAdded    ProgramParticipant[]         @relation("ProgramParticipantAddedBy")
+  evidenceAuthored            ProjectEvidence[]            @relation("EvidenceAuthor")
+  evidenceReviewed            ProjectEvidence[]            @relation("EvidenceReviewer")
+  evidenceFilesUploaded       EvidenceFile[]               @relation("EvidenceFileUploader")
+  evidenceReviewActions       EvidenceReview[]             @relation("EvidenceReviewActor")
+  projectLinksCreated         ProjectExternalLink[]        @relation("ProjectLinkCreator")
+  recordsVerified             VerifiedRecord[]             @relation("VerifiedRecordVerifier")
+  recordsRevoked              VerifiedRecord[]             @relation("VerifiedRecordRevoker")
+  verifiedRecordEvents        VerifiedRecordEvent[]
+  aiUsageLogs                 AIUsageLog[]
+  reportTemplatesCreated      ReportTemplate[]
+  reportsCreated              GeneratedReport[]
+  talentSearches              TalentSearch[]
+  matchResults                MatchResult[]                @relation("MatchCandidate")
+  matchFeedbackGiven          MatchResult[]                @relation("MatchFeedbackBy")
+  sessions                    Session[]
+  auditLogs                   AuditLog[]                   @relation("AuditActor")
+  orgInvitesSent              OrganizationInvite[]         @relation("OrgInviteInviter")
+  orgInvitesAccepted          OrganizationInvite[]         @relation("OrgInviteAcceptedBy")
+  subscriptions               Subscription[]               @relation("SubscriptionUser")
+  subscriptionsCreated        Subscription[]               @relation("SubscriptionCreatedBy")
+  contractsCreated            Contract[]
+  invoices                    Invoice[]                    @relation("InvoiceUser")
+  invoicesCreated             Invoice[]                    @relation("InvoiceCreatedBy")
+  paymentsRecorded            Payment[]
+  supportTickets              SupportTicket[]
+  supportMessages             SupportTicketMessage[]
+  announcements               Announcement[]
+  projectRegistrations        ProgramProjectRegistration[] @relation("RegistrationRequester")
+  registrationsReviewed       ProgramProjectRegistration[] @relation("RegistrationReviewer")
+  projectReviewsWritten       ProjectReview[]              @relation("ProjectReviewAuthor")
+  projectReviewsResolved      ProjectReview[]              @relation("ProjectReviewResolver")
+  projectReviewsTargeted      ProjectReview[]              @relation("ProjectReviewTarget")
+  projectVerificationsMade    ProjectVerification[]        @relation("ProjectVerifier")
+  projectVerificationsRevoked ProjectVerification[]        @relation("ProjectVerificationRevoker")
 
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_name_trgm_idx")
 }
@@ -467,25 +516,25 @@ model Portfolio {
 }
 
 model Project {
-  id              String                @id @default(cuid())
+  id              String                       @id @default(cuid())
   title           String
-  slug            String                @unique
+  slug            String                       @unique
   description     String?
   objective       String?
   readme          String?
   ownerId         String
-  status          ProjectStatus         @default(PLANNING)
-  progress        Int                   @default(0)
-  visibility      ProjectVisibility     @default(PRIVATE)
-  skills          String[]              @default([])
+  status          ProjectStatus                @default(PLANNING)
+  progress        Int                          @default(0)
+  visibility      ProjectVisibility            @default(PRIVATE)
+  skills          String[]                     @default([])
   programId       String?
   teamName        String?
   startDate       DateTime?
   endDate         DateTime?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  owner           User                  @relation("ProjectOwner", fields: [ownerId], references: [id])
-  program         Program?              @relation(fields: [programId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
+  owner           User                         @relation("ProjectOwner", fields: [ownerId], references: [id])
+  program         Program?                     @relation(fields: [programId], references: [id], onDelete: SetNull)
   evidence        ProjectEvidence[]
   roles           ProjectRole[]
   members         ProjectMember[]
@@ -497,6 +546,9 @@ model Project {
   verifiedRecords VerifiedRecord[]
   aiAnalyses      AIAnalysis[]
   externalLinks   ProjectExternalLink[]
+  registrations   ProgramProjectRegistration[]
+  reviews         ProjectReview[]
+  verifications   ProjectVerification[]
 
   @@index([programId])
   @@index([ownerId, updatedAt])
@@ -544,16 +596,18 @@ model ProjectRole {
 }
 
 model ProjectMember {
-  id           String       @id @default(cuid())
-  projectId    String
-  userId       String
-  roleId       String?
-  role         String
-  contribution String?
-  joinedAt     DateTime     @default(now())
-  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectRole  ProjectRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  id            String       @id @default(cuid())
+  projectId     String
+  userId        String
+  roleId        String?
+  role          String
+  contribution  String?
+  /// PRIVATE projects are only open to leaders, program staff and members granted this flag.
+  privateAccess Boolean      @default(false)
+  joinedAt      DateTime     @default(now())
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectRole   ProjectRole? @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
   @@unique([projectId, userId])
   @@index([userId])
@@ -765,34 +819,41 @@ model SavedOpportunity {
 /// Institution-issued proof of project work. Displayed content comes from the frozen `snapshot`
 /// (hashed into `contentHash`), never from live project/evidence rows the user can still edit.
 model VerifiedRecord {
-  id                  String                @id @default(cuid())
-  userId              String
-  projectId           String
-  role                String
-  contributionSummary String
-  evidenceUrl         String?
-  evidenceId          String?               @unique
-  trustScore          Int                   @default(0)
-  issuedAt            DateTime              @default(now())
-  status              VerifiedRecordStatus  @default(PENDING)
-  organizationId      String?
-  programId           String?
-  verifiedById        String?
-  verifiedAt          DateTime?
-  revokedAt           DateTime?
-  revokedById         String?
-  revokeReason        String?
-  snapshot            Json?
-  contentHash         String?
-  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project             Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  evidence            ProjectEvidence?      @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
-  organization        Organization?         @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  program             Program?              @relation(fields: [programId], references: [id], onDelete: SetNull)
-  verifiedBy          User?                 @relation("VerifiedRecordVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
-  revokedBy           User?                 @relation("VerifiedRecordRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
-  events              VerifiedRecordEvent[]
+  id                    String                @id @default(cuid())
+  userId                String
+  projectId             String
+  role                  String
+  contributionSummary   String
+  evidenceUrl           String?
+  evidenceId            String?               @unique
+  trustScore            Int                   @default(0)
+  issuedAt              DateTime              @default(now())
+  status                VerifiedRecordStatus  @default(PENDING)
+  organizationId        String?
+  programId             String?
+  verifiedById          String?
+  verifiedAt            DateTime?
+  revokedAt             DateTime?
+  revokedById           String?
+  revokeReason          String?
+  snapshot              Json?
+  contentHash           String?
+  /// EVIDENCE: one approved evidence item. CONTRIBUTION: a member's role/contribution in a verified project.
+  kind                  VerifiedRecordKind    @default(EVIDENCE)
+  projectVerificationId String?
+  /// The student's own disclosure choice; capped by Program.recordDisclosure.
+  disclosure            RecordDisclosure      @default(SUMMARY)
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project               Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectVerification   ProjectVerification?  @relation(fields: [projectVerificationId], references: [id], onDelete: SetNull)
+  evidence              ProjectEvidence?      @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+  organization          Organization?         @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  program               Program?              @relation(fields: [programId], references: [id], onDelete: SetNull)
+  verifiedBy            User?                 @relation("VerifiedRecordVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  revokedBy             User?                 @relation("VerifiedRecordRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  events                VerifiedRecordEvent[]
 
+  @@unique([projectVerificationId, userId])
   @@index([userId, issuedAt])
   @@index([userId, status])
   @@index([projectId])
@@ -956,35 +1017,36 @@ model MatchResult {
 }
 
 model Organization {
-  id                 String                         @id @default(cuid())
-  name               String
-  type               OrganizationType
-  description        String?
-  website            String?
-  contactEmail       String?
-  registrationNumber String?
-  verificationStatus OrganizationVerificationStatus @default(PENDING)
-  verifiedAt         DateTime?
-  createdById        String?
-  createdAt          DateTime                       @default(now())
-  updatedAt          DateTime                       @updatedAt
-  createdBy          User?                          @relation("OrganizationCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  members            OrganizationMember[]
-  verifications      OrganizationVerification[]
-  programs           Program[]
-  verifiedRecords    VerifiedRecord[]
-  aiUsageLogs        AIUsageLog[]
-  reportTemplates    ReportTemplate[]
-  reports            GeneratedReport[]
-  talentSearches     TalentSearch[]
-  auditLogs          AuditLog[]
-  invites            OrganizationInvite[]
-  subscriptions      Subscription[]
-  contracts          Contract[]
-  invoices           Invoice[]
-  usageRecords       UsageRecord[]
-  supportTickets     SupportTicket[]
-  announcements      Announcement[]
+  id                   String                         @id @default(cuid())
+  name                 String
+  type                 OrganizationType
+  description          String?
+  website              String?
+  contactEmail         String?
+  registrationNumber   String?
+  verificationStatus   OrganizationVerificationStatus @default(PENDING)
+  verifiedAt           DateTime?
+  createdById          String?
+  createdAt            DateTime                       @default(now())
+  updatedAt            DateTime                       @updatedAt
+  createdBy            User?                          @relation("OrganizationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  members              OrganizationMember[]
+  verifications        OrganizationVerification[]
+  programs             Program[]
+  verifiedRecords      VerifiedRecord[]
+  aiUsageLogs          AIUsageLog[]
+  reportTemplates      ReportTemplate[]
+  reports              GeneratedReport[]
+  talentSearches       TalentSearch[]
+  auditLogs            AuditLog[]
+  invites              OrganizationInvite[]
+  subscriptions        Subscription[]
+  contracts            Contract[]
+  invoices             Invoice[]
+  usageRecords         UsageRecord[]
+  supportTickets       SupportTicket[]
+  announcements        Announcement[]
+  projectVerifications ProjectVerification[]
 
   @@index([verificationStatus])
 }
@@ -1029,28 +1091,121 @@ model OrganizationVerification {
 }
 
 model Program {
-  id              String               @id @default(cuid())
-  organizationId  String
-  title           String
-  description     String?
-  term            String?
-  status          ProgramStatus        @default(ACTIVE)
-  startDate       DateTime?
-  endDate         DateTime?
+  id                     String                       @id @default(cuid())
+  organizationId         String
+  title                  String
+  description            String?
+  term                   String?
+  status                 ProgramStatus                @default(ACTIVE)
+  startDate              DateTime?
+  endDate                DateTime?
   /// Target values per KPI key (see programKpis.ts). Goal achievement = targets met / targets set.
-  kpiTargets      Json?
-  createdById     String?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy       User?                @relation("ProgramCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  managers        ProgramManager[]
-  participants    ProgramParticipant[]
-  projects        Project[]
-  verifiedRecords VerifiedRecord[]
-  invites         OrganizationInvite[]
+  kpiTargets             Json?
+  /// Student-led project policy. All off by default so existing programs keep staff-assigned teams.
+  allowStudentProjects   Boolean                      @default(false)
+  requireProjectApproval Boolean                      @default(true)
+  allowStudentTeams      Boolean                      @default(false)
+  allowPublicProjects    Boolean                      @default(false)
+  allowMultipleProjects  Boolean                      @default(false)
+  /// Highest level of verified-record detail students of this program may disclose.
+  recordDisclosure       RecordDisclosure             @default(SUMMARY)
+  createdById            String?
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+  organization           Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy              User?                        @relation("ProgramCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  managers               ProgramManager[]
+  participants           ProgramParticipant[]
+  projects               Project[]
+  verifiedRecords        VerifiedRecord[]
+  invites                OrganizationInvite[]
+  projectRegistrations   ProgramProjectRegistration[]
+  projectReviews         ProjectReview[]
+  projectVerifications   ProjectVerification[]
 
   @@index([organizationId])
+}
+
+/// A request to manage a project inside a program. The project row itself is never copied: approval
+/// only sets Project.programId on the same record. A partial unique index allows one PENDING per project.
+model ProgramProjectRegistration {
+  id           String                           @id @default(cuid())
+  programId    String
+  projectId    String
+  requesterId  String?
+  source       ProgramProjectRegistrationSource
+  status       ProgramProjectRegistrationStatus @default(PENDING)
+  message      String?
+  reviewNote   String?
+  reviewedById String?
+  reviewedAt   DateTime?
+  /// Title, description and team at request time, so the decision can be audited later.
+  snapshot     Json?
+  createdAt    DateTime                         @default(now())
+  updatedAt    DateTime                         @updatedAt
+  program      Program                          @relation(fields: [programId], references: [id], onDelete: Cascade)
+  project      Project                          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requester    User?                            @relation("RegistrationRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  reviewedBy   User?                            @relation("RegistrationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([programId, status, createdAt])
+  @@index([projectId, createdAt])
+}
+
+/// Staff feedback, revision requests and student responses on a program project. Staff never edit
+/// student content directly; they leave reviews here.
+model ProjectReview {
+  id           String               @id @default(cuid())
+  projectId    String
+  programId    String
+  authorId     String?
+  kind         ProjectReviewKind
+  /// Set for REVISION_REQUEST and REMOVAL_REQUEST, which need a follow-up decision.
+  status       ProjectReviewStatus?
+  body         String
+  targetUserId String?
+  parentId     String?
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime             @default(now())
+  project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  program      Program              @relation(fields: [programId], references: [id], onDelete: Cascade)
+  author       User?                @relation("ProjectReviewAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  resolvedBy   User?                @relation("ProjectReviewResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  targetUser   User?                @relation("ProjectReviewTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  parent       ProjectReview?       @relation("ProjectReviewThread", fields: [parentId], references: [id], onDelete: SetNull)
+  replies      ProjectReview[]      @relation("ProjectReviewThread")
+
+  @@index([projectId, createdAt])
+  @@index([programId, kind, status])
+}
+
+/// Institution sign-off on a whole project's outcome. Per-member role/contribution records hang off
+/// it as CONTRIBUTION VerifiedRecords. A partial unique index allows one VERIFIED row per project.
+model ProjectVerification {
+  id             String                    @id @default(cuid())
+  projectId      String
+  programId      String
+  organizationId String
+  status         ProjectVerificationStatus @default(VERIFIED)
+  outcomeSummary String
+  verifiedById   String?
+  verifiedAt     DateTime                  @default(now())
+  revokedAt      DateTime?
+  revokedById    String?
+  revokeReason   String?
+  snapshot       Json
+  contentHash    String
+  createdAt      DateTime                  @default(now())
+  project        Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  program        Program                   @relation(fields: [programId], references: [id], onDelete: Cascade)
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  verifiedBy     User?                     @relation("ProjectVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  revokedBy      User?                     @relation("ProjectVerificationRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  records        VerifiedRecord[]
+
+  @@index([projectId, status])
+  @@index([programId, status])
 }
 
 /// Staff assigned to run a program (e.g. the professor of a capstone course).
