@@ -1,0 +1,125 @@
+import {
+  OrganizationMemberStatus,
+  OrganizationRole,
+  OrganizationVerificationStatus,
+  ProgramStatus,
+  type Prisma,
+} from '@prisma/client'
+import { prisma } from '../config/prisma.js'
+import { HttpError } from './httpError.js'
+import { hasOrgRole } from './organizations.js'
+
+export class ProgramAccessError extends HttpError {
+  constructor(status: 403 | 404, message: string) {
+    super(status, message)
+  }
+}
+
+export type ProgramAccess = NonNullable<Awaited<ReturnType<typeof loadProgramAccess>>>
+
+async function loadProgramAccess(programId: string, userId: string) {
+  const program = await prisma.program.findUnique({
+    where: { id: programId },
+    include: {
+      organization: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          verificationStatus: true,
+          members: {
+            where: { userId, status: OrganizationMemberStatus.ACTIVE },
+            select: { id: true, role: true },
+          },
+        },
+      },
+      managers: { where: { userId }, select: { id: true } },
+      participants: { where: { userId }, select: { id: true } },
+    },
+  })
+  if (!program) return null
+
+  const membership = program.organization.members[0] ?? null
+  const approved = program.organization.verificationStatus === OrganizationVerificationStatus.APPROVED
+  const isOrgAdmin = Boolean(approved && membership && hasOrgRole(membership.role, OrganizationRole.ADMIN))
+  const isManager = Boolean(
+    approved && membership && program.managers.length > 0 && hasOrgRole(membership.role, OrganizationRole.MANAGER),
+  )
+  const isStaff = isOrgAdmin || isManager
+  const isParticipant = Boolean(membership && program.participants.length > 0)
+
+  return {
+    program,
+    organization: program.organization,
+    membership,
+    isOrgAdmin,
+    isManager,
+    isStaff,
+    isParticipant,
+    canView: isStaff || isParticipant,
+  }
+}
+
+/**
+ * Resolves the caller's relationship to a program. Non-members of the owning organization always
+ * get 404 so program existence is not leaked across organizations.
+ */
+export async function requireProgramAccess(
+  programId: string,
+  userId: string,
+  level: 'view' | 'staff' | 'admin' = 'view',
+) {
+  const access = await loadProgramAccess(programId, userId)
+  if (!access || !access.membership || !access.canView) {
+    throw new ProgramAccessError(404, '프로그램을 찾을 수 없습니다.')
+  }
+  if (level === 'staff' && !access.isStaff) {
+    throw new ProgramAccessError(403, '이 프로그램을 관리할 권한이 없습니다.')
+  }
+  if (level === 'admin' && !access.isOrgAdmin) {
+    throw new ProgramAccessError(403, '조직 관리자만 수행할 수 있습니다.')
+  }
+  return access
+}
+
+export const getProgramAccess = loadProgramAccess
+
+export function assertProgramWritable(status: ProgramStatus) {
+  if (status === ProgramStatus.ARCHIVED) {
+    throw new ProgramAccessError(403, '보관된 프로그램은 수정할 수 없습니다.')
+  }
+}
+
+/** Prisma filter for programs where the user is staff (approved org admin or assigned manager). */
+export function programStaffWhere(userId: string): Prisma.ProgramWhereInput {
+  const approvedOrg = { verificationStatus: OrganizationVerificationStatus.APPROVED }
+  return {
+    OR: [
+      {
+        organization: {
+          ...approvedOrg,
+          members: {
+            some: {
+              userId,
+              status: OrganizationMemberStatus.ACTIVE,
+              role: { in: [OrganizationRole.OWNER, OrganizationRole.ADMIN] },
+            },
+          },
+        },
+      },
+      {
+        managers: { some: { userId } },
+        organization: {
+          ...approvedOrg,
+          members: {
+            some: {
+              userId,
+              status: OrganizationMemberStatus.ACTIVE,
+              role: { in: [OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.MANAGER] },
+            },
+          },
+        },
+      },
+    ],
+  }
+}

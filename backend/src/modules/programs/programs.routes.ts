@@ -1,0 +1,776 @@
+import {
+  EvidenceStatus,
+  OrganizationMemberStatus,
+  OrganizationRole,
+  OrganizationVerificationStatus,
+  ProgramStatus,
+  ProjectActivityType,
+  ProjectStatus,
+  ProjectTaskStatus,
+  ProjectVisibility,
+  type Prisma,
+} from '@prisma/client'
+import { Router } from 'express'
+import { prisma } from '../../config/prisma.js'
+import { authenticate } from '../../middlewares/auth.middleware.js'
+import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization.middleware.js'
+import type { AuthTokenPayload } from '../../utils/auth.js'
+import { HttpError } from '../../utils/httpError.js'
+import { hasOrgRole } from '../../utils/organizations.js'
+import { assertProgramWritable, requireProgramAccess } from '../../utils/programAccess.js'
+import { DEFAULT_PROJECT_ROLE_TEMPLATES } from '../../utils/projectPermissions.js'
+import {
+  addParticipantsSchema,
+  assignTeamMembersSchema,
+  createProgramProjectSchema,
+  createProgramSchema,
+  evidenceQueueSchema,
+  moveProgramProjectSchema,
+  updateProgramProjectSchema,
+  updateProgramSchema,
+} from '../../validators/program.validator.js'
+import { evidenceInclude, serializeEvidence, serializeProgram, teamRoleOf, userBriefSelect } from './program.serializers.js'
+
+export const organizationProgramsRouter = Router({ mergeParams: true })
+export const programsRouter = Router()
+
+const toProgramStatus = (value: string) => value.toUpperCase() as ProgramStatus
+const toProjectStatus = (value: string) => value.toUpperCase() as ProjectStatus
+
+const programInclude = {
+  _count: { select: { projects: true, participants: true } },
+  managers: { include: { user: { select: userBriefSelect } }, orderBy: { createdAt: 'asc' } },
+} satisfies Prisma.ProgramInclude
+
+const programProjectSelect = {
+  id: true,
+  title: true,
+  slug: true,
+  teamName: true,
+  objective: true,
+  description: true,
+  status: true,
+  progress: true,
+  startDate: true,
+  endDate: true,
+  programId: true,
+  updatedAt: true,
+  members: {
+    orderBy: { joinedAt: 'asc' },
+    select: {
+      userId: true,
+      role: true,
+      projectRole: { select: { slug: true } },
+      user: { select: userBriefSelect },
+    },
+  },
+  tasks: { select: { status: true } },
+  evidence: { select: { status: true } },
+} satisfies Prisma.ProjectSelect
+
+type ProgramProjectRow = Prisma.ProjectGetPayload<{ select: typeof programProjectSelect }>
+
+export function computeProjectProgress(project: { progress: number; tasks: { status: ProjectTaskStatus }[] }) {
+  if (project.tasks.length === 0) return project.progress
+  const done = project.tasks.filter((task) => task.status === ProjectTaskStatus.DONE).length
+  return Math.round((done / project.tasks.length) * 100)
+}
+
+function serializeProgramProject(project: ProgramProjectRow, options: { includeEvidenceStats: boolean }) {
+  const evidenceStats = { submitted: 0, approved: 0, rejected: 0 }
+  for (const item of project.evidence) {
+    if (item.status === EvidenceStatus.SUBMITTED) evidenceStats.submitted += 1
+    if (item.status === EvidenceStatus.APPROVED) evidenceStats.approved += 1
+    if (item.status === EvidenceStatus.REJECTED) evidenceStats.rejected += 1
+  }
+  return {
+    id: project.id,
+    title: project.title,
+    slug: project.slug,
+    teamName: project.teamName,
+    objective: project.objective,
+    description: project.description,
+    status: project.status.toLowerCase(),
+    progress: computeProjectProgress(project),
+    startDate: project.startDate,
+    endDate: project.endDate,
+    programId: project.programId,
+    updatedAt: project.updatedAt,
+    members: project.members.map((member) => ({
+      ...member.user,
+      userId: member.userId,
+      teamRole: teamRoleOf(member.projectRole?.slug),
+    })),
+    taskStats: {
+      total: project.tasks.length,
+      done: project.tasks.filter((task) => task.status === ProjectTaskStatus.DONE).length,
+    },
+    evidenceStats: options.includeEvidenceStats ? evidenceStats : null,
+  }
+}
+
+async function notify(userIds: string[], actorId: string, title: string, body: string, link: string) {
+  const recipients = [...new Set(userIds)].filter((id) => id !== actorId)
+  if (recipients.length === 0) return
+  try {
+    await prisma.notification.createMany({
+      data: recipients.map((userId) => ({ userId, actorId, title, body, link, type: 'SYSTEM' as const })),
+    })
+  } catch (error) {
+    console.error('Program notification failed:', error)
+  }
+}
+
+/** Managers must be ACTIVE members holding at least the MANAGER role in the program's organization. */
+async function resolveManagerIds(organizationId: string, userIds: string[]) {
+  const unique = [...new Set(userIds)]
+  if (unique.length === 0) return []
+  const members = await prisma.organizationMember.findMany({
+    where: {
+      organizationId,
+      userId: { in: unique },
+      status: OrganizationMemberStatus.ACTIVE,
+      role: { in: [OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.MANAGER] },
+    },
+    select: { userId: true },
+  })
+  if (members.length !== unique.length) {
+    throw new HttpError(400, '담당자는 이 조직의 매니저 이상 구성원만 지정할 수 있습니다.')
+  }
+  return unique
+}
+
+async function findProgramProject(programId: string, projectId: string) {
+  const project = await prisma.project.findFirst({ where: { id: projectId, programId }, select: { id: true, title: true } })
+  if (!project) throw new HttpError(404, '이 프로그램에 속한 프로젝트를 찾을 수 없습니다.')
+  return project
+}
+
+/* ------------------------------------------------------------------ */
+/* /api/organizations/:orgId/programs                                  */
+/* ------------------------------------------------------------------ */
+
+organizationProgramsRouter.get('/', authenticate, requireOrgAccess(), async (_req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const { organization, membership } = res.locals.orgAccess as OrgAccess
+    const approved = organization.verificationStatus === OrganizationVerificationStatus.APPROVED
+    const isOrgAdmin = approved && hasOrgRole(membership.role, OrganizationRole.ADMIN)
+    const canManage = approved && hasOrgRole(membership.role, OrganizationRole.MANAGER)
+
+    const visibility: Prisma.ProgramWhereInput[] = [{ participants: { some: { userId: authUser.id } } }]
+    if (canManage) visibility.push({ managers: { some: { userId: authUser.id } } })
+
+    const programs = await prisma.program.findMany({
+      where: { organizationId: organization.id, ...(isOrgAdmin ? {} : { OR: visibility }) },
+      include: {
+        ...programInclude,
+        managers: { ...programInclude.managers },
+        participants: { where: { userId: authUser.id }, select: { id: true } },
+      },
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+    })
+
+    const staffProgramIds = programs
+      .filter((program) => isOrgAdmin || (canManage && program.managers.some((m) => m.userId === authUser.id)))
+      .map((program) => program.id)
+    const pending = staffProgramIds.length
+      ? await prisma.projectEvidence.findMany({
+          where: { status: EvidenceStatus.SUBMITTED, project: { programId: { in: staffProgramIds } } },
+          select: { project: { select: { programId: true } } },
+        })
+      : []
+    const pendingByProgram = new Map<string, number>()
+    for (const row of pending) {
+      const key = row.project.programId!
+      pendingByProgram.set(key, (pendingByProgram.get(key) ?? 0) + 1)
+    }
+
+    res.status(200).json({
+      canCreate: canManage,
+      programs: programs.map((program) => {
+        const isStaff = staffProgramIds.includes(program.id)
+        return {
+          ...serializeProgram(program),
+          myAccess: { isStaff, isParticipant: program.participants.length > 0 },
+          pendingEvidence: isStaff ? (pendingByProgram.get(program.id) ?? 0) : null,
+        }
+      }),
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+organizationProgramsRouter.post(
+  '/',
+  authenticate,
+  requireOrgAccess({ minRole: OrganizationRole.MANAGER, requireApproved: true }),
+  async (req, res, next) => {
+    try {
+      const authUser = res.locals.user as AuthTokenPayload
+      const { organization, membership } = res.locals.orgAccess as OrgAccess
+      const input = createProgramSchema.parse(req.body)
+
+      const requested = [...input.managerUserIds]
+      if (!hasOrgRole(membership.role, OrganizationRole.ADMIN)) requested.push(authUser.id)
+      const managerIds = await resolveManagerIds(organization.id, requested)
+
+      const program = await prisma.program.create({
+        data: {
+          organizationId: organization.id,
+          title: input.title,
+          description: input.description ?? null,
+          term: input.term ?? null,
+          status: toProgramStatus(input.status),
+          startDate: input.startDate ?? null,
+          endDate: input.endDate ?? null,
+          createdById: authUser.id,
+          managers: { create: managerIds.map((userId) => ({ userId })) },
+        },
+        include: programInclude,
+      })
+
+      await notify(
+        managerIds,
+        authUser.id,
+        '프로그램 담당자로 지정되었습니다',
+        `${organization.name} · ${program.title}`,
+        `/org/${organization.id}/programs/${program.id}`,
+      )
+
+      res.status(201).json({ program: serializeProgram(program) })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+/* ------------------------------------------------------------------ */
+/* /api/programs/:programId                                            */
+/* ------------------------------------------------------------------ */
+
+programsRouter.get('/:programId', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id)
+    const program = await prisma.program.findUniqueOrThrow({ where: { id: access.program.id }, include: programInclude })
+
+    res.status(200).json({
+      program: serializeProgram(program),
+      organization: {
+        id: access.organization.id,
+        name: access.organization.name,
+        type: access.organization.type.toLowerCase(),
+      },
+      myAccess: {
+        isStaff: access.isStaff,
+        isOrgAdmin: access.isOrgAdmin,
+        isManager: access.isManager,
+        isParticipant: access.isParticipant,
+        orgRole: access.membership!.role.toLowerCase(),
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    const input = updateProgramSchema.parse(req.body)
+
+    if (input.managerUserIds && !access.isOrgAdmin) {
+      throw new HttpError(403, '담당자 변경은 조직 관리자만 할 수 있습니다.')
+    }
+    const managerIds = input.managerUserIds
+      ? await resolveManagerIds(access.organization.id, input.managerUserIds)
+      : null
+
+    const program = await prisma.$transaction(async (tx) => {
+      if (managerIds) {
+        await tx.programManager.deleteMany({ where: { programId: access.program.id, userId: { notIn: managerIds } } })
+        await tx.programManager.createMany({
+          data: managerIds.map((userId) => ({ programId: access.program.id, userId })),
+          skipDuplicates: true,
+        })
+      }
+      return tx.program.update({
+        where: { id: access.program.id },
+        data: {
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.description !== undefined ? { description: input.description } : {}),
+          ...(input.term !== undefined ? { term: input.term } : {}),
+          ...(input.status !== undefined ? { status: toProgramStatus(input.status) } : {}),
+          ...(input.startDate !== undefined ? { startDate: input.startDate } : {}),
+          ...(input.endDate !== undefined ? { endDate: input.endDate } : {}),
+        },
+        include: programInclude,
+      })
+    })
+
+    res.status(200).json({ program: serializeProgram(program) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+programsRouter.delete('/:programId', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'admin')
+    const projectCount = await prisma.project.count({ where: { programId: access.program.id } })
+    if (projectCount > 0) {
+      throw new HttpError(409, '프로젝트가 남아 있는 프로그램은 삭제할 수 없습니다. 보관 상태로 변경해 주세요.')
+    }
+    await prisma.program.delete({ where: { id: access.program.id } })
+    res.status(204).send()
+  } catch (error) {
+    next(error)
+  }
+})
+
+/* ----------------------------- Projects ----------------------------- */
+
+programsRouter.get('/:programId/projects', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id)
+    const projects = await prisma.project.findMany({
+      where: {
+        programId: access.program.id,
+        ...(access.isStaff ? {} : { members: { some: { userId: authUser.id } } }),
+      },
+      select: programProjectSelect,
+      orderBy: [{ teamName: 'asc' }, { createdAt: 'asc' }],
+    })
+    res.status(200).json({
+      projects: projects.map((project) => serializeProgramProject(project, { includeEvidenceStats: access.isStaff })),
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+programsRouter.post('/:programId/projects', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    assertProgramWritable(access.program.status)
+    const input = createProgramProjectSchema.parse(req.body)
+
+    const baseSlug =
+      input.title
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9가-힣]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'project'
+    let slug = baseSlug
+    for (let index = 1; await prisma.project.findUnique({ where: { slug }, select: { id: true } }); index += 1) {
+      slug = `${baseSlug}-${index}`
+    }
+
+    const project = await prisma.$transaction(async (tx) => {
+      const created = await tx.project.create({
+        data: {
+          title: input.title,
+          slug,
+          teamName: input.teamName ?? null,
+          objective: input.objective ?? null,
+          description: input.description ?? null,
+          status: toProjectStatus(input.status),
+          startDate: input.startDate ?? access.program.startDate,
+          endDate: input.endDate ?? access.program.endDate,
+          visibility: ProjectVisibility.TEAM,
+          ownerId: authUser.id,
+          programId: access.program.id,
+        },
+      })
+      await tx.projectRole.createMany({
+        data: DEFAULT_PROJECT_ROLE_TEMPLATES.map((template) => ({
+          projectId: created.id,
+          name: template.name,
+          slug: template.slug,
+          description: template.description,
+          permissions: template.permissions,
+          isSystem: template.isSystem,
+          sortOrder: template.sortOrder,
+        })),
+      })
+      await tx.projectActivity.create({
+        data: {
+          projectId: created.id,
+          userId: authUser.id,
+          type: ProjectActivityType.MILESTONE,
+          title: 'Program project created',
+          description: `${access.program.title} 프로그램 프로젝트로 생성되었습니다.`,
+        },
+      })
+      return tx.project.findUniqueOrThrow({ where: { id: created.id }, select: programProjectSelect })
+    })
+
+    res.status(201).json({ project: serializeProgramProject(project, { includeEvidenceStats: true }) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+programsRouter.patch('/:programId/projects/:projectId', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    assertProgramWritable(access.program.status)
+    const target = await findProgramProject(access.program.id, String(req.params.projectId))
+    const input = updateProgramProjectSchema.parse(req.body)
+
+    const project = await prisma.project.update({
+      where: { id: target.id },
+      data: {
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.teamName !== undefined ? { teamName: input.teamName } : {}),
+        ...(input.objective !== undefined ? { objective: input.objective } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.status !== undefined ? { status: toProjectStatus(input.status) } : {}),
+        ...(input.startDate !== undefined ? { startDate: input.startDate } : {}),
+        ...(input.endDate !== undefined ? { endDate: input.endDate } : {}),
+      },
+      select: programProjectSelect,
+    })
+    res.status(200).json({ project: serializeProgramProject(project, { includeEvidenceStats: true }) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+programsRouter.post('/:programId/projects/:projectId/move', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const source = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    const target = await findProgramProject(source.program.id, String(req.params.projectId))
+    const { targetProgramId } = moveProgramProjectSchema.parse(req.body)
+    if (targetProgramId === source.program.id) {
+      throw new HttpError(400, '같은 프로그램으로는 이동할 수 없습니다.')
+    }
+
+    const destination = await requireProgramAccess(targetProgramId, authUser.id, 'staff')
+    if (destination.organization.id !== source.organization.id) {
+      throw new HttpError(403, '다른 조직의 프로그램으로는 이동할 수 없습니다.')
+    }
+    assertProgramWritable(destination.program.status)
+
+    const teamMembers = await prisma.projectMember.findMany({ where: { projectId: target.id }, select: { userId: true } })
+    const conflicts = await prisma.projectMember.findMany({
+      where: {
+        userId: { in: teamMembers.map((member) => member.userId) },
+        project: { programId: destination.program.id },
+      },
+      select: { user: { select: { name: true } } },
+    })
+    if (conflicts.length > 0) {
+      throw new HttpError(
+        409,
+        `대상 프로그램에서 이미 다른 팀에 배정된 학생이 있습니다: ${conflicts.map((c) => c.user.name).join(', ')}`,
+      )
+    }
+
+    await prisma.$transaction([
+      prisma.project.update({ where: { id: target.id }, data: { programId: destination.program.id } }),
+      prisma.programParticipant.createMany({
+        data: teamMembers.map((member) => ({
+          programId: destination.program.id,
+          userId: member.userId,
+          addedById: authUser.id,
+        })),
+        skipDuplicates: true,
+      }),
+      prisma.projectActivity.create({
+        data: {
+          projectId: target.id,
+          userId: authUser.id,
+          type: ProjectActivityType.UPDATE,
+          title: 'Program changed',
+          description: `${source.program.title} → ${destination.program.title} 프로그램으로 이동했습니다.`,
+        },
+      }),
+    ])
+
+    res.status(200).json({ ok: true, programId: destination.program.id })
+  } catch (error) {
+    next(error)
+  }
+})
+
+/* ------------------------- Team assignment -------------------------- */
+
+programsRouter.post('/:programId/projects/:projectId/members', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    assertProgramWritable(access.program.status)
+    const project = await findProgramProject(access.program.id, String(req.params.projectId))
+    const input = assignTeamMembersSchema.parse(req.body)
+
+    const participants = await prisma.programParticipant.findMany({
+      where: {
+        programId: access.program.id,
+        userId: { in: input.userIds },
+        user: {
+          organizationMemberships: {
+            some: { organizationId: access.organization.id, status: OrganizationMemberStatus.ACTIVE },
+          },
+        },
+      },
+      select: { userId: true },
+    })
+    const participantIds = new Set(participants.map((p) => p.userId))
+    const otherTeams = await prisma.projectMember.findMany({
+      where: { userId: { in: input.userIds }, project: { programId: access.program.id, id: { not: project.id } } },
+      select: { userId: true, project: { select: { title: true, teamName: true } } },
+    })
+    const otherTeamByUser = new Map(otherTeams.map((row) => [row.userId, row.project.teamName ?? row.project.title]))
+
+    const role = await prisma.projectRole.findUnique({
+      where: { projectId_slug: { projectId: project.id, slug: input.teamRole === 'leader' ? 'admin' : 'editor' } },
+    })
+    if (!role) throw new HttpError(500, '프로젝트 기본 역할이 없습니다.')
+
+    const added: string[] = []
+    const skipped: { userId: string; reason: string }[] = []
+    for (const userId of [...new Set(input.userIds)]) {
+      if (!participantIds.has(userId)) {
+        skipped.push({ userId, reason: '프로그램 참여 학생이 아닙니다.' })
+        continue
+      }
+      const otherTeam = otherTeamByUser.get(userId)
+      if (otherTeam) {
+        skipped.push({ userId, reason: `이미 '${otherTeam}' 팀에 배정되어 있습니다.` })
+        continue
+      }
+      await prisma.projectMember.upsert({
+        where: { projectId_userId: { projectId: project.id, userId } },
+        create: {
+          projectId: project.id,
+          userId,
+          roleId: role.id,
+          role: input.teamRole === 'leader' ? '팀장' : '팀원',
+          contribution: access.program.title,
+        },
+        update: { roleId: role.id, role: input.teamRole === 'leader' ? '팀장' : '팀원' },
+      })
+      added.push(userId)
+    }
+
+    await notify(
+      added,
+      authUser.id,
+      '프로젝트 팀에 배정되었습니다',
+      `${access.program.title} · ${project.title}`,
+      `/projects/${project.id}?tab=evidence`,
+    )
+
+    res.status(200).json({ added, skipped })
+  } catch (error) {
+    next(error)
+  }
+})
+
+programsRouter.delete('/:programId/projects/:projectId/members/:userId', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    assertProgramWritable(access.program.status)
+    const project = await findProgramProject(access.program.id, String(req.params.projectId))
+    await prisma.projectMember.deleteMany({ where: { projectId: project.id, userId: String(req.params.userId) } })
+    res.status(204).send()
+  } catch (error) {
+    next(error)
+  }
+})
+
+/* --------------------------- Participants --------------------------- */
+
+programsRouter.get('/:programId/participants', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    const [participants, assignments, evidence] = await Promise.all([
+      prisma.programParticipant.findMany({
+        where: { programId: access.program.id },
+        include: { user: { select: userBriefSelect } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.projectMember.findMany({
+        where: { project: { programId: access.program.id } },
+        select: {
+          userId: true,
+          projectRole: { select: { slug: true } },
+          project: { select: { id: true, title: true, teamName: true } },
+        },
+      }),
+      prisma.projectEvidence.groupBy({
+        by: ['authorId', 'status'],
+        where: { project: { programId: access.program.id }, status: { not: EvidenceStatus.DRAFT } },
+        _count: { _all: true },
+      }),
+    ])
+
+    const assignmentByUser = new Map(assignments.map((row) => [row.userId, row]))
+    res.status(200).json({
+      participants: participants.map((participant) => {
+        const assignment = assignmentByUser.get(participant.userId)
+        const counts = { submitted: 0, approved: 0, rejected: 0 }
+        for (const row of evidence.filter((item) => item.authorId === participant.userId)) {
+          counts[row.status.toLowerCase() as keyof typeof counts] = row._count._all
+        }
+        return {
+          id: participant.id,
+          userId: participant.userId,
+          studentNo: participant.studentNo,
+          department: participant.department,
+          createdAt: participant.createdAt,
+          user: participant.user,
+          team: assignment
+            ? { ...assignment.project, teamRole: teamRoleOf(assignment.projectRole?.slug) }
+            : null,
+          evidence: counts,
+        }
+      }),
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+programsRouter.post('/:programId/participants', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    assertProgramWritable(access.program.status)
+    const { participants } = addParticipantsSchema.parse(req.body)
+
+    const emails = participants.flatMap((entry) => (entry.email ? [entry.email] : []))
+    const ids = participants.flatMap((entry) => (entry.userId ? [entry.userId] : []))
+    const users = await prisma.user.findMany({
+      where: { OR: [{ email: { in: emails } }, { id: { in: ids } }] },
+      select: {
+        id: true,
+        email: true,
+        organizationMemberships: {
+          where: { organizationId: access.organization.id },
+          select: { id: true, status: true },
+        },
+      },
+    })
+    const byEmail = new Map(users.map((user) => [user.email.toLowerCase(), user]))
+    const byId = new Map(users.map((user) => [user.id, user]))
+    const existing = new Set(
+      (
+        await prisma.programParticipant.findMany({
+          where: { programId: access.program.id, userId: { in: users.map((user) => user.id) } },
+          select: { userId: true },
+        })
+      ).map((row) => row.userId),
+    )
+
+    const added: string[] = []
+    const skipped: { input: string; reason: string }[] = []
+    const approvedMemberships: string[] = []
+
+    for (const entry of participants) {
+      const label = entry.email ?? entry.userId!
+      const user = entry.userId ? byId.get(entry.userId) : byEmail.get(entry.email!)
+      if (!user) {
+        skipped.push({ input: label, reason: 'BAESH 계정을 찾을 수 없습니다.' })
+        continue
+      }
+      const membership = user.organizationMemberships[0]
+      if (!membership || membership.status === OrganizationMemberStatus.REJECTED) {
+        skipped.push({ input: label, reason: '조직에 가입하지 않은 사용자입니다. 먼저 조직 가입을 요청하도록 안내해 주세요.' })
+        continue
+      }
+      if (membership.status === OrganizationMemberStatus.PENDING) {
+        await prisma.organizationMember.update({
+          where: { id: membership.id },
+          data: { status: OrganizationMemberStatus.ACTIVE, role: OrganizationRole.MEMBER, joinedAt: new Date() },
+        })
+        approvedMemberships.push(user.id)
+      }
+      await prisma.programParticipant.upsert({
+        where: { programId_userId: { programId: access.program.id, userId: user.id } },
+        create: {
+          programId: access.program.id,
+          userId: user.id,
+          studentNo: entry.studentNo ?? null,
+          department: entry.department ?? null,
+          addedById: authUser.id,
+        },
+        update: {
+          ...(entry.studentNo !== undefined ? { studentNo: entry.studentNo } : {}),
+          ...(entry.department !== undefined ? { department: entry.department } : {}),
+        },
+      })
+      if (!existing.has(user.id)) {
+        existing.add(user.id)
+        added.push(user.id)
+      }
+    }
+
+    await notify(
+      added,
+      authUser.id,
+      '프로그램 참여자로 등록되었습니다',
+      `${access.organization.name} · ${access.program.title}`,
+      `/org/${access.organization.id}/programs/${access.program.id}`,
+    )
+
+    res.status(200).json({ added, skipped, approvedMemberships })
+  } catch (error) {
+    next(error)
+  }
+})
+
+programsRouter.delete('/:programId/participants/:userId', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    assertProgramWritable(access.program.status)
+    const userId = String(req.params.userId)
+    await prisma.$transaction([
+      prisma.projectMember.deleteMany({ where: { userId, project: { programId: access.program.id } } }),
+      prisma.programParticipant.deleteMany({ where: { programId: access.program.id, userId } }),
+    ])
+    res.status(204).send()
+  } catch (error) {
+    next(error)
+  }
+})
+
+/* --------------------------- Review queue --------------------------- */
+
+programsRouter.get('/:programId/evidence', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+    const query = evidenceQueueSchema.parse(req.query)
+    const evidence = await prisma.projectEvidence.findMany({
+      where: {
+        project: { programId: access.program.id, ...(query.projectId ? { id: query.projectId } : {}) },
+        status:
+          query.status === 'all'
+            ? { not: EvidenceStatus.DRAFT }
+            : (query.status.toUpperCase() as EvidenceStatus),
+      },
+      include: {
+        ...evidenceInclude,
+        project: { select: { id: true, title: true, teamName: true, programId: true } },
+      },
+      orderBy: [{ submittedAt: 'asc' }, { createdAt: 'asc' }],
+      take: 200,
+    })
+    res.status(200).json({ evidence: evidence.map(serializeEvidence) })
+  } catch (error) {
+    next(error)
+  }
+})
