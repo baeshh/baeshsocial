@@ -96,7 +96,7 @@ umask 022
 pass "wrote ${ENV_FILE} (production config validation applies: NODE_ENV=production via PM2)"
 
 step "3. Package release ${SHA:0:12}"
-VITE_API_URL="https://staging-api.rehearsal.invalid/api" "$ROOT/deploy/scripts/package-release.sh" "$SHA" "$WORK/release.tgz" >/dev/null
+VITE_API_URL="https://staging-api.rehearsal.invalid/api" bash "$ROOT/deploy/scripts/package-release.sh" "$SHA" "$WORK/release.tgz" >/dev/null
 pass "release.tgz $(du -h "$WORK/release.tgz" | cut -f1)"
 
 step "4. First deploy (migrate existing data → switch → health)"
