@@ -1,8 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, CalendarDays, MapPin, Users } from 'lucide-react'
+import {
+  ArrowLeft,
+  CalendarDays,
+  ClipboardCheck,
+  FolderKanban,
+  GitPullRequestArrow,
+  Inbox,
+  LayoutDashboard,
+  List,
+  MapPin,
+  Settings,
+  TrendingUp,
+  Users,
+} from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Badge } from '../../components/common/Badge'
-import { LoadingState } from '../../components/common/LoadingState'
 import { Tabs, type TabItem } from '../../components/common/Tabs'
 import { ProgramKpiPanel } from '../../components/institution/KpiPanels'
 import { ProgramApplicationsPanel } from '../../components/institution/ProgramApplicationsPanel'
@@ -12,6 +24,11 @@ import { ProgramRequestsPanel } from '../../components/institution/ProgramReques
 import { ProgramReviewPanel } from '../../components/institution/ProgramReviewPanel'
 import { ProgramSettingsPanel } from '../../components/institution/ProgramSettingsPanel'
 import { AppLayout } from '../../components/layout/AppLayout'
+import { ManagementAppShell, type ManagementNavGroup } from '../../components/layout/ManagementAppShell'
+import { ShellSkeleton } from '../../components/layout/ShellSkeleton'
+import { orgSectionPath } from '../../components/organizations/orgNavigation'
+import { useMyOrganizations } from '../../hooks/useMyOrganizations'
+import { ORG_ROLE_LABEL, ORG_TYPE_META } from '../../lib/organizations'
 import {
   DELIVERY_MODE_LABEL,
   PROGRAM_STATUS_META,
@@ -29,6 +46,7 @@ export function ProgramDetailPage() {
   const { orgId = '', programId = '' } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const token = useAuthStore((s) => s.token)
+  const { activeMemberships } = useMyOrganizations()
 
   const programQuery = useQuery({
     queryKey: ['programs', programId],
@@ -37,17 +55,13 @@ export function ProgramDetailPage() {
   })
 
   if (programQuery.isLoading) {
-    return (
-      <AppLayout>
-        <LoadingState label="프로그램을 불러오는 중입니다" />
-      </AppLayout>
-    )
+    return <ShellSkeleton label="프로그램을 불러오는 중입니다" />
   }
 
   if (programQuery.isError || !programQuery.data || programQuery.data.organization.id !== orgId) {
     return (
       <AppLayout>
-        <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+        <p className="rounded-2xl border border-danger-100 bg-danger-50 px-4 py-3 text-sm font-medium text-danger-700">
           {(programQuery.error as Error | null)?.message ?? '프로그램을 찾을 수 없습니다.'}
         </p>
       </AppLayout>
@@ -83,8 +97,7 @@ export function ProgramDetailPage() {
   const requested = searchParams.get('tab') ?? 'projects'
   const activeTab = tabs.some((tab) => tab.id === requested) ? requested : 'projects'
 
-  return (
-    <AppLayout>
+  const page = (
       <div className="space-y-6">
         <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
           <Link
@@ -161,13 +174,76 @@ export function ProgramDetailPage() {
           {program.description ? <p className="mt-3 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-ink-body">{program.description}</p> : null}
         </div>
 
-        <Tabs
-          activeTab={activeTab}
-          onChange={(tabId) => setSearchParams(tabId === 'projects' ? {} : { tab: tabId }, { replace: true })}
-          tabs={tabs}
-          variant="underline"
-        />
+        {myAccess.isStaff ? (
+          <section aria-label={tabs.find((tab) => tab.id === activeTab)?.label}>{tabs.find((tab) => tab.id === activeTab)?.content}</section>
+        ) : tabs.length > 1 ? (
+          <Tabs
+            activeTab={activeTab}
+            label="프로그램 메뉴"
+            onChange={(tabId) => setSearchParams(tabId === 'projects' ? {} : { tab: tabId }, { replace: true })}
+            tabs={tabs}
+            variant="underline"
+          />
+        ) : (
+          <section aria-labelledby="program-my-projects" className="space-y-4">
+            <h2 className="text-lg font-bold text-ink-strong" id="program-my-projects">
+              내 프로젝트
+            </h2>
+            {tabs[0]?.content}
+          </section>
+        )}
       </div>
-    </AppLayout>
+  )
+
+  if (!myAccess.isStaff) {
+    return <AppLayout>{page}</AppLayout>
+  }
+
+  const membership = activeMemberships.find((item) => item.organization.id === orgId)
+  const orgMeta = ORG_TYPE_META[organization.type]
+  const programPath = `/org/${orgId}/programs/${program.id}`
+  const tabIcons: Record<string, typeof FolderKanban> = {
+    projects: FolderKanban,
+    applications: Inbox,
+    participants: Users,
+    requests: GitPullRequestArrow,
+    review: ClipboardCheck,
+    kpis: TrendingUp,
+    settings: Settings,
+  }
+  const nav: ManagementNavGroup[] = [
+    ...(isOrgMember
+      ? [
+          {
+            id: 'organization',
+            label: organization.name,
+            items: [
+              { id: 'org-home', label: '운영 홈', to: orgSectionPath(orgId, 'overview'), icon: LayoutDashboard, active: false },
+              { id: 'org-programs', label: '프로그램 목록', to: orgSectionPath(orgId, 'programs'), icon: List, active: false },
+            ],
+          },
+        ]
+      : []),
+    {
+      id: 'program',
+      label: program.title,
+      items: tabs.map((tab) => ({
+        id: tab.id,
+        label: tab.label.replace(/\s+\d*$/, '') || tab.label,
+        to: tab.id === 'projects' ? programPath : `${programPath}?tab=${tab.id}`,
+        icon: tabIcons[tab.id] ?? FolderKanban,
+        active: tab.id === activeTab,
+      })),
+    },
+  ]
+  const caption = membership ? `${orgMeta.label} · ${ORG_ROLE_LABEL[membership.role]}` : '프로그램 담당자'
+
+  return (
+    <ManagementAppShell
+      nav={nav}
+      workspace={{ name: organization.name, caption, icon: orgMeta.icon, homeTo: isOrgMember ? `/org/${orgId}` : programPath }}
+    >
+      {page}
+    </ManagementAppShell>
   )
 }
