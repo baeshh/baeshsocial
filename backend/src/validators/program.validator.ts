@@ -25,6 +25,16 @@ function checkPeriod<T extends { startDate?: Date | null; endDate?: Date | null 
   }
 }
 
+function checkProgramDates(
+  value: { startDate?: Date | null; endDate?: Date | null; applyStartAt?: Date | null; applyEndAt?: Date | null },
+  ctx: z.RefinementCtx,
+) {
+  checkPeriod(value, ctx)
+  if (value.applyStartAt && value.applyEndAt && value.applyStartAt > value.applyEndAt) {
+    ctx.addIssue({ code: 'custom', path: ['applyEndAt'], message: '모집 마감일은 모집 시작일 이후여야 합니다.' })
+  }
+}
+
 export const programStatusSchema = z.enum(['draft', 'active', 'completed', 'archived'])
 export const recordDisclosureSchema = z.enum(['hidden', 'summary', 'full'])
 
@@ -37,6 +47,22 @@ const programPolicyShape = {
   recordDisclosure: recordDisclosureSchema.optional(),
 }
 
+export const programVisibilitySchema = z.enum(['private', 'organization', 'public'])
+export const recruitmentModeSchema = z.enum(['selected', 'recruiting'])
+
+const programRecruitmentShape = {
+  visibility: programVisibilitySchema.optional(),
+  recruitmentMode: recruitmentModeSchema.optional(),
+  targetAudience: optionalText(500),
+  capacity: z.number().int().min(1).max(10_000).nullable().optional(),
+  applyStartAt: optionalDate,
+  applyEndAt: optionalDate,
+  announceAt: optionalDate,
+  selectionProcess: optionalText(2000),
+  deliveryMode: z.enum(['online', 'offline', 'hybrid']).nullable().optional(),
+  location: optionalText(200),
+}
+
 export const createProgramSchema = z
   .object({
     title: z.string().trim().min(2).max(120),
@@ -47,8 +73,9 @@ export const createProgramSchema = z
     endDate: optionalDate,
     managerUserIds: z.array(id).max(30).default([]),
     ...programPolicyShape,
+    ...programRecruitmentShape,
   })
-  .superRefine(checkPeriod)
+  .superRefine(checkProgramDates)
 
 export const updateProgramSchema = z
   .object({
@@ -60,8 +87,28 @@ export const updateProgramSchema = z
     endDate: optionalDate,
     managerUserIds: z.array(id).max(30).optional(),
     ...programPolicyShape,
+    ...programRecruitmentShape,
   })
-  .superRefine(checkPeriod)
+  .superRefine(checkProgramDates)
+
+export const discoverProgramsSchema = z.object({
+  page: z.coerce.number().int().min(1).max(100).default(1),
+  pageSize: z.coerce.number().int().min(1).max(30).default(6),
+  q: z.string().trim().max(80).optional(),
+})
+
+export const programApplySchema = z.object({
+  message: optionalText(2000),
+})
+
+export const programApplicationQuerySchema = z.object({
+  status: z.enum(['pending', 'accepted', 'rejected', 'withdrawn', 'all']).default('pending'),
+})
+
+export const decideProgramApplicationSchema = z.object({
+  decision: z.enum(['accept', 'reject']),
+  note: optionalText(1000),
+})
 
 const projectVisibilitySchema = z.enum(['private', 'team', 'public'])
 

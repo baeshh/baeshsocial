@@ -27,6 +27,34 @@ export function serializeProgram(
     participantCount: program._count?.participants ?? null,
     managers: program.managers?.map((manager) => manager.user) ?? [],
     policy: serializeProgramPolicy(program),
+    visibility: lower(program.visibility),
+    recruitment: serializeRecruitment(program),
+  }
+}
+
+export type RecruitmentState = 'selected' | 'upcoming' | 'open' | 'closed'
+
+/** SELECTED programs take no applications; RECRUITING ones are open only inside the apply window of a live program. */
+export function recruitmentState(program: Program, now = new Date()): RecruitmentState {
+  if (program.recruitmentMode === 'SELECTED') return 'selected'
+  if (program.status === 'COMPLETED' || program.status === 'ARCHIVED') return 'closed'
+  if (program.applyStartAt && now < program.applyStartAt) return 'upcoming'
+  if (program.applyEndAt && now > program.applyEndAt) return 'closed'
+  return 'open'
+}
+
+export function serializeRecruitment(program: Program) {
+  return {
+    mode: lower(program.recruitmentMode),
+    state: recruitmentState(program),
+    targetAudience: program.targetAudience,
+    capacity: program.capacity,
+    applyStartAt: program.applyStartAt,
+    applyEndAt: program.applyEndAt,
+    announceAt: program.announceAt,
+    selectionProcess: program.selectionProcess,
+    deliveryMode: program.deliveryMode ? lower(program.deliveryMode) : null,
+    location: program.location,
   }
 }
 

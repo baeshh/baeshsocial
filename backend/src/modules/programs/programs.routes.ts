@@ -3,7 +3,10 @@ import {
   OrganizationMemberStatus,
   OrganizationRole,
   OrganizationVerificationStatus,
+  ProgramDeliveryMode,
+  ProgramRecruitmentMode,
   ProgramStatus,
+  ProgramVisibility,
   ProjectActivityType,
   ProjectStatus,
   ProjectTaskStatus,
@@ -37,11 +40,13 @@ import { findTeamConflicts, isStudentLed, loadStudentLed } from '../../services/
 import { evidenceInclude, serializeEvidence, serializeProgram, teamRoleOf, userBriefSelect } from './program.serializers.js'
 import { registerProjectRegistrationRoutes } from './programProjectRegistrations.routes.js'
 import { registerProjectReviewRoutes } from './programProjectReviews.routes.js'
+import { registerProgramRecruitmentRoutes } from './programRecruitment.routes.js'
 import { registerProjectVerificationRoutes } from './projectVerification.routes.js'
 
 export const organizationProgramsRouter = Router({ mergeParams: true })
 export const programsRouter = Router()
 
+registerProgramRecruitmentRoutes(programsRouter)
 registerProjectRegistrationRoutes(programsRouter)
 registerProjectReviewRoutes(programsRouter)
 registerProjectVerificationRoutes(programsRouter)
@@ -68,6 +73,54 @@ function policyData(input: PolicyInput) {
     ...(input.recordDisclosure !== undefined
       ? { recordDisclosure: input.recordDisclosure.toUpperCase() as RecordDisclosure }
       : {}),
+  }
+}
+
+type RecruitmentInput = {
+  visibility?: 'private' | 'organization' | 'public'
+  recruitmentMode?: 'selected' | 'recruiting'
+  targetAudience?: string | null
+  capacity?: number | null
+  applyStartAt?: Date | null
+  applyEndAt?: Date | null
+  announceAt?: Date | null
+  selectionProcess?: string | null
+  deliveryMode?: 'online' | 'offline' | 'hybrid' | null
+  location?: string | null
+}
+
+function recruitmentData(input: RecruitmentInput) {
+  const upper = <T extends string>(value: T) => value.toUpperCase() as Uppercase<T>
+  return {
+    ...(input.visibility !== undefined ? { visibility: upper(input.visibility) as ProgramVisibility } : {}),
+    ...(input.recruitmentMode !== undefined ? { recruitmentMode: upper(input.recruitmentMode) as ProgramRecruitmentMode } : {}),
+    ...(input.targetAudience !== undefined ? { targetAudience: input.targetAudience } : {}),
+    ...(input.capacity !== undefined ? { capacity: input.capacity } : {}),
+    ...(input.applyStartAt !== undefined ? { applyStartAt: input.applyStartAt } : {}),
+    ...(input.applyEndAt !== undefined ? { applyEndAt: input.applyEndAt } : {}),
+    ...(input.announceAt !== undefined ? { announceAt: input.announceAt } : {}),
+    ...(input.selectionProcess !== undefined ? { selectionProcess: input.selectionProcess } : {}),
+    ...(input.deliveryMode !== undefined
+      ? { deliveryMode: input.deliveryMode ? (upper(input.deliveryMode) as ProgramDeliveryMode) : null }
+      : {}),
+    ...(input.location !== undefined ? { location: input.location } : {}),
+  }
+}
+
+/** Checks the merged (stored + incoming) recruitment settings, since a PATCH may send only part of them. */
+function assertRecruitmentConsistent(merged: {
+  visibility: ProgramVisibility
+  recruitmentMode: ProgramRecruitmentMode
+  applyStartAt: Date | null
+  applyEndAt: Date | null
+}) {
+  if (merged.recruitmentMode !== ProgramRecruitmentMode.RECRUITING) return
+  if (merged.visibility === ProgramVisibility.PRIVATE) {
+    throw new HttpError(400, '지원을 받으려면 공개 범위를 조직 내부 공개 또는 전체 공개로 설정해 주세요.')
+  }
+  if (!merged.applyEndAt) throw new HttpError(400, '모집 마감 일시를 입력해 주세요.')
+  if (merged.applyStartAt && merged.applyStartAt > merged.applyEndAt) {
+    throw new HttpError(400, '모집 마감 일시는 모집 시작 일시 이후여야 합니다.')
   }
 }
 
@@ -246,6 +299,12 @@ organizationProgramsRouter.get('/', authenticate, requireOrgAccess(), async (_re
 
     const visibility: Prisma.ProgramWhereInput[] = [{ participants: { some: { userId: authUser.id } } }]
     if (canManage) visibility.push({ managers: { some: { userId: authUser.id } } })
+    if (approved) {
+      visibility.push({
+        visibility: { in: [ProgramVisibility.ORGANIZATION, ProgramVisibility.PUBLIC] },
+        status: { not: ProgramStatus.ARCHIVED },
+      })
+    }
 
     const programs = await prisma.program.findMany({
       where: { organizationId: organization.id, ...(isOrgAdmin ? {} : { OR: visibility }) },
@@ -302,6 +361,13 @@ organizationProgramsRouter.post(
       if (!hasOrgRole(membership.role, OrganizationRole.ADMIN)) requested.push(authUser.id)
       const managerIds = await resolveManagerIds(organization.id, requested)
       const status = toProgramStatus(input.status)
+      const recruitment = recruitmentData(input)
+      assertRecruitmentConsistent({
+        visibility: recruitment.visibility ?? ProgramVisibility.PRIVATE,
+        recruitmentMode: recruitment.recruitmentMode ?? ProgramRecruitmentMode.SELECTED,
+        applyStartAt: recruitment.applyStartAt ?? null,
+        applyEndAt: recruitment.applyEndAt ?? null,
+      })
       await assertOrgCapacity(organization.id, 'activePrograms', status === ProgramStatus.ACTIVE ? 1 : 0)
 
       const program = await prisma.program.create({
@@ -316,6 +382,7 @@ organizationProgramsRouter.post(
           createdById: authUser.id,
           managers: { create: managerIds.map((userId) => ({ userId })) },
           ...policyData(input),
+          ...recruitment,
         },
         include: programInclude,
       })
@@ -325,7 +392,14 @@ organizationProgramsRouter.post(
         organizationId: organization.id,
         targetType: 'program',
         targetId: program.id,
-        metadata: { title: program.title, status: program.status, managers: managerIds.length, policy: policyData(input) },
+        metadata: {
+          title: program.title,
+          status: program.status,
+          managers: managerIds.length,
+          policy: policyData(input),
+          visibility: program.visibility,
+          recruitmentMode: program.recruitmentMode,
+        },
       })
       await notify(
         managerIds,
@@ -390,6 +464,13 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
     }
 
     const policy = policyData(input)
+    const recruitment = recruitmentData(input)
+    assertRecruitmentConsistent({
+      visibility: recruitment.visibility ?? access.program.visibility,
+      recruitmentMode: recruitment.recruitmentMode ?? access.program.recruitmentMode,
+      applyStartAt: recruitment.applyStartAt !== undefined ? recruitment.applyStartAt : access.program.applyStartAt,
+      applyEndAt: recruitment.applyEndAt !== undefined ? recruitment.applyEndAt : access.program.applyEndAt,
+    })
     const closingPublic = policy.allowPublicProjects === false && access.program.allowPublicProjects
     const program = await prisma.$transaction(async (tx) => {
       if (managerIds) {
@@ -415,6 +496,7 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
           ...(input.startDate !== undefined ? { startDate: input.startDate } : {}),
           ...(input.endDate !== undefined ? { endDate: input.endDate } : {}),
           ...policy,
+          ...recruitment,
         },
         include: programInclude,
       })
@@ -430,6 +512,12 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
         ...(nextStatus && nextStatus !== access.program.status ? { statusFrom: access.program.status, statusTo: nextStatus } : {}),
         ...(managerIds ? { managers: managerIds } : {}),
         ...(Object.keys(policy).length ? { policy } : {}),
+        ...(recruitment.visibility && recruitment.visibility !== access.program.visibility
+          ? { visibilityFrom: access.program.visibility, visibilityTo: recruitment.visibility }
+          : {}),
+        ...(recruitment.recruitmentMode && recruitment.recruitmentMode !== access.program.recruitmentMode
+          ? { recruitmentModeTo: recruitment.recruitmentMode }
+          : {}),
         ...(closingPublic ? { publicProjectsClosed: true } : {}),
       },
     })

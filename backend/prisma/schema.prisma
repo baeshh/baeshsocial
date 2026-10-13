@@ -298,6 +298,32 @@ enum ProjectInviteStatus {
   CANCELLED
 }
 
+/// Who can discover a program. PRIVATE = staff and participants only (the original behaviour).
+enum ProgramVisibility {
+  PRIVATE
+  ORGANIZATION
+  PUBLIC
+}
+
+/// SELECTED = participants are already chosen and registered by staff; RECRUITING = applications are taken.
+enum ProgramRecruitmentMode {
+  SELECTED
+  RECRUITING
+}
+
+enum ProgramDeliveryMode {
+  ONLINE
+  OFFLINE
+  HYBRID
+}
+
+enum ProgramApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
 enum ProgramProjectRegistrationStatus {
   PENDING
   APPROVED
@@ -418,6 +444,8 @@ model User {
   announcements               Announcement[]
   projectRegistrations        ProgramProjectRegistration[] @relation("RegistrationRequester")
   registrationsReviewed       ProgramProjectRegistration[] @relation("RegistrationReviewer")
+  programApplications         ProgramApplication[]         @relation("ProgramApplicant")
+  programApplicationsReviewed ProgramApplication[]         @relation("ProgramApplicationReviewer")
   projectReviewsWritten       ProjectReview[]              @relation("ProjectReviewAuthor")
   projectReviewsResolved      ProjectReview[]              @relation("ProjectReviewResolver")
   projectReviewsTargeted      ProjectReview[]              @relation("ProjectReviewTarget")
@@ -1109,6 +1137,16 @@ model Program {
   allowMultipleProjects  Boolean                      @default(false)
   /// Highest level of verified-record detail students of this program may disclose.
   recordDisclosure       RecordDisclosure             @default(SUMMARY)
+  visibility             ProgramVisibility            @default(PRIVATE)
+  recruitmentMode        ProgramRecruitmentMode       @default(SELECTED)
+  targetAudience         String?
+  capacity               Int?
+  applyStartAt           DateTime?
+  applyEndAt             DateTime?
+  announceAt             DateTime?
+  selectionProcess       String?
+  deliveryMode           ProgramDeliveryMode?
+  location               String?
   createdById            String?
   createdAt              DateTime                     @default(now())
   updatedAt              DateTime                     @updatedAt
@@ -1122,8 +1160,31 @@ model Program {
   projectRegistrations   ProgramProjectRegistration[]
   projectReviews         ProjectReview[]
   projectVerifications   ProjectVerification[]
+  applications           ProgramApplication[]
 
   @@index([organizationId])
+  @@index([visibility, status])
+}
+
+/// An application to a RECRUITING program. Acceptance is the only way it turns into a ProgramParticipant.
+model ProgramApplication {
+  id           String                   @id @default(cuid())
+  programId    String
+  userId       String
+  status       ProgramApplicationStatus @default(PENDING)
+  message      String?
+  reviewNote   String?
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  program      Program                  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  user         User                     @relation("ProgramApplicant", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy   User?                    @relation("ProgramApplicationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([programId, userId])
+  @@index([programId, status, createdAt])
+  @@index([userId])
 }
 
 /// A request to manage a project inside a program. The project row itself is never copied: approval
