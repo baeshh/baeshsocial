@@ -23,7 +23,7 @@ export type ProjectInvite = {
   invitee: Pick<AuthUser, 'id' | 'name' | 'email' | 'avatarUrl'>
 }
 
-export type TeamCandidateRelation = 'following' | 'follower' | 'mutual'
+export type TeamCandidateRelation = 'following' | 'follower' | 'mutual' | 'participant'
 
 export type TeamCandidate = Pick<AuthUser, 'id' | 'name' | 'email' | 'avatarUrl'> & {
   relation: TeamCandidateRelation
@@ -33,6 +33,7 @@ export type TeamCandidates = {
   following: TeamCandidate[]
   followers: TeamCandidate[]
   mutual: TeamCandidate[]
+  participants?: TeamCandidate[]
 }
 
 export type ProjectMember = {
@@ -45,6 +46,15 @@ export type ProjectMember = {
   joinedAt: string
   user: Pick<AuthUser, 'id' | 'name' | 'email' | 'avatarUrl'>
   projectRole?: Pick<ProjectRole, 'id' | 'name' | 'slug' | 'permissions'> | null
+  privateAccess?: boolean
+}
+
+export type ProjectRegistrationBrief = {
+  id: string
+  status: 'pending' | 'approved' | 'rejected' | 'withdrawn' | 'removed'
+  reviewNote: string | null
+  createdAt: string
+  program: { id: string; title: string; organizationId: string; organizationName: string }
 }
 
 export type ProjectTask = {
@@ -103,6 +113,8 @@ export type Project = {
     id: string
     title: string
     status?: string
+    allowPublicProjects?: boolean
+    allowStudentTeams?: boolean
     organization: { id: string; name: string; type?: string }
   } | null
   roles?: ProjectRole[]

@@ -1,6 +1,6 @@
 import { apiRequest, withQuery } from '../lib/api'
 import type { ProjectLink, ProjectLinkType } from '../types/profile'
-import type { Project, ProjectInvite, ProjectSummary, TeamCandidates } from '../types/project'
+import type { Project, ProjectInvite, ProjectRegistrationBrief, ProjectSummary, TeamCandidates } from '../types/project'
 import type { PermissionCatalogItem, ProjectPermission, ProjectRole } from '../types/projectRole'
 
 export type ProjectPayload = {
@@ -102,8 +102,28 @@ export function getProject(token: string, projectId: string) {
     myPermissions: ProjectPermission[]
     isOwner: boolean
     isGuestViewer?: boolean
+    isLeader?: boolean
+    isProgramStaff?: boolean
+    restricted?: boolean
+    registration?: ProjectRegistrationBrief | null
   }>(`/projects/${projectId}`, {
     token,
+  })
+}
+
+export function updateProjectVisibility(token: string, projectId: string, visibility: 'private' | 'team' | 'public') {
+  return apiRequest<{ id: string; visibility: string }>(`/projects/${projectId}/visibility`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({ visibility }),
+  })
+}
+
+export function setMemberPrivateAccess(token: string, projectId: string, memberId: string, allowed: boolean) {
+  return apiRequest<{ id: string; privateAccess: boolean }>(`/projects/${projectId}/members/${memberId}/private-access`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({ allowed }),
   })
 }
 

@@ -28,7 +28,9 @@ import { ProjectLeaveModal } from '../../components/projects/ProjectLeaveModal'
 import { ProjectLinksPanel } from '../../components/projects/ProjectLinksPanel'
 import { ProjectRolesPanel } from '../../components/projects/ProjectRolesPanel'
 import { TeamInviteModal } from '../../components/projects/TeamInviteModal'
+import { ProjectInstitutionPanel } from '../../components/projects/ProjectInstitutionPanel'
 import { hasProjectPermission, isGuestProjectViewer } from '../../lib/projectPermissions'
+import { REGISTRATION_STATUS_META, VISIBILITY_META } from '../../lib/programs'
 import type { ProjectPermission } from '../../types/projectRole'
 import { cn } from '../../lib/cn'
 import {
@@ -41,13 +43,28 @@ import {
   getProject,
   getProjects,
   leaveProject,
+  setMemberPrivateAccess,
   updateProject,
   updateProjectTask,
+  updateProjectVisibility,
 } from '../../services/projectService'
 import { useAuthStore } from '../../stores/authStore'
+import { showToast } from '../../stores/toastStore'
 import type { Project, ProjectSummary, ProjectTask } from '../../types/project'
 
 const PROJECT_PAGE_SIZE = 24
+
+type ProjectVisibilityOption = 'private' | 'team' | 'public'
+
+const isLeaderSlug = (slug: string | null | undefined) => slug === 'owner' || slug === 'admin'
+
+function visibilityLabel(project: Pick<Project, 'visibility' | 'program'>) {
+  const option = project.visibility.toLowerCase() as ProjectVisibilityOption
+  if (option === 'public' && project.program && project.program.allowPublicProjects === false) {
+    return `${VISIBILITY_META.team.label} (전체 공개 미허용)`
+  }
+  return VISIBILITY_META[option]?.label ?? project.visibility
+}
 
 function splitTags(value: string) {
   return value
@@ -358,9 +375,13 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
   const can = (permission: ProjectPermission) => hasProjectPermission(myPermissions, permission)
   const guestViewer =
     projectQuery.data?.isGuestViewer ?? isGuestProjectViewer(myPermissions, isOwner)
+  const isLeader = projectQuery.data?.isLeader ?? isOwner
+  const isProgramStaff = projectQuery.data?.isProgramStaff ?? false
+  const restricted = projectQuery.data?.restricted ?? false
+  const registration = projectQuery.data?.registration ?? null
   const canViewTasks = can('tasks.view')
   const canViewFiles = can('files.view')
-  const canViewActivities = can('activities.create')
+  const canViewActivities = !guestViewer
   const [editForm, setEditForm] = useState({ progress: 0, status: 'planning' })
   const [taskForm, setTaskForm] = useState({ title: '', description: '', dueDate: '' })
   const [activityForm, setActivityForm] = useState({ title: '', description: '' })
@@ -451,6 +472,20 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
       assignMemberRole(token, projectId, memberId, roleId),
     onSuccess: invalidate,
   })
+  const visibilityMutation = useMutation({
+    mutationFn: (visibility: ProjectVisibilityOption) => updateProjectVisibility(token, projectId, visibility),
+    onSuccess: () => {
+      showToast('공개 범위를 변경했습니다.')
+      invalidate()
+    },
+    onError: (error: Error) => showToast(error.message, 'error'),
+  })
+  const privateAccessMutation = useMutation({
+    mutationFn: ({ memberId, allowed }: { memberId: string; allowed: boolean }) =>
+      setMemberPrivateAccess(token, projectId, memberId, allowed),
+    onSuccess: invalidate,
+    onError: (error: Error) => showToast(error.message, 'error'),
+  })
 
   const isMember = Boolean(
     currentUserId &&
@@ -485,7 +520,12 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
 
   const detailTabs: Array<{ id: string; label: string; count?: number }> = [
     { id: 'overview', label: 'Overview' },
-    ...(project.program ? [{ id: 'evidence', label: '활동 증빙' }] : []),
+    ...(project.program && !guestViewer
+      ? [
+          { id: 'reviews', label: '기관 리뷰' },
+          { id: 'evidence', label: '활동 증빙' },
+        ]
+      : []),
     ...(canViewTasks ? [{ id: 'tasks', label: 'Tasks', count: project.tasks.length }] : []),
     ...(canViewFiles ? [{ id: 'files', label: 'Files', count: project.files.length }] : []),
     ...(showSettingsTab ? [{ id: 'settings', label: 'Settings' }] : []),
@@ -523,7 +563,7 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Badge tone="purple">{project.status}</Badge>
-                  <Badge tone="blue">{project.visibility}</Badge>
+                  <Badge tone="blue">{visibilityLabel(project)}</Badge>
                   {project.program ? (
                     <Link to={`/org/${project.program.organization.id}/programs/${project.program.id}`}>
                       <Badge className="hover:border-brand-300" tone="green">
@@ -531,8 +571,19 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                         {project.teamName ? ` · ${project.teamName}` : ''}
                       </Badge>
                     </Link>
+                  ) : registration && registration.status !== 'removed' && registration.status !== 'withdrawn' ? (
+                    <Badge tone={REGISTRATION_STATUS_META[registration.status].tone}>
+                      {registration.program.organizationName} · {registration.program.title} {REGISTRATION_STATUS_META[registration.status].label}
+                    </Badge>
                   ) : null}
+                  {isProgramStaff ? <Badge tone="gray">담당자 열람</Badge> : null}
                 </div>
+                {!project.program && registration?.status === 'rejected' && registration.reviewNote ? (
+                  <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">반려 사유: {registration.reviewNote}</p>
+                ) : null}
+                {!project.program && registration?.status === 'pending' ? (
+                  <p className="mt-2 text-xs text-ink-muted">담당자가 승인하면 이 프로젝트가 그대로 프로그램에 연결됩니다. 승인 전까지는 개인 프로젝트입니다.</p>
+                ) : null}
               </div>
             </div>
             <ProjectProgressRing pct={project.progress} />
@@ -647,15 +698,25 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                 ) : guestViewer ? (
                   <Card className="rounded-2xl border-surface-border bg-surface-muted/30 shadow-sm">
                     <CardHeader>
-                      <CardTitle className="text-base">공개 프로젝트</CardTitle>
+                      <CardTitle className="text-base">{restricted ? '비공개 프로젝트' : '공개 프로젝트'}</CardTitle>
                       <CardDescription>
-                        팀 멤버가 아니면 활동·파일·태스크는 볼 수 없습니다. 초대를 받으면 전체 내용을 확인할 수
-                        있습니다.
+                        {restricted
+                          ? '팀장이 비공개로 설정한 프로젝트입니다. 팀장이 열람 권한을 지정하면 전체 내용을 볼 수 있습니다.'
+                          : '팀 멤버가 아니면 활동·파일·태스크는 볼 수 없습니다. 초대를 받으면 전체 내용을 확인할 수 있습니다.'}
                       </CardDescription>
                     </CardHeader>
                   </Card>
                 ) : null}
               </>
+            ) : null}
+
+            {effectiveDetailTab === 'reviews' && project.program ? (
+              <ProjectInstitutionPanel
+                organizationName={project.program.organization.name}
+                programId={project.program.id}
+                programTitle={project.program.title}
+                projectId={project.id}
+              />
             ) : null}
 
             {effectiveDetailTab === 'evidence' && project.program ? <ProjectEvidencePanel projectId={project.id} /> : null}
@@ -789,9 +850,46 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                     token={token}
                   />
                 ) : null}
+                {can('project.settings') ? (
+                  <Card className="rounded-2xl border-surface-border shadow-sm">
+                    <CardHeader>
+                      <CardTitle>공개 범위</CardTitle>
+                      <CardDescription>
+                        프로젝트 내용의 공개 범위입니다. 인증 기록의 프로필 공개 범위는 프로필의 기록별 설정에서 따로 정합니다.
+                      </CardDescription>
+                    </CardHeader>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {(Object.keys(VISIBILITY_META) as ProjectVisibilityOption[]).map((option) => {
+                        const active = project.visibility === option.toUpperCase()
+                        const blocked = option === 'public' && Boolean(project.program) && !project.program?.allowPublicProjects
+                        return (
+                          <button
+                            className={cn(
+                              'rounded-2xl border p-3 text-left transition',
+                              active ? 'border-brand-600 bg-brand-50' : 'border-surface-border hover:border-brand-200',
+                              blocked && 'cursor-not-allowed opacity-50',
+                            )}
+                            disabled={blocked || active || visibilityMutation.isPending}
+                            key={option}
+                            onClick={() => visibilityMutation.mutate(option)}
+                            type="button"
+                          >
+                            <span className="block text-sm font-bold text-ink-strong">{VISIBILITY_META[option].label}</span>
+                            <span className="mt-1 block text-xs text-ink-muted">
+                              {blocked ? '이 기관 프로그램은 전체 공개를 허용하지 않습니다.' : VISIBILITY_META[option].description}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </Card>
+                ) : null}
                 <Panel icon={<UsersRound size={20} />} title="팀">
                   <p className="mb-4 text-sm text-ink-muted">
-                    팀 초대는 사이드바의 + 버튼에서 팔로잉·팔로워·맞팔로우 목록으로 보낼 수 있습니다.
+                    {project.program
+                      ? '기관 프로그램 프로젝트는 이 프로그램 참여 학생만 초대할 수 있습니다.'
+                      : '팀 초대는 사이드바의 + 버튼에서 팔로잉·팔로워·맞팔로우 목록으로 보낼 수 있습니다.'}
+                    {isLeader && project.visibility === 'PRIVATE' ? ' 비공개 상태에서는 “비공개 열람”을 허용한 팀원만 내용을 볼 수 있습니다.' : ''}
                   </p>
                   {can('members.invite') && pendingInvites.length > 0 ? (
                     <div className="mb-4">
@@ -817,6 +915,17 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
                           <div>
                             <p className="font-semibold text-ink-strong">{member.user.name}</p>
                             <p className="text-sm text-ink-muted">{member.user.email}</p>
+                            {isLeader && project.visibility === 'PRIVATE' && !isProjectOwner && !isLeaderSlug(member.projectRole?.slug) ? (
+                              <label className="mt-1 flex items-center gap-2 text-xs font-medium text-ink-body">
+                                <input
+                                  checked={Boolean(member.privateAccess)}
+                                  disabled={privateAccessMutation.isPending}
+                                  onChange={(event) => privateAccessMutation.mutate({ memberId: member.id, allowed: event.target.checked })}
+                                  type="checkbox"
+                                />
+                                비공개 열람 허용
+                              </label>
+                            ) : null}
                           </div>
                           {can('members.assign_role') && !isProjectOwner && assignableRoles.length > 0 ? (
                             <Select
@@ -1033,6 +1142,7 @@ function ProjectDetail({ token, projectId }: { token: string; projectId: string 
         <TeamInviteModal
           onClose={() => setTeamInviteOpen(false)}
           open={teamInviteOpen}
+          programTitle={project.program?.title ?? null}
           projectId={projectId}
           projectTitle={project.title}
           roles={projectRoles}
