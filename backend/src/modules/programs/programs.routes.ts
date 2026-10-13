@@ -178,7 +178,7 @@ function serializeProgramProject(project: ProgramProjectRow, options: { includeE
     members: project.members.map((member) => ({
       ...member.user,
       userId: member.userId,
-      teamRole: teamRoleOf(member.projectRole?.slug),
+      teamRole: member.userId === project.ownerId ? ('leader' as const) : teamRoleOf(member.projectRole?.slug),
     })),
     taskStats: {
       total: project.tasks.length,
