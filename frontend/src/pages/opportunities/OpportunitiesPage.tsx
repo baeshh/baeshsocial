@@ -28,11 +28,12 @@ import {
   unsaveOpportunity,
 } from '../../services/opportunityService'
 import {
-  EMPTY_JOBS_SEARCH,
   EMPTY_OPPORTUNITY_FILTERS,
   OPPORTUNITY_TYPE_LABEL,
+  jobsSearchFromParams,
   opportunityQuery,
   programQuery,
+  writeJobsSearchParams,
   type JobsSearch,
   type OpportunityFilters,
 } from '../../lib/jobsSearch'
@@ -89,10 +90,19 @@ export function OpportunitiesPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const pageTab: 'browse' | 'my' = searchParams.get('tab') === 'my' ? 'my' : 'browse'
-  const setPageTab = (tab: 'browse' | 'my') => setSearchParams(tab === 'my' ? { tab: 'my' } : {}, { replace: true })
+  const setPageTab = (tab: 'browse' | 'my') =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (tab === 'my') next.set('tab', 'my')
+        else next.delete('tab')
+        return next
+      },
+      { replace: true },
+    )
   const [filterModalOpen, setFilterModalOpen] = useState(false)
-  const [search, setSearch] = useState<JobsSearch>(EMPTY_JOBS_SEARCH)
-  const [debouncedQ, setDebouncedQ] = useState('')
+  const [search, setSearch] = useState<JobsSearch>(() => jobsSearchFromParams(searchParams))
+  const [debouncedQ, setDebouncedQ] = useState(search.q)
   const [filters, setFiltersState] = useState<OpportunityFilters>(EMPTY_OPPORTUNITY_FILTERS)
   const [institutionPage, setInstitutionPage] = useState(1)
   const [opportunityPage, setOpportunityPage] = useState(1)
@@ -121,6 +131,15 @@ export function OpportunitiesPage() {
     applyUrl: '',
   })
   const effectiveSearch = useMemo(() => ({ ...search, q: debouncedQ }), [search, debouncedQ])
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = writeJobsSearchParams(prev, effectiveSearch)
+        return next.toString() === prev.toString() ? prev : next
+      },
+      { replace: true },
+    )
+  }, [effectiveSearch, setSearchParams])
   const searchNarrowed = Boolean(debouncedQ.trim() || search.category !== 'all' || search.openOnly)
   const programFilters = useMemo(() => programQuery(effectiveSearch), [effectiveSearch])
   const opportunityFilters = useMemo(() => opportunityQuery(effectiveSearch), [effectiveSearch])
