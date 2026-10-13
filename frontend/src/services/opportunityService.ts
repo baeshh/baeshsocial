@@ -15,10 +15,23 @@ export type OpportunityPayload = {
 
 export type OpportunityFilters = {
   q?: string
-  type?: string
+  /** Comma-separated lowercase types. */
+  types?: string
   remote?: boolean
   skill?: string
   saved?: boolean
+  openOnly?: boolean
+  sort?: 'match' | 'deadline' | 'recent'
+  page?: number
+  pageSize?: number
+}
+
+export type OpportunityPage = {
+  opportunities: Opportunity[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
 }
 
 function toQueryString(filters: OpportunityFilters) {
@@ -35,7 +48,7 @@ function toQueryString(filters: OpportunityFilters) {
 }
 
 export function getOpportunities(token: string, filters: OpportunityFilters = {}) {
-  return apiRequest<{ opportunities: Opportunity[] }>(`/opportunities${toQueryString(filters)}`, { token })
+  return apiRequest<OpportunityPage>(`/opportunities${toQueryString(filters)}`, { token })
 }
 
 export function createOpportunity(token: string, payload: OpportunityPayload) {

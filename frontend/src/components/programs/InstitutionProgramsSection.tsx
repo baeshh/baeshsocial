@@ -1,35 +1,20 @@
-import { useState } from 'react'
-import { useDiscoverPrograms } from '../../hooks/useDiscoverPrograms'
-import { PROGRAM_CATEGORY_LABEL } from '../../lib/programs'
-import type { ProgramCategory } from '../../types/program'
+import type { UseQueryResult } from '@tanstack/react-query'
+import type { DiscoverProgramsPage } from '../../types/program'
 import { Pagination } from '../common/Pagination'
 import { ProgramCard } from './ProgramCard'
 
-const chip = (active: boolean) =>
-  `rounded-full border px-3 py-1 text-xs font-semibold transition ${
-    active ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-surface-border text-ink-body hover:border-brand-200'
-  }`
-
 export function InstitutionProgramsSection({
-  token,
-  page,
+  query,
+  filtered,
   onPageChange,
 }: {
-  token: string | null
-  page: number
+  query: UseQueryResult<DiscoverProgramsPage>
+  /** Whether the Jobs search narrows the list; an empty filtered result still gets a note. */
+  filtered: boolean
   onPageChange: (page: number) => void
 }) {
-  const [category, setCategory] = useState<ProgramCategory | null>(null)
-  const [openOnly, setOpenOnly] = useState(false)
-  const filtered = Boolean(category) || openOnly
-  const query = useDiscoverPrograms(token, page, { category, openOnly })
   const data = query.data
   if (!data || (data.total === 0 && !filtered)) return null
-
-  const setFilter = (next: () => void) => {
-    next()
-    onPageChange(1)
-  }
 
   return (
     <section className="scroll-mt-40 space-y-3" id="institution-programs">
@@ -46,22 +31,8 @@ export function InstitutionProgramsSection({
           </p>
         ) : null}
       </div>
-      <div className="flex flex-wrap gap-1.5">
-        <button className={chip(openOnly)} onClick={() => setFilter(() => setOpenOnly((value) => !value))} type="button">
-          모집 중만
-        </button>
-        <span className="mx-1 w-px self-stretch bg-surface-border" />
-        <button className={chip(!category)} onClick={() => setFilter(() => setCategory(null))} type="button">
-          전체 유형
-        </button>
-        {(Object.keys(PROGRAM_CATEGORY_LABEL) as ProgramCategory[]).map((key) => (
-          <button className={chip(category === key)} key={key} onClick={() => setFilter(() => setCategory(key))} type="button">
-            {PROGRAM_CATEGORY_LABEL[key]}
-          </button>
-        ))}
-      </div>
       {data.total === 0 ? (
-        <p className="rounded-2xl bg-surface-muted px-4 py-6 text-center text-sm text-ink-muted">조건에 맞는 프로그램이 없습니다.</p>
+        <p className="rounded-2xl bg-surface-muted px-4 py-6 text-center text-sm text-ink-muted">조건에 맞는 기관 프로그램이 없습니다.</p>
       ) : (
         <div className={`grid gap-3 sm:grid-cols-2 xl:grid-cols-3 ${query.isPlaceholderData ? 'opacity-60' : ''}`}>
           {data.programs.map((program) => (

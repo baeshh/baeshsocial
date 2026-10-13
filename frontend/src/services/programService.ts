@@ -92,14 +92,25 @@ export type ParticipantInput = { email?: string; userId?: string; studentNo?: st
 
 /* ---------------------- Discovery & applications ---------------------- */
 
+export type DiscoverProgramsParams = {
+  page: number
+  pageSize: number
+  q?: string
+  category?: ProgramCategory | null
+  state?: 'all' | 'open' | 'upcoming'
+  /** `deadline`: open programs closing soonest first, then upcoming, then the rest. */
+  sort?: 'deadline' | 'recent'
+}
+
 export function discoverPrograms(
   token: string | null,
-  params: { page: number; pageSize: number; q?: string; category?: ProgramCategory | null; openOnly?: boolean },
+  params: DiscoverProgramsParams,
 ) {
   const search = new URLSearchParams({ page: String(params.page), pageSize: String(params.pageSize) })
   if (params.q) search.set('q', params.q)
   if (params.category) search.set('category', params.category)
-  if (params.openOnly) search.set('openOnly', 'true')
+  if (params.state && params.state !== 'all') search.set('state', params.state)
+  if (params.sort) search.set('sort', params.sort)
   return apiRequest<DiscoverProgramsPage>(`/programs/discover?${search}`, { token })
 }
 

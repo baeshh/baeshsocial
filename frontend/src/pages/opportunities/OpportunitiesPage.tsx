@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState, type FormEvent } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ExternalLink, Star, Trash2 } from 'lucide-react'
 import { Badge } from '../../components/common/Badge'
@@ -7,6 +7,7 @@ import { Button } from '../../components/common/Button'
 import { Card, CardDescription, CardHeader, CardTitle } from '../../components/common/Card'
 import { Input, Select, Textarea } from '../../components/common/Input'
 import { LoadingState } from '../../components/common/LoadingState'
+import { Pagination } from '../../components/common/Pagination'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { EnrollmentManagePanel } from '../../components/institution/EnrollmentManagePanel'
 import { MyEnrollmentsPanel } from '../../components/opportunities/MyEnrollmentsPanel'
@@ -14,10 +15,8 @@ import { InstitutionProgramsSection } from '../../components/programs/Institutio
 import { useDiscoverPrograms } from '../../hooks/useDiscoverPrograms'
 import { MyProgramApplications } from '../../components/programs/MyProgramApplications'
 import { MyParticipatingPrograms } from '../../components/programs/MyParticipatingPrograms'
-import {
-  OpportunityBrowseControls,
-  OpportunityFiltersSidebar,
-} from '../../components/opportunities/OpportunityBrowseControls'
+import { JobsSearchBar } from '../../components/opportunities/JobsSearchBar'
+import { OpportunityFilterButton, OpportunityFiltersSidebar } from '../../components/opportunities/OpportunityBrowseControls'
 import {
   createOpportunity,
   deleteOpportunity,
@@ -28,6 +27,15 @@ import {
   saveOpportunity,
   unsaveOpportunity,
 } from '../../services/opportunityService'
+import {
+  EMPTY_JOBS_SEARCH,
+  EMPTY_OPPORTUNITY_FILTERS,
+  OPPORTUNITY_TYPE_LABEL,
+  opportunityQuery,
+  programQuery,
+  type JobsSearch,
+  type OpportunityFilters,
+} from '../../lib/jobsSearch'
 import { canManageOpportunity } from '../../lib/opportunityPermissions'
 import { isProgramOpportunityType } from '../../types/opportunity'
 import { useAuthStore } from '../../stores/authStore'
@@ -83,14 +91,24 @@ export function OpportunitiesPage() {
   const pageTab: 'browse' | 'my' = searchParams.get('tab') === 'my' ? 'my' : 'browse'
   const setPageTab = (tab: 'browse' | 'my') => setSearchParams(tab === 'my' ? { tab: 'my' } : {}, { replace: true })
   const [filterModalOpen, setFilterModalOpen] = useState(false)
-  const [sortBy, setSortBy] = useState<'match' | 'recent'>('match')
-  const [filters, setFilters] = useState({
-    q: '',
-    type: '',
-    skill: '',
-    remote: false,
-    saved: false,
-  })
+  const [search, setSearch] = useState<JobsSearch>(EMPTY_JOBS_SEARCH)
+  const [debouncedQ, setDebouncedQ] = useState('')
+  const [filters, setFiltersState] = useState<OpportunityFilters>(EMPTY_OPPORTUNITY_FILTERS)
+  const [institutionPage, setInstitutionPage] = useState(1)
+  const [opportunityPage, setOpportunityPage] = useState(1)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQ(search.q), 300)
+    return () => window.clearTimeout(timer)
+  }, [search.q])
+  const updateSearch = (next: Partial<JobsSearch>) => {
+    setSearch((prev) => ({ ...prev, ...next }))
+    setInstitutionPage(1)
+    setOpportunityPage(1)
+  }
+  const setFilters: typeof setFiltersState = (next) => {
+    setFiltersState(next)
+    setOpportunityPage(1)
+  }
   const [form, setForm] = useState({
     title: '',
     type: 'job' as OpportunityFormType,
@@ -102,20 +120,16 @@ export function OpportunitiesPage() {
     deadline: '',
     applyUrl: '',
   })
-  const queryFilters = useMemo(
-    () => ({
-      q: filters.q,
-      type: filters.type,
-      skill: filters.skill,
-      remote: filters.remote,
-      saved: filters.saved,
-    }),
-    [filters],
-  )
+  const effectiveSearch = useMemo(() => ({ ...search, q: debouncedQ }), [search, debouncedQ])
+  const searchNarrowed = Boolean(debouncedQ.trim() || search.category !== 'all' || search.openOnly)
+  const programFilters = useMemo(() => programQuery(effectiveSearch), [effectiveSearch])
+  const opportunityFilters = useMemo(() => opportunityQuery(effectiveSearch), [effectiveSearch])
+  const institutionPrograms = useDiscoverPrograms(token, institutionPage, programFilters)
   const opportunitiesQuery = useQuery({
-    queryKey: ['opportunities', queryFilters],
-    queryFn: () => getOpportunities(token ?? '', queryFilters),
-    enabled: Boolean(token),
+    queryKey: ['opportunities', opportunityFilters, filters, opportunityPage],
+    queryFn: () => getOpportunities(token ?? '', { ...opportunityFilters, ...filters, page: opportunityPage, pageSize: 10 }),
+    enabled: Boolean(token) && opportunityFilters !== null,
+    placeholderData: keepPreviousData,
   })
   const enrollmentsQuery = useQuery({
     queryKey: ['opportunities', 'enrollments', 'me'],
@@ -158,23 +172,11 @@ export function OpportunitiesPage() {
     },
   })
 
-  const sortedOpportunities = useMemo(() => {
-    const list = opportunitiesQuery.data?.opportunities ?? []
-    if (sortBy === 'match') {
-      return [...list].sort((a, b) => b.matchScore - a.matchScore)
-    }
-    return [...list].sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    )
-  }, [opportunitiesQuery.data?.opportunities, sortBy])
+  const opportunityPageData = opportunityFilters ? opportunitiesQuery.data : undefined
+  const opportunities = opportunityPageData?.opportunities ?? []
+  const programCount = (programFilters ? (institutionPrograms.data?.total ?? 0) : 0) + (opportunityPageData?.total ?? 0)
 
-  const [institutionPage, setInstitutionPage] = useState(1)
-  const institutionPrograms = useDiscoverPrograms(token, institutionPage)
-  const programCount = sortedOpportunities.length + (institutionPrograms.data?.total ?? 0)
-
-  const resetFilters = () => {
-    setFilters({ q: '', type: '', skill: '', remote: false, saved: false })
-  }
+  const resetFilters = () => setFilters(EMPTY_OPPORTUNITY_FILTERS)
 
   return (
     <AppLayout>
@@ -287,69 +289,80 @@ export function OpportunitiesPage() {
           </Card>
         ) : null}
 
-        {pageTab === 'browse' ? (
-          <InstitutionProgramsSection onPageChange={setInstitutionPage} page={institutionPage} token={token} />
+        {pageTab === 'browse' ? <JobsSearchBar onChange={updateSearch} search={search} /> : null}
+
+        {pageTab === 'browse' && programFilters ? (
+          <InstitutionProgramsSection filtered={searchNarrowed} onPageChange={setInstitutionPage} query={institutionPrograms} />
         ) : null}
 
-        {pageTab === 'browse' ? (
-        <div className="grid gap-4 lg:grid-cols-[260px_1fr] lg:gap-6">
-          <OpportunityFiltersSidebar
-            filters={filters}
-            onReset={resetFilters}
-            setFilters={setFilters}
-          />
+        {pageTab === 'browse' && token && opportunityFilters ? (
+          <div className="grid gap-4 lg:grid-cols-[260px_1fr] lg:gap-6">
+            <OpportunityFiltersSidebar filters={filters} onReset={resetFilters} setFilters={setFilters} />
 
-          <div className="min-w-0 space-y-3">
-            <div className="lg:hidden">
-              <OpportunityBrowseControls
-                filterModalOpen={filterModalOpen}
-                filters={filters}
-                onReset={resetFilters}
-                setFilterModalOpen={setFilterModalOpen}
-                setFilters={setFilters}
-                setSortBy={setSortBy}
-                sortBy={sortBy}
-              />
-            </div>
-
-            <div className="hidden items-end justify-between gap-3 border-b border-surface-border pb-3 lg:flex">
-              <h2 className="text-lg font-bold text-ink-strong">프로그램 목록</h2>
-              <div className="w-44">
-                <Select
-                  label="정렬"
-                  onChange={(event) => setSortBy(event.target.value as 'match' | 'recent')}
-                  value={sortBy}
-                >
-                  <option value="match">매칭순</option>
-                  <option value="recent">최신순</option>
-                </Select>
+            <div className="min-w-0 space-y-3" id="posted-opportunities">
+              <div className="flex flex-wrap items-end justify-between gap-2 border-b border-surface-border pb-3">
+                <div>
+                  <h2 className="text-lg font-bold text-ink-strong">채용·대외활동 공고</h2>
+                  <p className="mt-0.5 text-sm text-ink-muted">기업과 기관이 올린 공고입니다. 추천순은 내 프로필 스킬과의 일치도 기준입니다.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {opportunityPageData && opportunityPageData.total > 0 ? (
+                    <p className="text-xs text-ink-muted">
+                      {(opportunityPageData.page - 1) * opportunityPageData.pageSize + 1}–
+                      {Math.min(opportunityPageData.page * opportunityPageData.pageSize, opportunityPageData.total)} / {opportunityPageData.total}개
+                    </p>
+                  ) : null}
+                  <div className="lg:hidden">
+                    <OpportunityFilterButton
+                      filters={filters}
+                      onReset={resetFilters}
+                      open={filterModalOpen}
+                      setFilters={setFilters}
+                      setOpen={setFilterModalOpen}
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
 
-            {opportunitiesQuery.isLoading ? <LoadingState /> : null}
-            {!opportunitiesQuery.isLoading && sortedOpportunities.length === 0 ? (
-              <p className="py-12 text-center text-sm text-ink-muted lg:py-20">
-                등록된 프로그램이 없습니다.
-              </p>
-            ) : null}
-            <div className="grid gap-3 sm:gap-4">
-              {sortedOpportunities.map((opportunity) => (
-                <OpportunityCard
-                  canManage={canManageOpportunity(user?.role, user?.id, opportunity)}
-                  enrollment={enrollmentByOpportunity.get(opportunity.id)}
-                  key={opportunity.id}
-                  opportunity={opportunity}
-                  token={token ?? ''}
-                  onChanged={() => {
-                    void queryClient.invalidateQueries({ queryKey: ['opportunities'] })
-                    void queryClient.invalidateQueries({ queryKey: ['opportunities', 'enrollments', 'me'] })
-                    void queryClient.invalidateQueries({ queryKey: ['profiles'] })
+              {opportunitiesQuery.isLoading ? <LoadingState /> : null}
+              {opportunityPageData && opportunities.length === 0 ? (
+                <p className="rounded-2xl bg-surface-muted px-4 py-6 text-center text-sm text-ink-muted">
+                  {searchNarrowed || filters.skill || filters.remote || filters.saved ? '조건에 맞는 공고가 없습니다.' : '등록된 공고가 없습니다.'}
+                </p>
+              ) : null}
+              <div className={`grid gap-3 sm:gap-4 ${opportunitiesQuery.isPlaceholderData ? 'opacity-60' : ''}`}>
+                {opportunities.map((opportunity) => (
+                  <OpportunityCard
+                    canManage={canManageOpportunity(user?.role, user?.id, opportunity)}
+                    enrollment={enrollmentByOpportunity.get(opportunity.id)}
+                    key={opportunity.id}
+                    opportunity={opportunity}
+                    token={token ?? ''}
+                    onChanged={() => {
+                      void queryClient.invalidateQueries({ queryKey: ['opportunities'] })
+                      void queryClient.invalidateQueries({ queryKey: ['opportunities', 'enrollments', 'me'] })
+                      void queryClient.invalidateQueries({ queryKey: ['profiles'] })
+                    }}
+                  />
+                ))}
+              </div>
+              {opportunityPageData ? (
+                <Pagination
+                  disabled={opportunitiesQuery.isPlaceholderData}
+                  onPageChange={(next) => {
+                    setOpportunityPage(next)
+                    document.getElementById('posted-opportunities')?.scrollIntoView({ behavior: 'smooth' })
                   }}
+                  page={opportunityPageData.page}
+                  totalPages={opportunityPageData.totalPages}
                 />
-              ))}
+              ) : null}
             </div>
           </div>
-        </div>
+        ) : null}
+
+        {pageTab === 'browse' && programFilters === null && !token ? (
+          <p className="rounded-2xl bg-surface-muted px-4 py-6 text-center text-sm text-ink-muted">이 유형의 공고는 로그인한 뒤 볼 수 있습니다.</p>
         ) : null}
       </div>
     </AppLayout>
@@ -409,7 +422,7 @@ function OpportunityCard({ opportunity, enrollment, token, canManage = false, on
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge tone="purple">{opportunity.type}</Badge>
+            <Badge tone="purple">{OPPORTUNITY_TYPE_LABEL[opportunity.type] ?? opportunity.type}</Badge>
             {opportunity.isRemote ? <Badge tone="green">Remote</Badge> : null}
             <span className="ml-auto shrink-0 text-sm font-bold text-brand-700 lg:hidden">
               {opportunity.matchScore}
