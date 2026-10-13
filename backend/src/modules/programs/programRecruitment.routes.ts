@@ -16,6 +16,7 @@ import { limits } from '../../middlewares/rateLimit.js'
 import { audit } from '../../services/audit/audit.js'
 import { assertOrgCapacity, assertParticipantSeats, bytesToGb } from '../../services/billing/entitlements.js'
 import { MAX_FILES_PER_FIELD, normaliseAnswers } from '../../services/programs/applicationForm.js'
+import { heldSeats, liveOfferWhere, offerDeadline, refillProgram } from '../../services/programs/applicationOffers.js'
 import { notifyUsers, programStaffIds } from '../../services/programs/programProjects.js'
 import { FileRejectedError, validateUpload } from '../../services/storage/fileValidation.js'
 import { buildStorageKey, storage } from '../../services/storage/storage.js'
@@ -99,6 +100,9 @@ const viewerInclude = (userId: string | null) => {
         submittedAt: true,
         reviewNote: true,
         reviewedAt: true,
+        offerExpiresAt: true,
+        respondedAt: true,
+        waitlistedAt: true,
         answers: { select: { fieldId: true, value: true } },
         files: { select: { id: true, fieldId: true, originalName: true, sizeBytes: true, mimeType: true } },
       },
@@ -171,6 +175,7 @@ function serializeDiscoverable(program: ViewerRow, options: { detail: boolean; f
             submittedAt: application.submittedAt,
             reviewedAt: application.reviewedAt,
             reviewNote: application.status === ProgramApplicationStatus.REJECTED ? application.reviewNote : null,
+            ...offerFields(application),
             ...(options.detail
               ? {
                   answers: Object.fromEntries(application.answers.map((answer) => [answer.fieldId, answer.value])),
@@ -227,6 +232,7 @@ function serializeApplication(application: ApplicationRow) {
     reviewedBy: application.reviewedBy,
     createdAt: application.createdAt,
     submittedAt: application.submittedAt,
+    ...offerFields(application),
     user: { ...user, headline: profile?.headline ?? null },
     answers: [...application.answers]
       .sort((a, b) => a.field.position - b.field.position)
@@ -251,10 +257,23 @@ function assertCanApply(program: ViewerRow, state: RecruitmentState, options: { 
   const viewer = viewerOf(program)
   if (viewer.isParticipant) throw new HttpError(409, '이미 이 프로그램의 참여자입니다.')
   const existing = viewer.application
-  if (existing?.status === ProgramApplicationStatus.PENDING) throw new HttpError(409, '이미 제출한 지원서는 수정할 수 없습니다. 지원을 취소한 뒤 다시 제출해 주세요.')
-  if (existing?.status === ProgramApplicationStatus.ACCEPTED) throw new HttpError(409, '이미 선발되었습니다.')
-  if (existing?.status === ProgramApplicationStatus.REJECTED) throw new HttpError(409, '이번 모집에서는 다시 지원할 수 없습니다.')
+  if (existing?.status === ProgramApplicationStatus.PENDING || existing?.status === ProgramApplicationStatus.WAITLISTED) {
+    throw new HttpError(409, '이미 제출한 지원서는 수정할 수 없습니다. 지원을 취소한 뒤 다시 제출해 주세요.')
+  }
+  if (existing?.status === ProgramApplicationStatus.ACCEPTED || existing?.status === ProgramApplicationStatus.CONFIRMED) {
+    throw new HttpError(409, '이미 선발되었습니다.')
+  }
+  if (existing?.status === ProgramApplicationStatus.REJECTED || existing?.status === ProgramApplicationStatus.DECLINED) {
+    throw new HttpError(409, '이번 모집에서는 다시 지원할 수 없습니다.')
+  }
 }
+
+const offerFields = (application: { status: ProgramApplicationStatus; offerExpiresAt: Date | null; respondedAt: Date | null; waitlistedAt: Date | null }) => ({
+  offerExpiresAt: application.status === ProgramApplicationStatus.ACCEPTED ? application.offerExpiresAt : null,
+  respondedAt: application.respondedAt,
+  waitlistedAt: application.status === ProgramApplicationStatus.WAITLISTED ? application.waitlistedAt : null,
+  lapsed: application.status === ProgramApplicationStatus.DECLINED && !application.respondedAt,
+})
 
 export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
   router.get('/discover', optionalAuthenticate, async (req, res, next) => {
@@ -405,6 +424,7 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
           submittedAt: application.submittedAt,
           updatedAt: application.updatedAt,
           reviewedAt: application.reviewedAt,
+          ...offerFields(application),
           program: {
             id: application.program.id,
             title: application.program.title,
@@ -564,9 +584,112 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
         res.status(204).send()
         return
       }
-      if (application?.status !== ProgramApplicationStatus.PENDING) throw new HttpError(409, '철회할 수 있는 지원 내역이 없습니다.')
-      await prisma.programApplication.update({ where: { id: application.id }, data: { status: ProgramApplicationStatus.WITHDRAWN } })
+      const withdrawable: ProgramApplicationStatus[] = [ProgramApplicationStatus.PENDING, ProgramApplicationStatus.WAITLISTED]
+      if (!application || !withdrawable.includes(application.status)) throw new HttpError(409, '철회할 수 있는 지원 내역이 없습니다.')
+      const withdrawn = await prisma.programApplication.updateMany({
+        where: { id: application.id, status: { in: withdrawable } },
+        data: { status: ProgramApplicationStatus.WITHDRAWN, waitlistedAt: null },
+      })
+      if (withdrawn.count === 0) throw new HttpError(409, '철회할 수 있는 지원 내역이 없습니다.')
       res.status(204).send()
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  /** The applicant accepts an offer: the seat it held becomes a participant registration. */
+  router.post('/:programId/applications/me/confirm', authenticate, async (req, res, next) => {
+    try {
+      const authUser = res.locals.user as AuthTokenPayload
+      const programId = String(req.params.programId)
+      const application = await prisma.programApplication.findUnique({
+        where: { programId_userId: { programId, userId: authUser.id } },
+        select: {
+          id: true,
+          status: true,
+          offerExpiresAt: true,
+          program: { select: { title: true, status: true, organizationId: true, organization: { select: { name: true } } } },
+        },
+      })
+      if (!application || application.status !== ProgramApplicationStatus.ACCEPTED) throw new HttpError(409, '확정할 수 있는 합격 내역이 없습니다.')
+      if (application.offerExpiresAt && application.offerExpiresAt <= new Date()) {
+        throw new HttpError(409, '응답 기한이 지나 확정할 수 없습니다. 운영 기관에 문의해 주세요.')
+      }
+      assertProgramWritable(application.program.status)
+      const { organizationId } = application.program
+      const membership = await prisma.organizationMember.findUnique({
+        where: { organizationId_userId: { organizationId, userId: authUser.id } },
+        select: { status: true },
+      })
+      if (membership?.status === OrganizationMemberStatus.SUSPENDED) throw new HttpError(403, '이 조직에서 이용이 정지된 계정입니다.')
+      await assertParticipantSeats(organizationId, [authUser.id])
+
+      await prisma.$transaction(async (tx) => {
+        await lockProgramSeats(tx, programId)
+        const confirmed = await tx.programApplication.updateMany({
+          where: { id: application.id, ...liveOfferWhere(new Date()) },
+          data: { status: ProgramApplicationStatus.CONFIRMED, respondedAt: new Date() },
+        })
+        if (confirmed.count === 0) throw new HttpError(409, '응답 기한이 지났거나 이미 처리된 합격입니다.')
+        await tx.programParticipant.upsert({
+          where: { programId_userId: { programId, userId: authUser.id } },
+          create: { programId, userId: authUser.id },
+          update: {},
+        })
+      })
+      await audit(req, res, {
+        action: 'program.application_confirm',
+        organizationId,
+        targetType: 'program',
+        targetId: programId,
+        metadata: { applicationId: application.id },
+      })
+      await notifyUsers(
+        await applicationReviewerIds(programId, organizationId),
+        authUser.id,
+        '합격자가 참여를 확정했습니다',
+        `${application.program.organization.name} · ${application.program.title}`,
+        `/org/${organizationId}/programs/${programId}?tab=applications`,
+      )
+      res.status(200).json({ application: { id: application.id, status: 'confirmed' } })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  /** The applicant turns an offer down; the seat goes to the next waitlisted applicant. */
+  router.post('/:programId/applications/me/decline', authenticate, async (req, res, next) => {
+    try {
+      const authUser = res.locals.user as AuthTokenPayload
+      const programId = String(req.params.programId)
+      const application = await prisma.programApplication.findUnique({
+        where: { programId_userId: { programId, userId: authUser.id } },
+        select: { id: true, program: { select: { title: true, organizationId: true, organization: { select: { name: true } } } } },
+      })
+      const declined = application
+        ? await prisma.programApplication.updateMany({
+            where: { id: application.id, status: ProgramApplicationStatus.ACCEPTED },
+            data: { status: ProgramApplicationStatus.DECLINED, respondedAt: new Date() },
+          })
+        : { count: 0 }
+      if (!application || declined.count === 0) throw new HttpError(409, '포기할 수 있는 합격 내역이 없습니다.')
+      const { organizationId } = application.program
+      await audit(req, res, {
+        action: 'program.application_decline',
+        organizationId,
+        targetType: 'program',
+        targetId: programId,
+        metadata: { applicationId: application.id },
+      })
+      const refill = await refillProgram(programId, null)
+      await notifyUsers(
+        await applicationReviewerIds(programId, organizationId),
+        authUser.id,
+        refill.offered ? '합격자가 참여를 포기해 대기자에게 합격을 제안했습니다' : '합격자가 참여를 포기했습니다',
+        `${application.program.organization.name} · ${application.program.title}`,
+        `/org/${organizationId}/programs/${programId}?tab=applications`,
+      )
+      res.status(200).json({ application: { id: application.id, status: 'declined' }, refill })
     } catch (error) {
       next(error)
     }
@@ -616,24 +739,30 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
       const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
       const query = programApplicationQuerySchema.parse(req.query)
       const submitted = { status: { not: ProgramApplicationStatus.DRAFT } } satisfies Prisma.ProgramApplicationWhereInput
-      const [applications, counts, participantCount] = await Promise.all([
+      const now = new Date()
+      const [applications, counts, participantCount, openOffers] = await Promise.all([
         prisma.programApplication.findMany({
           where: {
             programId: access.program.id,
             ...(query.status === 'all' ? submitted : { status: query.status.toUpperCase() as ProgramApplicationStatus }),
           },
           include: applicationInclude,
-          orderBy: [{ submittedAt: 'asc' }, { createdAt: 'asc' }],
+          orderBy:
+            query.status === 'waitlisted'
+              ? [{ waitlistedAt: 'asc' }, { submittedAt: 'asc' }]
+              : [{ submittedAt: 'asc' }, { createdAt: 'asc' }],
           take: 300,
         }),
         prisma.programApplication.groupBy({ by: ['status'], where: { programId: access.program.id, ...submitted }, _count: { _all: true } }),
         prisma.programParticipant.count({ where: { programId: access.program.id } }),
+        prisma.programApplication.count({ where: { programId: access.program.id, ...liveOfferWhere(now) } }),
       ])
       res.status(200).json({
         applications: applications.map(serializeApplication),
         counts: Object.fromEntries(counts.map((row) => [row.status.toLowerCase(), row._count._all])),
         capacity: access.program.capacity,
         participantCount,
+        openOffers,
       })
     } catch (error) {
       next(error)
@@ -650,41 +779,45 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
         where: { id: String(req.params.applicationId), programId: access.program.id },
       })
       if (!application || application.status === ProgramApplicationStatus.DRAFT) throw new HttpError(404, '지원서를 찾을 수 없습니다.')
-      if (application.status !== ProgramApplicationStatus.PENDING) throw new HttpError(409, '이미 처리된 지원서입니다.')
+      const undecided: ProgramApplicationStatus[] = [ProgramApplicationStatus.PENDING, ProgramApplicationStatus.WAITLISTED]
+      if (!undecided.includes(application.status)) throw new HttpError(409, '이미 처리된 지원서입니다.')
+      if (input.decision === 'waitlist' && application.status === ProgramApplicationStatus.WAITLISTED) {
+        throw new HttpError(409, '이미 대기자로 등록된 지원서입니다.')
+      }
 
       const organizationId = access.organization.id
-      const decided = (status: ProgramApplicationStatus) => ({
-        status,
-        reviewNote: input.note ?? null,
-        reviewedById: authUser.id,
-        reviewedAt: new Date(),
-      })
-      const claim = async (tx: Prisma.TransactionClient, status: ProgramApplicationStatus) => {
+      const label = `${access.organization.name} · ${access.program.title}`
+      const now = new Date()
+      const claim = async (tx: Prisma.TransactionClient, data: Prisma.ProgramApplicationUpdateManyMutationInput) => {
         const claimed = await tx.programApplication.updateMany({
-          where: { id: application.id, status: ProgramApplicationStatus.PENDING },
-          data: decided(status),
+          where: { id: application.id, status: { in: undecided } },
+          data: { reviewNote: input.note ?? null, reviewedById: authUser.id, reviewedAt: now, ...data },
         })
         if (claimed.count === 0) throw new HttpError(409, '이미 처리된 지원서입니다.')
       }
-
-      if (input.decision === 'reject') {
-        const updated = await prisma.$transaction(async (tx) => {
-          await claim(tx, ProgramApplicationStatus.REJECTED)
-          return tx.programApplication.findUniqueOrThrow({ where: { id: application.id }, include: applicationInclude })
-        })
-        await audit(req, res, {
-          action: 'program.application_reject',
+      const reload = (tx: Prisma.TransactionClient) => tx.programApplication.findUniqueOrThrow({ where: { id: application.id }, include: applicationInclude })
+      const record = (action: string, metadata: Record<string, unknown> = {}) =>
+        audit(req, res, {
+          action,
           organizationId,
           targetType: 'program',
           targetId: access.program.id,
-          metadata: { applicationId: application.id, userId: application.userId },
+          metadata: { applicationId: application.id, userId: application.userId, ...metadata },
         })
+
+      if (input.decision === 'reject' || input.decision === 'waitlist') {
+        const waitlist = input.decision === 'waitlist'
+        const updated = await prisma.$transaction(async (tx) => {
+          await claim(tx, waitlist ? { status: ProgramApplicationStatus.WAITLISTED, waitlistedAt: now } : { status: ProgramApplicationStatus.REJECTED, waitlistedAt: null })
+          return reload(tx)
+        })
+        await record(waitlist ? 'program.application_waitlist' : 'program.application_reject')
         await notifyUsers(
           [application.userId],
           authUser.id,
-          '프로그램 지원 결과가 등록되었습니다',
-          `${access.organization.name} · ${access.program.title}`,
-          `/programs/${access.program.id}`,
+          waitlist ? '프로그램 대기자로 등록되었습니다' : '프로그램 지원 결과가 등록되었습니다',
+          waitlist ? `${label} · 빈자리가 생기면 순서대로 합격을 제안합니다` : label,
+          '/opportunities?tab=my',
         )
         res.status(200).json({ application: serializeApplication(updated) })
         return
@@ -699,40 +832,46 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
       }
       await assertParticipantSeats(organizationId, [application.userId])
 
-      // Selection only creates a ProgramParticipant. Joining the organization itself stays a separate decision.
+      // An offer holds a seat until the applicant confirms (→ participant) or declines / lets it lapse (→ next waitlisted).
+      const offerExpiresAt = offerDeadline(now, input.responseDays)
       const updated = await prisma.$transaction(async (tx) => {
         await lockProgramSeats(tx, access.program.id)
         const { capacity } = await tx.program.findUniqueOrThrow({ where: { id: access.program.id }, select: { capacity: true } })
-        if (capacity) {
-          const participants = await tx.programParticipant.count({ where: { programId: access.program.id } })
-          if (participants >= capacity) {
-            throw new HttpError(409, `정원(${capacity}명)이 모두 찼습니다. 설정에서 정원을 늘린 뒤 선발해 주세요.`)
-          }
+        if (capacity && (await heldSeats(tx, access.program.id, now)) >= capacity) {
+          throw new HttpError(409, `정원(${capacity}명)이 모두 찼습니다(참여자와 응답 대기 중인 합격자 포함). 대기자로 두거나 정원을 늘려 주세요.`)
         }
-        await claim(tx, ProgramApplicationStatus.ACCEPTED)
-        await tx.programParticipant.upsert({
-          where: { programId_userId: { programId: access.program.id, userId: application.userId } },
-          create: { programId: access.program.id, userId: application.userId, addedById: authUser.id },
-          update: {},
-        })
-        return tx.programApplication.findUniqueOrThrow({ where: { id: application.id }, include: applicationInclude })
+        await claim(tx, { status: ProgramApplicationStatus.ACCEPTED, offerExpiresAt, waitlistedAt: null })
+        return reload(tx)
       })
-
-      await audit(req, res, {
-        action: 'program.application_accept',
-        organizationId,
-        targetType: 'program',
-        targetId: access.program.id,
-        metadata: { applicationId: application.id, userId: application.userId },
-      })
+      await record('program.application_accept', { offerExpiresAt: offerExpiresAt.toISOString() })
       await notifyUsers(
         [application.userId],
         authUser.id,
-        '프로그램에 선발되었습니다',
-        `${access.organization.name} · ${access.program.title}`,
-        `/org/${organizationId}/programs/${access.program.id}`,
+        '프로그램에 합격했습니다',
+        `${label} · ${offerExpiresAt.toLocaleDateString('ko-KR')}까지 참여 여부를 알려 주세요`,
+        '/opportunities?tab=my',
       )
       res.status(200).json({ application: serializeApplication(updated) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  /** Lapses expired offers and offers the free seats to waitlisted applicants in order. */
+  router.post('/:programId/applications/refill', authenticate, async (req, res, next) => {
+    try {
+      const authUser = res.locals.user as AuthTokenPayload
+      const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
+      assertProgramWritable(access.program.status)
+      const result = await refillProgram(access.program.id, authUser.id)
+      await audit(req, res, {
+        action: 'program.application_refill',
+        organizationId: access.organization.id,
+        targetType: 'program',
+        targetId: access.program.id,
+        metadata: result,
+      })
+      res.status(200).json(result)
     } catch (error) {
       next(error)
     }

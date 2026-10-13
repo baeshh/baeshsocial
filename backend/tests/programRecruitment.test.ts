@@ -284,7 +284,7 @@ describe('program applications', () => {
     expect(invalid.status).toBe(400)
   })
 
-  it('turns an accepted application into a program participant without making them an organization member', async () => {
+  it('makes an offer that the applicant confirms to become a participant, without joining the organization', async () => {
     const queue = await api().get(`/api/programs/${recruitingId}/applications`).set(bearer(professor.token))
     const applicationId = queue.body.applications[0].id as string
     expect((await api().patch(`/api/programs/${recruitingId}/applications/${applicationId}`).set(bearer(member.token)).send({ decision: 'accept' })).status).toBe(404)
@@ -292,10 +292,16 @@ describe('program applications', () => {
     const accepted = await api().patch(`/api/programs/${recruitingId}/applications/${applicationId}`).set(bearer(professor.token)).send({ decision: 'accept' })
     expect(accepted.status).toBe(200)
     expect(accepted.body.application.status).toBe('accepted')
+    expect(new Date(accepted.body.application.offerExpiresAt).getTime()).toBeGreaterThan(Date.now() + 2 * DAY)
+    const participantRow = () => prisma.programParticipant.findUnique({ where: { programId_userId: { programId: recruitingId, userId: outsider.user.id } } })
+    expect(await participantRow()).toBeNull()
 
-    const participant = await prisma.programParticipant.findUnique({ where: { programId_userId: { programId: recruitingId, userId: outsider.user.id } } })
-    expect(participant).not.toBeNull()
+    expect((await api().post(`/api/programs/${recruitingId}/applications/me/confirm`).set(bearer(second.token))).status).toBe(409)
+    const confirmed = await api().post(`/api/programs/${recruitingId}/applications/me/confirm`).set(bearer(outsider.token))
+    expect(confirmed.status).toBe(200)
+    expect(await participantRow()).not.toBeNull()
     expect(await prisma.organizationMember.count({ where: { organizationId: orgId, userId: outsider.user.id } })).toBe(0)
+    expect((await api().post(`/api/programs/${recruitingId}/applications/me/confirm`).set(bearer(outsider.token))).status).toBe(409)
 
     const again = await api().patch(`/api/programs/${recruitingId}/applications/${applicationId}`).set(bearer(professor.token)).send({ decision: 'reject' })
     expect(again.status).toBe(409)
@@ -330,7 +336,6 @@ describe('program applications', () => {
       api().patch(`/api/programs/${program.id}/applications/${applicationId}`).set(bearer(professor.token)).send({ decision: 'accept' })
     const responses = await Promise.all(applications.map((application) => decide(application.id)))
     expect(responses.map((response) => response.status).sort()).toEqual([200, 409])
-    expect(await prisma.programParticipant.count({ where: { programId: program.id } })).toBe(1)
     expect(await prisma.programApplication.count({ where: { programId: program.id, status: 'ACCEPTED' } })).toBe(1)
   })
 
@@ -346,7 +351,7 @@ describe('program applications', () => {
     ])
     expect(responses.map((response) => response.status).sort()).toEqual([200, 409])
     const final = await prisma.programApplication.findUniqueOrThrow({ where: { id: application.id } })
-    expect(await prisma.programParticipant.count({ where: { programId: program.id } })).toBe(final.status === 'ACCEPTED' ? 1 : 0)
+    expect(['ACCEPTED', 'REJECTED']).toContain(final.status)
   })
 
   it('registers organization members directly but asks outsiders to confirm through an invite', async () => {
@@ -406,5 +411,85 @@ describe('program applications', () => {
     expect((await api().delete(`/api/programs/${program.id}/applications/me`).set(bearer(member.token))).status).toBe(204)
     expect(await prisma.programApplication.count({ where: { programId: program.id } })).toBe(0)
     expect(await prisma.programApplicationFile.count({ where: { fieldId: field.id } })).toBe(0)
+  })
+})
+
+describe('offers, waitlist and refill', () => {
+  const decide = (programId: string, applicationId: string, decision: 'accept' | 'waitlist' | 'reject') =>
+    api().patch(`/api/programs/${programId}/applications/${applicationId}`).set(bearer(professor.token)).send({ decision })
+  const applyAll = async (programId: string, applicants: Actor[]) => {
+    for (const applicant of applicants) expect((await save(applicant, programId, { submit: true })).status).toBe(200)
+    const rows = await prisma.programApplication.findMany({ where: { programId } })
+    return Object.fromEntries(applicants.map((applicant) => [applicant.user.id, rows.find((row) => row.userId === applicant.user.id)!.id]))
+  }
+  const statusOf = async (id: string) => (await prisma.programApplication.findUniqueOrThrow({ where: { id } })).status
+
+  it('passes a declined seat to the first waitlisted applicant, who can then confirm', async () => {
+    const program = await recruitingProgram(orgId, '대기자 충원', { capacity: 1 })
+    const [first, waitingA, waitingB] = await Promise.all([createUserWithToken(), createUserWithToken(), createUserWithToken()])
+    const ids = await applyAll(program.id, [first, waitingA, waitingB])
+
+    expect((await decide(program.id, ids[first.user.id], 'accept')).status).toBe(200)
+    expect((await decide(program.id, ids[waitingA.user.id], 'waitlist')).status).toBe(200)
+    expect((await decide(program.id, ids[waitingB.user.id], 'waitlist')).status).toBe(200)
+    expect((await decide(program.id, ids[waitingA.user.id], 'accept')).status).toBe(409)
+
+    const declined = await api().post(`/api/programs/${program.id}/applications/me/decline`).set(bearer(first.token))
+    expect(declined.status).toBe(200)
+    expect(declined.body.refill).toEqual({ lapsed: 0, offered: 1 })
+    expect(await statusOf(ids[first.user.id])).toBe('DECLINED')
+    expect(await statusOf(ids[waitingA.user.id])).toBe('ACCEPTED')
+    expect(await statusOf(ids[waitingB.user.id])).toBe('WAITLISTED')
+    expect(await prisma.notification.count({ where: { userId: waitingA.user.id, title: '대기 중이던 프로그램에 합격했습니다' } })).toBe(1)
+
+    expect((await api().post(`/api/programs/${program.id}/applications/me/confirm`).set(bearer(waitingA.token))).status).toBe(200)
+    expect(await prisma.programParticipant.count({ where: { programId: program.id } })).toBe(1)
+    expect((await save(first, program.id, { submit: true })).status).toBe(409)
+
+    expect((await api().delete(`/api/programs/${program.id}/applications/me`).set(bearer(waitingB.token))).status).toBe(204)
+    expect(await statusOf(ids[waitingB.user.id])).toBe('WITHDRAWN')
+  })
+
+  it('frees the seat of an expired offer and the hourly job hands it to the waitlist', async () => {
+    const { expireProgramOffers } = await import('../src/services/programs/applicationOffers.js')
+    const program = await recruitingProgram(orgId, '기한 만료', { capacity: 1 })
+    const [late, next, another] = await Promise.all([createUserWithToken(), createUserWithToken(), createUserWithToken()])
+    const ids = await applyAll(program.id, [late, next, another])
+    expect((await decide(program.id, ids[late.user.id], 'accept')).status).toBe(200)
+    expect((await decide(program.id, ids[next.user.id], 'waitlist')).status).toBe(200)
+    await prisma.programApplication.update({ where: { id: ids[late.user.id] }, data: { offerExpiresAt: new Date(Date.now() - 1000) } })
+
+    expect((await api().post(`/api/programs/${program.id}/applications/me/confirm`).set(bearer(late.token))).status).toBe(409)
+    expect((await decide(program.id, ids[another.user.id], 'accept')).status).toBe(200)
+    await prisma.programApplication.update({ where: { id: ids[another.user.id] }, data: { offerExpiresAt: new Date(Date.now() - 1000) } })
+
+    const totals = await expireProgramOffers()
+    expect(totals).toMatchObject({ lapsed: 2, offered: 1 })
+    const lapsed = await prisma.programApplication.findUniqueOrThrow({ where: { id: ids[late.user.id] } })
+    expect(lapsed).toMatchObject({ status: 'DECLINED', respondedAt: null })
+    expect(await statusOf(ids[next.user.id])).toBe('ACCEPTED')
+
+    const mine = await api().get('/api/programs/applications/me').set(bearer(late.token))
+    expect(mine.body.applications.find((row: { program: { id: string } }) => row.program.id === program.id)).toMatchObject({ status: 'declined', lapsed: true })
+  })
+
+  it('lets staff refill on demand after removing a participant', async () => {
+    const program = await recruitingProgram(orgId, '수동 충원', { capacity: 1 })
+    const [joined, waiting] = await Promise.all([createUserWithToken(), createUserWithToken()])
+    const ids = await applyAll(program.id, [joined, waiting])
+    expect((await decide(program.id, ids[joined.user.id], 'accept')).status).toBe(200)
+    expect((await api().post(`/api/programs/${program.id}/applications/me/confirm`).set(bearer(joined.token))).status).toBe(200)
+    expect((await decide(program.id, ids[waiting.user.id], 'waitlist')).status).toBe(200)
+
+    const empty = await api().post(`/api/programs/${program.id}/applications/refill`).set(bearer(professor.token))
+    expect(empty.body).toEqual({ lapsed: 0, offered: 0 })
+    expect((await api().post(`/api/programs/${program.id}/applications/refill`).set(bearer(joined.token))).status).toBe(403)
+
+    await prisma.programParticipant.deleteMany({ where: { programId: program.id, userId: joined.user.id } })
+    const refill = await api().post(`/api/programs/${program.id}/applications/refill`).set(bearer(professor.token))
+    expect(refill.body).toEqual({ lapsed: 0, offered: 1 })
+    const queue = await api().get(`/api/programs/${program.id}/applications?status=all`).set(bearer(professor.token))
+    expect(queue.body).toMatchObject({ capacity: 1, participantCount: 0, openOffers: 1 })
+    expect(queue.body.counts).toMatchObject({ accepted: 1, confirmed: 1 })
   })
 })

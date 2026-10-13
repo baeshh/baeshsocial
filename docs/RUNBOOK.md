@@ -166,4 +166,6 @@ BAESH_ENV=production deploy/scripts/restore-s3-object.sh evidence/<id>/<file>.pd
 
 자동 가입 구성원 변환(참여자/구성원 분리 이전 데이터): `npx tsx scripts/convertAutoJoinedMembers.ts`(backend 폴더)는 기본이 드라이런입니다. 선발로 자동 가입된 일반 구성원만 후보로 보고, 이전부터 구성원이었거나 담당자·관리자이거나 조직 초대로 가입한 사람, 현재 참여 중인 프로그램이 없는 사람은 유지합니다. 프로그램 초대로 가입한 사람은 `--include-program-invites`로 따로 검토합니다. 운영에서 `--apply`는 백업 후 `--confirm-backup`과 함께만 실행됩니다. 감사 로그 action은 `org.member_convert_to_participant`입니다.
 
+프로그램 선발 흐름: 담당자의 "합격 제안"은 지원서를 `ACCEPTED`(응답 기한 `offerExpiresAt`, 기본 3일)로 바꾸고 자리만 잡아 둡니다. 지원자가 기한 안에 확정하면 `CONFIRMED`가 되고 이때 참여자로 등록됩니다. 포기하거나 기한이 지나면 `DECLINED`가 되고(기한 만료는 `respondedAt`이 비어 있음), 자리는 `WAITLISTED` 지원자에게 대기 등록 순서대로 넘어갑니다. 기한 만료 처리는 매시간 작업(`programOffers`)이 맡고, 담당자는 지원자 탭의 "빈자리 대기자에게 제안"으로 바로 실행할 수도 있습니다. 정원 계산에는 참여자와 응답 대기 중인 합격자가 함께 들어갑니다. 이 기능 이전에 선발되어 이미 참여자인 지원서는 마이그레이션 `20261018000100`이 `CONFIRMED`로 옮깁니다. 이 마이그레이션 뒤에는 이전 릴리스가 새 상태 값을 읽지 못하므로, 코드만 이전 릴리스로 롤백하면 지원서 화면이 실패할 수 있습니다.
+
 마이그레이션 업그레이드 경로 검사(로컬): `UPGRADE_DATABASE_URL=postgresql://…/baesh_upgrade npx tsx scripts/checkUpgradePath.ts --base origin/main` (backend 폴더). 이름에 `upgrade`가 들어간 임시 DB만 허용하며, 그 DB는 지우고 다시 만듭니다.

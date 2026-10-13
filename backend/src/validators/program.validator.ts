@@ -199,12 +199,14 @@ export const saveApplicationSchema = z.object({
 })
 
 export const programApplicationQuerySchema = z.object({
-  status: z.enum(['pending', 'accepted', 'rejected', 'withdrawn', 'all']).default('pending'),
+  status: z.enum(['pending', 'waitlisted', 'accepted', 'confirmed', 'declined', 'rejected', 'withdrawn', 'all']).default('pending'),
 })
 
 export const decideProgramApplicationSchema = z.object({
-  decision: z.enum(['accept', 'reject']),
+  decision: z.enum(['accept', 'waitlist', 'reject']),
   note: optionalText(1000),
+  /** Days the applicant has to confirm an offer. */
+  responseDays: z.number().int().min(1).max(14).optional(),
 })
 
 const projectVisibilitySchema = z.enum(['private', 'team', 'public'])

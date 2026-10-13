@@ -13,6 +13,7 @@ import { currentOrgSubscription, daysLeft } from '../billing/subscriptions.js'
 import { sendMail } from '../mail/mail.js'
 import { sendAlert } from '../ops/alerts.js'
 import { flushRequestMetrics } from '../ops/metrics.js'
+import { expireProgramOffers } from '../programs/applicationOffers.js'
 import { backupFreshness } from '../ops/opsRuns.js'
 
 const MINUTE = 60_000
@@ -230,6 +231,7 @@ export async function runHourlyJobs(now = new Date()) {
     subscriptions: () => runSubscriptionLifecycle(now),
     invoices: () => runInvoiceLifecycle(now),
     usage: () => snapshotUsage(now),
+    programOffers: () => expireProgramOffers(now),
     retention: () => runRetention(now),
     ops: () => runOpsChecks(now),
   }
