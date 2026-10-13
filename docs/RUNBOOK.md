@@ -164,4 +164,6 @@ BAESH_ENV=production deploy/scripts/restore-s3-object.sh evidence/<id>/<file>.pd
 
 `main` 브랜치 보호: PR로만 병합하고, 승인 리뷰 1건 이상과 CI 필수 검사 `Backend tests`, `DB migrations`, `Frontend build & lint`, `Security scan` 통과를 요구합니다. 작업 이름을 바꾸면 보호 규칙의 필수 검사 이름도 함께 바꿔야 합니다.
 
+자동 가입 구성원 변환(참여자/구성원 분리 이전 데이터): `npx tsx scripts/convertAutoJoinedMembers.ts`(backend 폴더)는 기본이 드라이런입니다. 선발로 자동 가입된 일반 구성원만 후보로 보고, 이전부터 구성원이었거나 담당자·관리자이거나 조직 초대로 가입한 사람, 현재 참여 중인 프로그램이 없는 사람은 유지합니다. 프로그램 초대로 가입한 사람은 `--include-program-invites`로 따로 검토합니다. 운영에서 `--apply`는 백업 후 `--confirm-backup`과 함께만 실행됩니다. 감사 로그 action은 `org.member_convert_to_participant`입니다.
+
 마이그레이션 업그레이드 경로 검사(로컬): `UPGRADE_DATABASE_URL=postgresql://…/baesh_upgrade npx tsx scripts/checkUpgradePath.ts --base origin/main` (backend 폴더). 이름에 `upgrade`가 들어간 임시 DB만 허용하며, 그 DB는 지우고 다시 만듭니다.
