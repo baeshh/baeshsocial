@@ -5,7 +5,8 @@
 #
 # Usage: REHEARSAL_DATABASE_URL=postgresql://user:pass@host:5432/baesh_rehearsal rehearse-staging.sh <base-ref>
 # Never run it on a real server: it recreates the database and starts PM2 processes.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "::error::rehearse-staging.sh line ${LINENO}: ${BASH_COMMAND} (exit $?)"' ERR
 BASE="${1:?base git ref required (e.g. origin/main)}"
 DB_URL="${REHEARSAL_DATABASE_URL:?REHEARSAL_DATABASE_URL required}"
 DB_NAME="$(node -e 'process.stdout.write(new URL(process.argv[1]).pathname.slice(1))' "$DB_URL")"

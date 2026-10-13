@@ -75,4 +75,9 @@ jobs:
         run: bash deploy/scripts/rehearse-staging.sh "origin/${BASE_BRANCH}"
       - name: API logs
         if: failure()
-        run: tail -n 200 "$REHEARSAL_WORK"/srv/baesh/staging/shared/logs/*.log 2>/dev/null || echo "no API logs"
+        run: |
+          for log in "$REHEARSAL_WORK"/srv/baesh/staging/shared/logs/*.log; do
+            [ -s "$log" ] || continue
+            tail -n 200 "$log"
+            echo "::error title=$(basename "$log")::$(tail -n 25 "$log" | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          done
