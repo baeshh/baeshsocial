@@ -9,7 +9,10 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
-    "security:accounts": "tsx prisma/secureAccounts.ts"
+    "security:accounts": "tsx prisma/secureAccounts.ts",
+    "verified:backfill": "tsx prisma/backfillVerifiedRecords.ts",
+    "scenario:stage5": "tsx prisma/seedStage5Scenario.ts",
+    "ai:check": "tsx scripts/aiQualityCheck.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1150.0",
@@ -30,6 +33,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
     "pg": "^8.20.0",
+    "playwright": "^1.64.0",
     "prisma": "^7.8.0",
     "sharp": "^0.34.5",
     "typescript": "^6.0.3",

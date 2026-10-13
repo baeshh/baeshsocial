@@ -17,6 +17,7 @@ type DownloadOptions = { contentType: string; fileName: string; inline: boolean 
 
 interface StorageDriver {
   put(key: string, body: Buffer, contentType: string): Promise<void>
+  get(key: string): Promise<Buffer>
   remove(key: string): Promise<void>
   signedUrl(key: string, options: DownloadOptions): Promise<SignedFileUrl>
 }
@@ -44,6 +45,12 @@ class S3StorageDriver implements StorageDriver {
         ServerSideEncryption: 'AES256',
       }),
     )
+  }
+
+  async get(key: string) {
+    const result = await this.client.send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key }))
+    if (!result.Body) throw new Error('Empty storage object')
+    return Buffer.from(await result.Body.transformToByteArray())
   }
 
   async remove(key: string) {
@@ -108,6 +115,10 @@ class LocalStorageDriver implements StorageDriver {
     const target = localPath(key)
     await mkdir(path.dirname(target), { recursive: true })
     await writeFile(target, body, { mode: 0o600 })
+  }
+
+  async get(key: string) {
+    return readFile(localPath(key))
   }
 
   async remove(key: string) {

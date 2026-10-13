@@ -65,6 +65,24 @@ export async function apiUpload<T>(path: string, body: FormData, options: { toke
   return data as T
 }
 
+/** Fetches an authenticated binary response and saves it with the server-provided file name. */
+export async function apiDownload(path: string, token: string, fallbackName: string) {
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!response.ok) {
+    const data = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null
+    throw new ApiError(response.status, data?.message ?? '파일을 내려받지 못했습니다.')
+  }
+  const disposition = response.headers.get('content-disposition') ?? ''
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1]
+  const fileName = encoded ? decodeURIComponent(encoded) : fallbackName
+  const url = URL.createObjectURL(await response.blob())
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 /** Signed URLs from the local storage driver are relative to the API base. */
 export function resolveApiUrl(url: string) {
   return /^https?:\/\//.test(url) ? url : `${API_BASE_URL}${url}`
