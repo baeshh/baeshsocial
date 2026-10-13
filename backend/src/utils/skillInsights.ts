@@ -74,12 +74,12 @@ export function buildSkillInsights(input: {
       ? [
           `${coreSkills[0]} 관련 산출물 정리`,
           projectCount > 0 ? '프로젝트 기여도 수치화' : '첫 프로젝트 등록',
-          input.completedProgramCount > 0 ? '프로그램 수료 이력 공유' : '교육·프로그램 수강 신청',
+          input.completedProgramCount > 0 ? '프로그램 수료 이력 공유' : '교육·프로그램 참여 신청',
         ]
       : [
           '대표 기술스택 입력',
           projectCount > 0 ? '프로젝트 기여도 수치화' : '첫 프로젝트 등록',
-          input.completedProgramCount > 0 ? '프로그램 수료 이력 공유' : 'Jobs에서 프로그램 수강',
+          input.completedProgramCount > 0 ? '프로그램 수료 이력 공유' : 'Jobs에서 프로그램 참여',
         ]
 
   const summaryParts: string[] = []

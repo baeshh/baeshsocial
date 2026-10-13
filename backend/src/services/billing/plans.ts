@@ -20,7 +20,7 @@ export type PersonalLimitKey = (typeof PERSONAL_LIMIT_KEYS)[number]
 export type PlanLimits = Partial<Record<OrgLimitKey | PersonalLimitKey, number | boolean | null>>
 
 export const LIMIT_LABELS: Record<OrgLimitKey | PersonalLimitKey, string> = {
-  members: '활성 구성원(학생·담당자)',
+  members: '활성 구성원(참여자·담당자)',
   activePrograms: '운영 중 프로그램',
   projects: '프로그램 프로젝트',
   storageGb: '증빙·보고서 저장공간(GB)',
@@ -92,21 +92,21 @@ export const DEFAULT_PLANS: PlanSeed[] = [
       talentSearchesPerMonth: 30,
       aiCallsPerDay: 100,
     },
-    features: ['학생·프로젝트 관리', '증빙 승인', '기관 대시보드', '결과보고서 5회'],
+    features: ['참여자·프로젝트 관리', '증빙 승인', '기관 대시보드', '결과보고서 5회'],
     isPublic: false,
     sortOrder: 30,
   },
   {
     key: PLAN_KEYS.university,
     name: 'University',
-    description: '학생·프로젝트 관리, 증빙 승인, 기관 대시보드, 결과보고서',
+    description: '참여자·프로젝트 관리, 증빙 승인, 기관 대시보드, 결과보고서',
     audience: PlanAudience.ORGANIZATION,
     orgTypes: [OrganizationType.UNIVERSITY],
     priceKrw: 5_000_000,
     billingPeriod: BillingPeriod.SEMESTER,
     vatIncluded: false,
     limits: { members: 600, activePrograms: 5, projects: 120, storageGb: 50, reportsPerPeriod: 30, aiCallsPerDay: 300 },
-    features: ['학생 600명', '운영 프로그램 5개', '프로젝트 120개', '저장공간 50GB', '결과보고서 학기당 30회'],
+    features: ['참여자 600명', '운영 프로그램 5개', '프로젝트 120개', '저장공간 50GB', '결과보고서 학기당 30회'],
     sortOrder: 40,
   },
   {

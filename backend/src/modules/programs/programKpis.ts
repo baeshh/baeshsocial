@@ -27,15 +27,15 @@ export const KPI_DEFINITIONS: Record<KpiKey, { label: string; numerator: string;
     basis: '집계 시점의 프로젝트 상태 기준',
   },
   participationRate: {
-    label: '학생 참여율',
-    numerator: '기간 내 프로젝트 활동 기록 또는 증빙 작성이 1건 이상 있는 등록 학생 수',
-    denominator: '프로그램 등록 학생 수',
+    label: '참여율',
+    numerator: '기간 내 프로젝트 활동 기록 또는 증빙 작성이 1건 이상 있는 등록 참여자 수',
+    denominator: '프로그램 등록 참여자 수',
     basis: '프로그램별 등록 인원 기준(여러 프로그램 등록 시 프로그램마다 집계)',
   },
   submissionRate: {
     label: '활동 제출률',
-    numerator: '기간 내 증빙을 1건 이상 제출한 등록 학생 수',
-    denominator: '프로그램 등록 학생 수',
+    numerator: '기간 내 증빙을 1건 이상 제출한 등록 참여자 수',
+    denominator: '프로그램 등록 참여자 수',
     basis: '제출 시각(submittedAt)이 기간 안에 있는 증빙 기준',
   },
   approvalRate: {

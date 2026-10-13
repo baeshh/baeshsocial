@@ -48,10 +48,10 @@ export function buildNarrativeInput(snapshot: ReportSnapshot): ReportNarrativeIn
         `운영 프로그램 ${c.programs}개`,
         `운영 프로젝트 ${c.projects}개`,
         `완료 프로젝트 ${c.completedProjects}개`,
-        `등록 학생(중복 제외) ${c.uniqueStudents}명`,
-        `기간 내 참여 학생 ${c.activeStudents}명`,
+        `등록 참여자(중복 제외) ${c.uniqueStudents}명`,
+        `기간 내 활동 참여자 ${c.activeStudents}명`,
         `프로젝트 완료율 ${fmt(m.projectCompletionRate.value)}`,
-        `학생 참여율 ${fmt(m.participationRate.value)}`,
+        `참여율 ${fmt(m.participationRate.value)}`,
         `활동 제출률 ${fmt(m.submissionRate.value)}`,
         `증빙 승인율 ${fmt(m.approvalRate.value)}`,
         `평균 진행률 ${fmt(m.averageProgress.value)}`,
@@ -81,7 +81,7 @@ export function buildNarrativeInput(snapshot: ReportSnapshot): ReportNarrativeIn
       text: [
         program.term ? `학기 ${program.term}` : null,
         `프로젝트 ${program.counts.projects}개(완료 ${program.counts.completedProjects}개)`,
-        `등록 학생 ${program.counts.enrollments}명`,
+        `등록 참여자 ${program.counts.enrollments}명`,
         `참여율 ${fmt(pm.participationRate.value)}`,
         `제출률 ${fmt(pm.submissionRate.value)}`,
         `승인율 ${fmt(pm.approvalRate.value)}`,
@@ -127,7 +127,7 @@ function mockNarrative({ snapshot, sources, programRefs }: ReportNarrativeInput)
 
   const overview = [
     { text: `${org}에서는 집계 기간 동안 프로그램 ${c.programs}개와 프로젝트 ${c.projects}개를 운영했습니다.`, sourceRefs: ['G1'] },
-    { text: `등록 학생 ${c.uniqueStudents}명 중 기간 내 활동 기록이 있는 참여 학생은 ${c.activeStudents}명입니다.`, sourceRefs: ['G1'] },
+    { text: `등록 참여자 ${c.uniqueStudents}명 중 기간 내 활동 기록이 있는 참여자는 ${c.activeStudents}명입니다.`, sourceRefs: ['G1'] },
     ...(m.averageProgress.value !== null
       ? [{ text: `운영 프로젝트의 평균 진행률은 ${m.averageProgress.value}%이며, 완료된 프로젝트는 ${c.completedProjects}개입니다.`, sourceRefs: ['G1'] }]
       : []),
@@ -140,8 +140,8 @@ function mockNarrative({ snapshot, sources, programRefs }: ReportNarrativeInput)
     return {
       programRef: ref,
       summary: [
-        { text: `「${program.title}」 프로그램은 프로젝트 ${program.counts.projects}개, 등록 학생 ${program.counts.enrollments}명 규모로 운영되었습니다.`, sourceRefs: [ref] },
-        ...(pm.submissionRate.value !== null ? [{ text: `활동 제출률은 ${pm.submissionRate.value}%, 학생 참여율은 ${fmt(pm.participationRate.value)}입니다.`, sourceRefs: [ref] }] : []),
+        { text: `「${program.title}」 프로그램은 프로젝트 ${program.counts.projects}개, 등록 참여자 ${program.counts.enrollments}명 규모로 운영되었습니다.`, sourceRefs: [ref] },
+        ...(pm.submissionRate.value !== null ? [{ text: `활동 제출률은 ${pm.submissionRate.value}%, 참여율은 ${fmt(pm.participationRate.value)}입니다.`, sourceRefs: [ref] }] : []),
       ],
     }
   })
@@ -164,7 +164,7 @@ function mockNarrative({ snapshot, sources, programRefs }: ReportNarrativeInput)
 
   const improvements = [
     ...(m.submissionRate.value !== null && m.submissionRate.value < 70
-      ? [{ text: `활동 제출률이 ${m.submissionRate.value}%로, 미제출 학생 대상 제출 안내가 필요합니다.`, sourceRefs: ['G1'] }]
+      ? [{ text: `활동 제출률이 ${m.submissionRate.value}%로, 미제출 참여자 대상 제출 안내가 필요합니다.`, sourceRefs: ['G1'] }]
       : []),
     ...(c.pendingEvidence > 0 ? [{ text: `검토 대기 중인 증빙 ${c.pendingEvidence}건의 처리가 필요합니다.`, sourceRefs: ['G1'] }] : []),
     ...(m.approvalRate.value !== null && m.approvalRate.value < 80
@@ -213,7 +213,7 @@ export const reportNarrativeTask: AiTask<ReportNarrativeInput, NarrativeDraft, R
     '- 수치는 sources의 값을 그대로 인용만 한다. 새 비율·합계·증감을 계산하지 않는다.',
     '- overview: 사업 개요와 핵심 운영 성과, programs: 프로그램별 운영 결과(programRef 사용), highlights: 주요 프로젝트·증빙 활동,',
     '  evaluation: 종합 평가, improvements: 데이터에서 드러난 개선 사항.',
-    '- 학생 개인을 평가하거나 이름을 쓰지 않는다. 보고서 문체(~했습니다)로 쓴다.',
+    '- 참여자 개인을 평가하거나 이름을 쓰지 않는다. 보고서 문체(~했습니다)로 쓴다.',
   ].join('\n'),
   outputFormat: `{
   "overview": [{ "text": "...", "sourceRefs": ["G1"] }],

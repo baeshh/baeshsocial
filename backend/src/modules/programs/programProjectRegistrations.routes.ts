@@ -207,14 +207,14 @@ export function registerProjectRegistrationRoutes(router: ExpressRouter) {
     try {
       const authUser = res.locals.user as AuthTokenPayload
       const access = await requireProgramAccess(String(req.params.programId), authUser.id)
-      if (!access.isParticipant) throw new HttpError(403, '프로그램 참여 학생만 프로젝트를 등록할 수 있습니다.')
-      if (!access.program.allowStudentProjects) throw new HttpError(403, '이 프로그램은 학생 프로젝트 등록을 허용하지 않습니다.')
+      if (!access.isParticipant) throw new HttpError(403, '프로그램 참여자만 프로젝트를 등록할 수 있습니다.')
+      if (!access.program.allowStudentProjects) throw new HttpError(403, '이 프로그램은 참여자 프로젝트 등록을 허용하지 않습니다.')
       assertProgramOpenForStudents(access.program.status)
       const input = createProjectRequestSchema.parse(req.body)
 
       const conflicts = await findTeamConflicts(prisma, access.program, [authUser.id])
       if (input.mode === 'new' && conflicts.size > 0) {
-        throw new HttpError(409, `이미 '${conflicts.get(authUser.id)}' 팀에 속해 있습니다. 이 프로그램은 학생당 한 프로젝트만 허용합니다.`)
+        throw new HttpError(409, `이미 '${conflicts.get(authUser.id)}' 팀에 속해 있습니다. 이 프로그램은 참여자 1명당 한 프로젝트만 허용합니다.`)
       }
 
       let projectId: string
@@ -366,7 +366,7 @@ export function registerProjectRegistrationRoutes(router: ExpressRouter) {
       if (existing.status !== ProgramProjectRegistrationStatus.PENDING) throw new HttpError(409, '이미 처리된 요청입니다.')
 
       if (input.decision === 'withdraw') {
-        if (existing.requesterId !== authUser.id) throw new HttpError(403, '요청한 학생만 철회할 수 있습니다.')
+        if (existing.requesterId !== authUser.id) throw new HttpError(403, '요청한 본인만 철회할 수 있습니다.')
       } else {
         if (!access.isStaff) throw new HttpError(403, '프로그램 담당자만 승인하거나 반려할 수 있습니다.')
         if (existing.project.ownerId === authUser.id) throw new HttpError(403, '본인이 소유한 프로젝트는 승인할 수 없습니다.')
@@ -425,7 +425,7 @@ export function registerProjectRegistrationRoutes(router: ExpressRouter) {
     try {
       const authUser = res.locals.user as AuthTokenPayload
       const access = await requireProgramAccess(String(req.params.programId), authUser.id)
-      if (!access.isParticipant) throw new HttpError(403, '프로그램 참여 학생만 조회할 수 있습니다.')
+      if (!access.isParticipant) throw new HttpError(403, '프로그램 참여자만 조회할 수 있습니다.')
       const projects = await prisma.project.findMany({
         where: {
           programId: null,

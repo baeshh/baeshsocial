@@ -177,7 +177,7 @@ export function registerProjectReviewRoutes(router: Router) {
       if (input.targetUserId) {
         if (kind !== ProjectReviewKind.REMOVAL_REQUEST) throw new HttpError(400, '대상 팀원은 제외 요청에만 지정할 수 있습니다.')
         if (!project.members.some((m) => m.userId === input.targetUserId)) throw new HttpError(400, '이 프로젝트의 팀원이 아닙니다.')
-        if (input.targetUserId === project.ownerId) throw new HttpError(400, '프로젝트를 만든 학생은 제외할 수 없습니다. 프로젝트 제거를 요청해 주세요.')
+        if (input.targetUserId === project.ownerId) throw new HttpError(400, '프로젝트를 만든 참여자는 제외할 수 없습니다. 프로젝트 제거를 요청해 주세요.')
       }
       if (input.parentId) {
         const parent = await prisma.projectReview.findFirst({ where: { id: input.parentId, projectId: project.id }, select: { id: true } })

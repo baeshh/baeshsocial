@@ -85,7 +85,7 @@ export function reportHtml(input: {
     <h2>1. ${DEFAULT_REPORT_SECTIONS[0].title}</h2>
     <div class="cards">
       <div class="card"><div class="label">운영 프로젝트</div><div class="value">${totals.counts.projects}</div><div class="ratio">완료 ${totals.counts.completedProjects}</div></div>
-      <div class="card"><div class="label">등록 학생</div><div class="value">${totals.counts.uniqueStudents}</div><div class="ratio">참여 ${totals.counts.activeStudents}</div></div>
+      <div class="card"><div class="label">등록 참여자</div><div class="value">${totals.counts.uniqueStudents}</div><div class="ratio">참여 ${totals.counts.activeStudents}</div></div>
       ${metricCard(defs.submissionRate.label, totals.metrics.submissionRate)}
       ${metricCard(defs.averageProgress.label, totals.metrics.averageProgress)}
     </div>
@@ -106,7 +106,7 @@ export function reportHtml(input: {
 
   const page2 = `<section class="page">
     <h2>2. ${DEFAULT_REPORT_SECTIONS[1].title}</h2>
-    <table><thead><tr><th>프로그램</th><th>프로젝트</th><th>등록 학생</th><th>참여율</th><th>제출률</th><th>승인율</th><th>평균 진행률</th><th>목표 달성</th></tr></thead>
+    <table><thead><tr><th>프로그램</th><th>프로젝트</th><th>등록 참여자</th><th>참여율</th><th>제출률</th><th>승인율</th><th>평균 진행률</th><th>목표 달성</th></tr></thead>
       ${kpis.programs
         .map(
           (p) => `<tr><td>${e(p.title)}${p.term ? `<div class="muted">${e(p.term)}</div>` : ''}</td><td>${p.counts.projects} (완료 ${p.counts.completedProjects})</td><td>${p.counts.enrollments}</td>
@@ -136,7 +136,7 @@ export function reportHtml(input: {
         )
         .join('') || '<tr><td colspan="9">운영 프로젝트가 없습니다.</td></tr>'}
     </table>
-    <p class="muted">참여 = 기간 내 활동 기록 또는 증빙을 작성한 등록 학생 수, 활동 = 기간 내 활동 기록 수</p>
+    <p class="muted">참여 = 기간 내 활동 기록 또는 증빙을 작성한 등록 참여자 수, 활동 = 기간 내 활동 기록 수</p>
     ${trendChart(snapshot)}
     <h3>주요 성과</h3>
     ${claims(narrative.highlights, '서술 없음')}

@@ -88,9 +88,9 @@ export async function assertProgramInvitee(
     throw new HttpError(409, '종료되었거나 보관된 프로그램의 팀은 변경할 수 없습니다.')
   }
   const eligible = await activeParticipantIds(prisma, program, [userId])
-  if (!eligible.has(userId)) throw new HttpError(400, '이 프로그램의 참여 학생만 팀에 초대할 수 있습니다.')
+  if (!eligible.has(userId)) throw new HttpError(400, '이 프로그램의 참여자만 팀에 초대할 수 있습니다.')
   const conflicts = await findTeamConflicts(prisma, program, [userId], projectId)
-  if (conflicts.size > 0) throw new HttpError(409, `이미 '${conflicts.get(userId)}' 팀에 속한 학생입니다.`)
+  if (conflicts.size > 0) throw new HttpError(409, `이미 '${conflicts.get(userId)}' 팀에 속한 참여자입니다.`)
 }
 
 /** Users who are ACTIVE members of the organization (participant or not). */

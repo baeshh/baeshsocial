@@ -71,8 +71,8 @@ organizationOnboardingRouter.get(
         { key: 'program', title: '프로그램 생성', description: '학기·사업 단위 프로그램을 만듭니다.', done: programs > 0, count: programs, tab: 'programs' },
         {
           key: 'students',
-          title: '학생 일괄 등록',
-          description: 'CSV로 학생을 초대하면 수락 즉시 프로그램 참여자로 등록됩니다.',
+          title: '참여자 일괄 등록',
+          description: 'CSV로 참여자를 초대하면 수락 즉시 프로그램 참여자로 등록됩니다.',
           done: participants > 0,
           count: participants,
           pending: studentInvites,
@@ -81,13 +81,13 @@ organizationOnboardingRouter.get(
         {
           key: 'projects',
           title: '프로젝트·팀 배정',
-          description: '프로그램 안에 팀 프로젝트를 만들고 학생을 배정합니다.',
+          description: '프로그램 안에 팀 프로젝트를 만들고 참여자를 배정합니다.',
           done: staffedProjects > 0,
           count: staffedProjects,
           tab: 'programs',
         },
-        { key: 'evidence', title: '첫 활동 증빙 제출', description: '학생이 사진·영상·PDF로 활동을 기록합니다.', done: submitted > 0, count: submitted, tab: 'programs' },
-        { key: 'approval', title: '첫 증빙 승인', description: '담당자가 승인하면 학생 프로필에 검증 기록이 생깁니다.', done: approved > 0, count: approved, tab: 'programs' },
+        { key: 'evidence', title: '첫 활동 증빙 제출', description: '참여자가 사진·영상·PDF로 활동을 기록합니다.', done: submitted > 0, count: submitted, tab: 'programs' },
+        { key: 'approval', title: '첫 증빙 승인', description: '담당자가 승인하면 참여자 프로필에 검증 기록이 생깁니다.', done: approved > 0, count: approved, tab: 'programs' },
         { key: 'report', title: '첫 결과보고서 발급', description: '실제 데이터로 계산한 운영 결과보고서를 PDF로 받습니다.', done: reports > 0, count: reports, tab: 'reports' },
       ]
       const completed = steps.filter((step) => step.done).length

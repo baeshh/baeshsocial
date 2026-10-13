@@ -840,7 +840,7 @@ programsRouter.patch('/:programId/projects/:projectId', authenticate, async (req
     if (await loadStudentLed(target.id)) {
       const contentFields = Object.keys(input).filter((key) => key !== 'teamName' && input[key as keyof typeof input] !== undefined)
       if (contentFields.length > 0) {
-        throw new HttpError(403, '학생 주도 프로젝트의 내용은 직접 수정할 수 없습니다. 피드백이나 수정 요청을 남겨 주세요.')
+        throw new HttpError(403, '참여자 주도 프로젝트의 내용은 직접 수정할 수 없습니다. 피드백이나 수정 요청을 남겨 주세요.')
       }
     }
     if (input.status !== undefined && toProjectStatus(input.status) !== ProjectStatus.ARCHIVED) {
@@ -894,7 +894,7 @@ programsRouter.post('/:programId/projects/:projectId/move', authenticate, async 
     if (conflicts.length > 0) {
       throw new HttpError(
         409,
-        `대상 프로그램에서 이미 다른 팀에 배정된 학생이 있습니다: ${conflicts.map((c) => c.user.name).join(', ')}`,
+        `대상 프로그램에서 이미 다른 팀에 배정된 참여자가 있습니다: ${conflicts.map((c) => c.user.name).join(', ')}`,
       )
     }
 
@@ -959,7 +959,7 @@ programsRouter.post('/:programId/projects/:projectId/members', authenticate, asy
     const skipped: { userId: string; reason: string }[] = []
     for (const userId of [...new Set(input.userIds)]) {
       if (!participantIds.has(userId)) {
-        skipped.push({ userId, reason: '프로그램 참여 학생이 아닙니다.' })
+        skipped.push({ userId, reason: '프로그램 참여자가 아닙니다.' })
         continue
       }
       const otherTeam = otherTeamByUser.get(userId)
@@ -1004,7 +1004,7 @@ programsRouter.delete('/:programId/projects/:projectId/members/:userId', authent
     const userId = String(req.params.userId)
     const owner = await prisma.project.findUniqueOrThrow({ where: { id: project.id }, select: { ownerId: true } })
     if (owner.ownerId === userId) {
-      throw new HttpError(409, '프로젝트를 만든 학생은 팀에서 제외할 수 없습니다. 프로젝트를 프로그램에서 제거해 주세요.')
+      throw new HttpError(409, '프로젝트를 만든 참여자는 팀에서 제외할 수 없습니다. 프로젝트를 프로그램에서 제거해 주세요.')
     }
     const { count } = await prisma.projectMember.deleteMany({ where: { projectId: project.id, userId } })
     if (count > 0) {
