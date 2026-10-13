@@ -30,6 +30,7 @@ import { Modal } from '../common/Modal'
 import { EvidenceCard } from './EvidenceCard'
 import { EvidenceFilePicker } from './EvidenceFilePicker'
 import { EvidenceReviewActions } from './EvidenceReviewActions'
+import { EvidenceRevokeAction } from './EvidenceRevokeAction'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const emptyForm = (): EvidenceFields => ({ title: '', description: '', category: 'development', activityDate: today() })
@@ -337,6 +338,8 @@ export function ProjectEvidencePanel({ projectId }: { projectId: string }) {
             </>
           ) : canReview && !isAuthor && item.status === 'submitted' ? (
             <EvidenceReviewActions evidence={item} />
+          ) : canReview && item.status === 'approved' ? (
+            <EvidenceRevokeAction evidence={item} />
           ) : null
 
           return (

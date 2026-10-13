@@ -1,4 +1,4 @@
-import { ChevronDown, ShieldCheck } from 'lucide-react'
+import { ChevronDown, ShieldCheck, ShieldOff } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { cn } from '../../lib/cn'
 import {
@@ -32,9 +32,13 @@ export function EvidenceCard({ evidence, showProject, actions, onRemoveFile, rem
             <h3 className="font-bold text-ink-strong">{evidence.title}</h3>
             <Badge tone={status.tone}>{status.label}</Badge>
             <Badge>{EVIDENCE_CATEGORY_LABEL[evidence.category]}</Badge>
-            {evidence.verifiedRecordId ? (
+            {evidence.verifiedRecord?.status === 'verified' ? (
               <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
                 <ShieldCheck size={14} /> 검증 기록 발급
+              </span>
+            ) : evidence.verifiedRecord?.status === 'revoked' ? (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-ink-muted">
+                <ShieldOff size={14} /> 검증 기록 취소됨
               </span>
             ) : null}
           </div>
@@ -62,7 +66,9 @@ export function EvidenceCard({ evidence, showProject, actions, onRemoveFile, rem
 
       {evidence.status === 'rejected' && evidence.reviewNote ? (
         <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          <p className="font-semibold">반려 사유 · {evidence.reviewedBy?.name}</p>
+          <p className="font-semibold">
+            {evidence.verifiedRecord?.status === 'revoked' ? '승인 취소' : '반려 사유'} · {evidence.reviewedBy?.name}
+          </p>
           <p className="mt-1 whitespace-pre-wrap">{evidence.reviewNote}</p>
         </div>
       ) : null}

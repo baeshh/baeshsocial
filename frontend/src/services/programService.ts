@@ -193,6 +193,10 @@ export function reviewEvidence(token: string, evidenceId: string, decision: 'app
   })
 }
 
+export function revokeEvidence(token: string, evidenceId: string, reason: string) {
+  return apiRequest<{ evidence: Evidence }>(`/evidence/${evidenceId}/revoke`, { method: 'POST', token, body: json({ reason }) })
+}
+
 export function getEvidenceFileUrl(token: string, fileId: string, download = false) {
   return apiRequest<{ url: string; expiresAt: string }>(
     `/evidence-files/${fileId}/url${download ? '?download=1' : ''}`,

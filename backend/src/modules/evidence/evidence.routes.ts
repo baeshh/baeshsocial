@@ -4,7 +4,6 @@ import {
   EvidenceStatus,
   ProgramStatus,
   ProjectActivityType,
-  VerifiedRecordStatus,
 } from '@prisma/client'
 import { Router, type RequestHandler } from 'express'
 import multer from 'multer'
@@ -21,7 +20,13 @@ import {
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { getProgramAccess } from '../../utils/programAccess.js'
-import { createEvidenceSchema, reviewEvidenceSchema, updateEvidenceSchema } from '../../validators/program.validator.js'
+import { issueVerifiedRecord, revokeVerifiedRecord } from '../../services/verification/verifiedRecords.js'
+import {
+  createEvidenceSchema,
+  reviewEvidenceSchema,
+  revokeEvidenceSchema,
+  updateEvidenceSchema,
+} from '../../validators/program.validator.js'
 import { evidenceInclude, serializeEvidence } from '../programs/program.serializers.js'
 
 export const projectEvidenceRouter = Router({ mergeParams: true })
@@ -407,23 +412,7 @@ evidenceRouter.post('/:evidenceId/review', authenticate, async (req, res, next) 
       })
 
       if (approve) {
-        const authorMembership = await tx.projectMember.findUnique({
-          where: { projectId_userId: { projectId: project.id, userId: evidence.authorId } },
-          select: { role: true },
-        })
-        const summary = [evidence.title, evidence.description].filter(Boolean).join(' — ').slice(0, 600)
-        await tx.verifiedRecord.create({
-          data: {
-            userId: evidence.authorId,
-            projectId: project.id,
-            evidenceId: evidence.id,
-            role: authorMembership?.role ?? '참여자',
-            contributionSummary: `[${access.organization.name} · ${program.title}] ${summary}`,
-            trustScore: 90,
-            status: VerifiedRecordStatus.VERIFIED,
-            issuedAt: new Date(),
-          },
-        })
+        await issueVerifiedRecord(tx, { evidenceId: evidence.id, approverId: authUser.id, approvedAt: new Date() })
         await tx.projectActivity.create({
           data: {
             projectId: project.id,
@@ -446,6 +435,51 @@ evidenceRouter.post('/:evidenceId/review', authenticate, async (req, res, next) 
       `/projects/${project.id}?tab=evidence`,
     )
 
+    res.status(200).json({ evidence: await reloadEvidence(evidence.id) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+/**
+ * Withdraws an approval. The verified record turns REVOKED (kept for audit) and the evidence goes
+ * back to REJECTED so the author can correct and resubmit; a later approval reissues the record.
+ */
+evidenceRouter.post('/:evidenceId/revoke', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const context = await loadEvidenceContext(String(req.params.evidenceId), authUser.id)
+    if (!context.isStaff) throw new HttpError(403, '프로그램 담당자만 승인을 취소할 수 있습니다.')
+    if (context.evidence.status !== EvidenceStatus.APPROVED) {
+      throw new HttpError(409, '승인된 증빙만 승인 취소할 수 있습니다.')
+    }
+    const { reason } = revokeEvidenceSchema.parse(req.body)
+    const { evidence, project, program } = context
+
+    await prisma.$transaction(async (tx) => {
+      const updated = await tx.projectEvidence.updateMany({
+        where: { id: evidence.id, status: EvidenceStatus.APPROVED },
+        data: {
+          status: EvidenceStatus.REJECTED,
+          reviewedById: authUser.id,
+          reviewedAt: new Date(),
+          reviewNote: `승인 취소: ${reason}`,
+        },
+      })
+      if (updated.count === 0) throw new HttpError(409, '증빙 상태가 변경되었습니다. 새로고침 후 다시 시도해 주세요.')
+      await tx.evidenceReview.create({
+        data: { evidenceId: evidence.id, actorId: authUser.id, action: EvidenceReviewAction.REVOKED, note: reason },
+      })
+      await revokeVerifiedRecord(tx, { evidenceId: evidence.id, actorId: authUser.id, reason })
+    })
+
+    await notify(
+      [evidence.authorId],
+      authUser.id,
+      '활동 증빙 승인이 취소되었습니다',
+      `${program.title} · ${evidence.title} — 사유: ${reason}`,
+      `/projects/${project.id}?tab=evidence`,
+    )
     res.status(200).json({ evidence: await reloadEvidence(evidence.id) })
   } catch (error) {
     next(error)

@@ -1,4 +1,4 @@
-import type { EvidenceFile, EvidenceReview, Program, ProjectEvidence } from '@prisma/client'
+import type { EvidenceFile, EvidenceReview, Program, ProjectEvidence, VerifiedRecordStatus } from '@prisma/client'
 
 export const userBriefSelect = { id: true, name: true, email: true, avatarUrl: true } as const
 
@@ -52,7 +52,13 @@ export function serializeEvidence(
     reviewedBy?: Pick<UserBrief, 'id' | 'name'> | null
     files?: EvidenceFile[]
     reviews?: (EvidenceReview & { actor?: Pick<UserBrief, 'id' | 'name'> | null })[]
-    verifiedRecord?: { id: string } | null
+    verifiedRecord?: {
+      id: string
+      status?: VerifiedRecordStatus
+      verifiedAt?: Date | null
+      revokedAt?: Date | null
+      revokeReason?: string | null
+    } | null
     project?: { id: string; title: string; teamName: string | null; programId: string | null }
   },
 ) {
@@ -81,6 +87,15 @@ export function serializeEvidence(
         createdAt: review.createdAt,
       })) ?? [],
     verifiedRecordId: evidence.verifiedRecord?.id ?? null,
+    verifiedRecord: evidence.verifiedRecord?.status
+      ? {
+          id: evidence.verifiedRecord.id,
+          status: lower(evidence.verifiedRecord.status),
+          verifiedAt: evidence.verifiedRecord.verifiedAt ?? null,
+          revokedAt: evidence.verifiedRecord.revokedAt ?? null,
+          revokeReason: evidence.verifiedRecord.revokeReason ?? null,
+        }
+      : null,
     project: evidence.project ?? null,
   }
 }
@@ -90,5 +105,5 @@ export const evidenceInclude = {
   reviewedBy: { select: { id: true, name: true } },
   files: { orderBy: { createdAt: 'asc' } },
   reviews: { orderBy: { createdAt: 'asc' }, include: { actor: { select: { id: true, name: true } } } },
-  verifiedRecord: { select: { id: true } },
+  verifiedRecord: { select: { id: true, status: true, verifiedAt: true, revokedAt: true, revokeReason: true } },
 } as const

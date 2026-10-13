@@ -7,6 +7,7 @@ import type { Program } from '../../types/program'
 import { LoadingState } from '../common/LoadingState'
 import { EvidenceCard } from '../evidence/EvidenceCard'
 import { EvidenceReviewActions } from '../evidence/EvidenceReviewActions'
+import { EvidenceRevokeAction } from '../evidence/EvidenceRevokeAction'
 
 type Filter = 'submitted' | 'approved' | 'rejected' | 'all'
 
@@ -89,6 +90,8 @@ export function ProgramReviewPanel({ program }: { program: Program }) {
                 ) : (
                   <EvidenceReviewActions evidence={evidence} />
                 )
+              ) : evidence.status === 'approved' && program.status !== 'archived' ? (
+                <EvidenceRevokeAction evidence={evidence} />
               ) : undefined
             }
             evidence={evidence}

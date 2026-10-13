@@ -61,6 +61,35 @@ enum AIAnalysisType {
   PROJECT_INSIGHT
   OPPORTUNITY_MATCH
   PORTFOLIO_GENERATOR
+  REPORT_NARRATIVE
+  TALENT_MATCH_EXPLANATION
+}
+
+enum AIUsageStatus {
+  SUCCESS
+  INVALID_OUTPUT
+  PROVIDER_ERROR
+  TIMEOUT
+  RATE_LIMITED
+  BUDGET_EXCEEDED
+}
+
+enum ReportStatus {
+  PENDING
+  READY
+  FAILED
+}
+
+enum MatchFeedback {
+  SHORTLISTED
+  CONTACTED
+  NOT_A_FIT
+}
+
+enum VerifiedRecordEventAction {
+  ISSUED
+  REVOKED
+  REISSUED
 }
 
 enum OrganizationType {
@@ -131,12 +160,14 @@ enum EvidenceReviewAction {
   RESUBMITTED
   APPROVED
   REJECTED
+  REVOKED
 }
 
 enum VerifiedRecordStatus {
   PENDING
   VERIFIED
   REJECTED
+  REVOKED
 }
 
 enum OpportunityEnrollmentStatus {
@@ -236,34 +267,46 @@ model User {
   evidenceFilesUploaded    EvidenceFile[]             @relation("EvidenceFileUploader")
   evidenceReviewActions    EvidenceReview[]           @relation("EvidenceReviewActor")
   projectLinksCreated      ProjectExternalLink[]      @relation("ProjectLinkCreator")
+  recordsVerified          VerifiedRecord[]           @relation("VerifiedRecordVerifier")
+  recordsRevoked           VerifiedRecord[]           @relation("VerifiedRecordRevoker")
+  verifiedRecordEvents     VerifiedRecordEvent[]
+  aiUsageLogs              AIUsageLog[]
+  reportTemplatesCreated   ReportTemplate[]
+  reportsCreated           GeneratedReport[]
+  talentSearches           TalentSearch[]
+  matchResults             MatchResult[]              @relation("MatchCandidate")
+  matchFeedbackGiven       MatchResult[]              @relation("MatchFeedbackBy")
 
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_name_trgm_idx")
 }
 
 model Profile {
-  id                 String            @id @default(cuid())
-  userId             String            @unique
-  headline           String?
-  bio                String?
-  school             String?
-  company            String?
-  location           String?
-  skills             String[]          @default([])
-  interests          String[]          @default([])
-  socialLinks        Json?
-  trustScore         Int               @default(0)
-  verified           Boolean           @default(false)
+  id                  String            @id @default(cuid())
+  userId              String            @unique
+  headline            String?
+  bio                 String?
+  school              String?
+  company             String?
+  location            String?
+  skills              String[]          @default([])
+  interests           String[]          @default([])
+  socialLinks         Json?
+  trustScore          Int               @default(0)
+  verified            Boolean           @default(false)
   /// Who can see projects, history and posts on the profile. Name/avatar/headline stay visible to members.
-  visibility         ProfileVisibility @default(PUBLIC)
+  visibility          ProfileVisibility @default(PUBLIC)
   /// Ordered, at most 3. Only projects the user owns or belongs to are accepted.
-  featuredProjectIds String[]          @default([])
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
-  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  certificates       Certificate[]
-  careers            Career[]
-  awards             Award[]
-  portfolios         Portfolio[]
+  featuredProjectIds  String[]          @default([])
+  /// Explicit consent to appear in company talent search. Only public projects and verified records are shared.
+  talentSearchOptIn   Boolean           @default(false)
+  talentSearchOptInAt DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  certificates        Certificate[]
+  careers             Career[]
+  awards              Award[]
+  portfolios          Portfolio[]
 
   @@index([headline(ops: raw("gin_trgm_ops"))], type: Gin, map: "Profile_headline_trgm_idx")
   @@index([company(ops: raw("gin_trgm_ops"))], type: Gin, map: "Profile_company_trgm_idx")
@@ -621,37 +664,197 @@ model SavedOpportunity {
   @@unique([userId, opportunityId])
 }
 
+/// Institution-issued proof of project work. Displayed content comes from the frozen `snapshot`
+/// (hashed into `contentHash`), never from live project/evidence rows the user can still edit.
 model VerifiedRecord {
-  id                  String               @id @default(cuid())
+  id                  String                @id @default(cuid())
   userId              String
   projectId           String
   role                String
   contributionSummary String
   evidenceUrl         String?
-  evidenceId          String?              @unique
-  trustScore          Int                  @default(0)
-  issuedAt            DateTime             @default(now())
-  status              VerifiedRecordStatus @default(PENDING)
-  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project             Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  evidence            ProjectEvidence?     @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+  evidenceId          String?               @unique
+  trustScore          Int                   @default(0)
+  issuedAt            DateTime              @default(now())
+  status              VerifiedRecordStatus  @default(PENDING)
+  organizationId      String?
+  programId           String?
+  verifiedById        String?
+  verifiedAt          DateTime?
+  revokedAt           DateTime?
+  revokedById         String?
+  revokeReason        String?
+  snapshot            Json?
+  contentHash         String?
+  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project             Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  evidence            ProjectEvidence?      @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+  organization        Organization?         @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  program             Program?              @relation(fields: [programId], references: [id], onDelete: SetNull)
+  verifiedBy          User?                 @relation("VerifiedRecordVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  revokedBy           User?                 @relation("VerifiedRecordRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  events              VerifiedRecordEvent[]
 
   @@index([userId, issuedAt])
+  @@index([userId, status])
   @@index([projectId])
+  @@index([organizationId, status])
+}
+
+/// Append-only history of issue / revoke / reissue decisions on a verified record.
+model VerifiedRecordEvent {
+  id          String                    @id @default(cuid())
+  recordId    String
+  action      VerifiedRecordEventAction
+  actorId     String?
+  reason      String?
+  contentHash String?
+  createdAt   DateTime                  @default(now())
+  record      VerifiedRecord            @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  actor       User?                     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([recordId, createdAt])
 }
 
 model AIAnalysis {
-  id        String         @id @default(cuid())
-  userId    String
-  projectId String?
-  type      AIAnalysisType
-  input     Json
-  output    Json
-  provider  String
-  model     String
-  createdAt DateTime       @default(now())
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project   Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  id             String         @id @default(cuid())
+  userId         String
+  projectId      String?
+  organizationId String?
+  type           AIAnalysisType
+  input          Json
+  output         Json
+  provider       String
+  model          String
+  promptVersion  String?
+  inputTokens    Int?
+  outputTokens   Int?
+  costUsd        Decimal?       @db.Decimal(12, 6)
+  latencyMs      Int?
+  /// Grounding check result: which claims were kept/dropped and why.
+  validation     Json?
+  createdAt      DateTime       @default(now())
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project        Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, type, createdAt])
+}
+
+/// One row per LLM call attempt group (including failures) for cost, quota and error monitoring.
+model AIUsageLog {
+  id               String        @id @default(cuid())
+  userId           String?
+  organizationId   String?
+  feature          String
+  provider         String
+  model            String
+  status           AIUsageStatus
+  attempts         Int           @default(1)
+  inputTokens      Int           @default(0)
+  outputTokens     Int           @default(0)
+  costUsd          Decimal       @default(0) @db.Decimal(12, 6)
+  latencyMs        Int           @default(0)
+  validationIssues Int           @default(0)
+  errorCode        String?
+  errorMessage     String?
+  analysisId       String?
+  createdAt        DateTime      @default(now())
+  user             User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([feature, createdAt])
+}
+
+/// Report layout definition. organizationId null = BAESH default template.
+model ReportTemplate {
+  id             String            @id @default(cuid())
+  organizationId String?
+  key            String
+  name           String
+  version        Int               @default(1)
+  sections       Json
+  isDefault      Boolean           @default(false)
+  createdById    String?
+  createdAt      DateTime          @default(now())
+  organization   Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  reports        GeneratedReport[]
+
+  @@unique([organizationId, key, version])
+}
+
+/// A rendered institution report. `dataSnapshot` freezes every number used, so later data
+/// changes never alter an issued version.
+model GeneratedReport {
+  id              String          @id @default(cuid())
+  organizationId  String
+  templateId      String?
+  templateVersion Int
+  title           String
+  programIds      String[]
+  periodStart     DateTime
+  periodEnd       DateTime
+  version         Int
+  status          ReportStatus    @default(PENDING)
+  dataSnapshot    Json?
+  narrative       Json?
+  narrativeSource String?
+  aiAnalysisId    String?
+  storageKey      String?         @unique
+  sha256          String?
+  sizeBytes       Int?
+  error           String?
+  createdById     String?
+  createdAt       DateTime        @default(now())
+  completedAt     DateTime?
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  template        ReportTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  createdBy       User?           @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+}
+
+model TalentSearch {
+  id             String        @id @default(cuid())
+  organizationId String
+  createdById    String?
+  title          String
+  criteria       Json
+  scoringVersion String
+  candidateCount Int           @default(0)
+  createdAt      DateTime      @default(now())
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User?         @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  results        MatchResult[]
+
+  @@index([organizationId, createdAt])
+}
+
+/// Rule-based match score with its breakdown and cited data. The LLM only writes `explanation`.
+model MatchResult {
+  id                String         @id @default(cuid())
+  searchId          String
+  candidateId       String
+  rank              Int
+  score             Int
+  breakdown         Json
+  evidence          Json
+  explanation       String?
+  explanationSource String?
+  explanationModel  String?
+  scoringVersion    String
+  feedback          MatchFeedback?
+  feedbackAt        DateTime?
+  feedbackById      String?
+  createdAt         DateTime       @default(now())
+  search            TalentSearch   @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  candidate         User           @relation("MatchCandidate", fields: [candidateId], references: [id], onDelete: Cascade)
+  feedbackBy        User?          @relation("MatchFeedbackBy", fields: [feedbackById], references: [id], onDelete: SetNull)
+
+  @@unique([searchId, candidateId])
+  @@index([candidateId])
 }
 
 model Organization {
@@ -671,6 +874,11 @@ model Organization {
   members            OrganizationMember[]
   verifications      OrganizationVerification[]
   programs           Program[]
+  verifiedRecords    VerifiedRecord[]
+  aiUsageLogs        AIUsageLog[]
+  reportTemplates    ReportTemplate[]
+  reports            GeneratedReport[]
+  talentSearches     TalentSearch[]
 
   @@index([verificationStatus])
 }
@@ -715,22 +923,25 @@ model OrganizationVerification {
 }
 
 model Program {
-  id             String               @id @default(cuid())
-  organizationId String
-  title          String
-  description    String?
-  term           String?
-  status         ProgramStatus        @default(ACTIVE)
-  startDate      DateTime?
-  endDate        DateTime?
-  createdById    String?
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy      User?                @relation("ProgramCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  managers       ProgramManager[]
-  participants   ProgramParticipant[]
-  projects       Project[]
+  id              String               @id @default(cuid())
+  organizationId  String
+  title           String
+  description     String?
+  term            String?
+  status          ProgramStatus        @default(ACTIVE)
+  startDate       DateTime?
+  endDate         DateTime?
+  /// Target values per KPI key (see programKpis.ts). Goal achievement = targets met / targets set.
+  kpiTargets      Json?
+  createdById     String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy       User?                @relation("ProgramCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  managers        ProgramManager[]
+  participants    ProgramParticipant[]
+  projects        Project[]
+  verifiedRecords VerifiedRecord[]
 
   @@index([organizationId])
 }

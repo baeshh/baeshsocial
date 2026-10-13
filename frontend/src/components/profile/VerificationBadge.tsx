@@ -46,6 +46,7 @@ export function VerificationBadge({ verification, detailed = false, className }:
           {verificationSummary(verification)}
           {date ? ` · ${date}` : ''}
           {verification.programTitle ? ` · ${verification.programTitle}` : ''}
+          {verification.verifiedBy ? ` · 승인 ${verification.verifiedBy}` : ''}
         </span>
       ) : null}
     </div>

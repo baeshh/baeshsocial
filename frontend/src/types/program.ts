@@ -86,7 +86,7 @@ export type EvidenceFile = {
 
 export type EvidenceHistoryEntry = {
   id: string
-  action: 'submitted' | 'resubmitted' | 'approved' | 'rejected'
+  action: 'submitted' | 'resubmitted' | 'approved' | 'rejected' | 'revoked'
   note: string | null
   actor: { id: string; name: string } | null
   createdAt: string
@@ -110,6 +110,13 @@ export type Evidence = {
   files: EvidenceFile[]
   history: EvidenceHistoryEntry[]
   verifiedRecordId: string | null
+  verifiedRecord: {
+    id: string
+    status: 'pending' | 'verified' | 'rejected' | 'revoked'
+    verifiedAt: string | null
+    revokedAt: string | null
+    revokeReason: string | null
+  } | null
   project: { id: string; title: string; teamName: string | null; programId: string | null } | null
 }
 

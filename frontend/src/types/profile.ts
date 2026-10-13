@@ -63,6 +63,7 @@ export type HistoryVerification = {
   label: string
   verifiedAt: string | null
   programTitle?: string | null
+  verifiedBy?: string | null
 }
 
 export type HistoryItem = {
@@ -106,6 +107,7 @@ export type ProfileOverview = {
     socialLinks: Record<string, string> | null
     visibility?: ProfileVisibility
     featuredProjectIds?: string[]
+    talentSearchOptIn?: boolean
   }
   affiliations: ProfileAffiliation[]
   stats: {

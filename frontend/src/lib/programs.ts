@@ -44,6 +44,7 @@ export const EVIDENCE_ACTION_LABEL: Record<EvidenceHistoryEntry['action'], strin
   resubmitted: '재제출',
   approved: '승인',
   rejected: '반려',
+  revoked: '승인 취소',
 }
 
 export const EVIDENCE_ACCEPT = '.jpg,.jpeg,.png,.webp,.mp4,.m4v,.mov,.webm,.pdf'
