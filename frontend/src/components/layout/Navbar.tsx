@@ -4,6 +4,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { dispatchNetworkScrollTop } from '../../lib/feedScroll'
 import { LogOut, Search } from 'lucide-react'
 import { NotificationBell } from '../notifications/NotificationBell'
+import { OrgSwitcher } from '../organizations/OrgSwitcher'
 import { Avatar } from '../common/Avatar'
 import { BaeshLogo } from '../common/BaeshLogo'
 import { Button } from '../common/Button'
@@ -74,7 +75,7 @@ export function Navbar({ user }: NavbarProps) {
         </nav>
 
         <form
-          className="mx-auto hidden w-full max-w-md lg:block lg:mx-0 lg:max-w-xs xl:max-w-md"
+          className="mx-auto hidden w-full max-w-md lg:block lg:mx-0 lg:max-w-[13rem] xl:max-w-xs 2xl:max-w-md"
           onSubmit={(event) => {
             event.preventDefault()
             submitSearch()
@@ -101,6 +102,7 @@ export function Navbar({ user }: NavbarProps) {
         </form>
 
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-2.5">
+          {user ? <OrgSwitcher /> : null}
           <NotificationBell />
           {user ? (
             <>
