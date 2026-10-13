@@ -14,6 +14,7 @@ import {
   removeMember,
   updateMemberRole,
 } from '../../services/organizationService'
+import { reactivateMember, suspendMember } from '../../services/commercialService'
 import { useAuthStore } from '../../stores/authStore'
 import { useOrgContextStore } from '../../stores/orgContextStore'
 import { showToast } from '../../stores/toastStore'
@@ -76,6 +77,16 @@ export function OrgMembersPanel({ organization, myRole }: Props) {
     onError,
   })
 
+  const statusChange = useMutation({
+    mutationFn: ({ memberId, suspend }: { memberId: string; suspend: boolean }) =>
+      suspend ? suspendMember(token!, organization.id, memberId) : reactivateMember(token!, organization.id, memberId),
+    onSuccess: (_data, { suspend }) => {
+      showToast(suspend ? '이용을 정지했습니다. 해당 구성원은 즉시 조직 기능을 쓸 수 없습니다.' : '정지를 해제했습니다.', 'info')
+      invalidate()
+    },
+    onError,
+  })
+
   const leave = useMutation({
     mutationFn: () => leaveOrganization(token!, organization.id),
     onSuccess: () => {
@@ -94,7 +105,7 @@ export function OrgMembersPanel({ organization, myRole }: Props) {
     return <p className="text-sm text-red-700">{(membersQuery.error as Error).message}</p>
   }
 
-  const { members, pendingRequests } = membersQuery.data!
+  const { members, pendingRequests, suspendedMembers = [] } = membersQuery.data!
 
   return (
     <div className="space-y-5">
@@ -187,6 +198,18 @@ export function OrgMembersPanel({ organization, myRole }: Props) {
                     </select>
                     <Button
                       className="min-h-9 px-4"
+                      disabled={statusChange.isPending}
+                      onClick={() => {
+                        if (window.confirm(`${member.user?.name}님의 조직 이용을 정지할까요? 기록은 보존되며 언제든 해제할 수 있습니다.`)) {
+                          statusChange.mutate({ memberId: member.id, suspend: true })
+                        }
+                      }}
+                      variant="ghost"
+                    >
+                      정지
+                    </Button>
+                    <Button
+                      className="min-h-9 px-4"
                       disabled={removal.isPending}
                       onClick={() => {
                         if (window.confirm(`${member.user?.name}님을 조직에서 내보낼까요?`)) removal.mutate(member.id)
@@ -205,6 +228,28 @@ export function OrgMembersPanel({ organization, myRole }: Props) {
             )
           })}
         </ul>
+        {canManage && suspendedMembers.length > 0 ? (
+          <div className="mt-5 border-t border-surface-border pt-4">
+            <p className="text-sm font-semibold text-ink-strong">이용 정지 {suspendedMembers.length}명</p>
+            <ul className="mt-2 divide-y divide-surface-border">
+              {suspendedMembers.map((member) => (
+                <li className="flex flex-wrap items-center gap-3 py-2.5" key={member.id}>
+                  <Avatar name={member.user?.name ?? '?'} size="sm" src={member.user?.avatarUrl} />
+                  <p className="min-w-0 flex-1 truncate text-sm text-ink-body">{member.user?.name}</p>
+                  <Badge tone="red">정지</Badge>
+                  <Button
+                    className="min-h-9 px-4"
+                    disabled={statusChange.isPending}
+                    onClick={() => statusChange.mutate({ memberId: member.id, suspend: false })}
+                    variant="secondary"
+                  >
+                    정지 해제
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="mt-4 flex justify-end">
           <Button
             disabled={leave.isPending}

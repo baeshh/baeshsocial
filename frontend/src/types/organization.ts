@@ -3,7 +3,7 @@ import type { InstitutionDashboard } from './program'
 export type OrganizationType = 'university' | 'institution' | 'company' | 'community'
 export type OrganizationVerificationStatus = 'pending' | 'approved' | 'rejected'
 export type OrganizationRole = 'owner' | 'admin' | 'manager' | 'member'
-export type OrganizationMemberStatus = 'pending' | 'active' | 'rejected'
+export type OrganizationMemberStatus = 'pending' | 'active' | 'rejected' | 'suspended'
 export type OrganizationDocumentType =
   | 'business_registration'
   | 'employment_certificate'

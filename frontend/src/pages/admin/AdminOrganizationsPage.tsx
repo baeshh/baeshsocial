@@ -9,6 +9,7 @@ import { EmptyState } from '../../components/common/EmptyState'
 import { Textarea } from '../../components/common/Input'
 import { LoadingState } from '../../components/common/LoadingState'
 import { AppLayout } from '../../components/layout/AppLayout'
+import { AdminTabs } from '../../components/admin/AdminNav'
 import { cn } from '../../lib/cn'
 import { DOCUMENT_TYPE_LABEL, ORG_ROLE_LABEL, ORG_TYPE_META, VERIFICATION_STATUS_META } from '../../lib/organizations'
 import { getAdminOrganization, getAdminOrganizations, reviewOrganization } from '../../services/organizationService'
@@ -173,6 +174,7 @@ export function AdminOrganizationsPage() {
   return (
     <AppLayout>
       <div className="space-y-6">
+        <AdminTabs />
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-ink-strong">조직 인증 심사</h1>
           <p className="mt-2 text-sm text-ink-muted">플랫폼 운영자만 접근할 수 있습니다. 승인된 조직에만 관리 기능이 활성화됩니다.</p>

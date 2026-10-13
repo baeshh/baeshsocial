@@ -7,7 +7,12 @@ import { Card, CardDescription, CardHeader, CardTitle } from '../../components/c
 import { LoadingState } from '../../components/common/LoadingState'
 import { Tabs, type TabItem } from '../../components/common/Tabs'
 import { AppLayout } from '../../components/layout/AppLayout'
+import { OrgAuditPanel } from '../../components/audit/OrgAuditPanel'
+import { OrgBillingBanner } from '../../components/billing/OrgBillingBanner'
+import { OrgBillingPanel } from '../../components/billing/OrgBillingPanel'
 import { InstitutionOverview } from '../../components/institution/InstitutionOverview'
+import { OrgInvitesPanel } from '../../components/onboarding/OrgInvitesPanel'
+import { OrgOnboardingPanel } from '../../components/onboarding/OrgOnboardingPanel'
 import { OrgKpiPanel } from '../../components/institution/KpiPanels'
 import { OrgProgramsPanel } from '../../components/institution/OrgProgramsPanel'
 import { OrgReportsPanel } from '../../components/institution/OrgReportsPanel'
@@ -112,6 +117,7 @@ export function OrganizationDashboardPage() {
   const status = VERIFICATION_STATUS_META[organization.verificationStatus]
   const approved = organization.verificationStatus === 'approved'
   const isAdmin = hasOrgRole(myRole, 'admin')
+  const isStaff = hasOrgRole(myRole, 'manager')
   const canManagePrograms = approved && hasOrgRole(myRole, 'manager') && organization.type !== 'company'
   const Icon = meta.icon
   const upcomingModules = TYPE_MODULES[organization.type] ?? []
@@ -119,6 +125,9 @@ export function OrganizationDashboardPage() {
   const changeTab = (tabId: string) => setSearchParams(tabId === 'overview' ? {} : { tab: tabId }, { replace: true })
 
   const tabs: TabItem[] = [
+    ...(canManagePrograms
+      ? [{ id: 'onboarding', label: '도입 가이드', content: <OrgOnboardingPanel onOpenTab={changeTab} orgId={organization.id} /> }]
+      : []),
     {
       id: 'overview',
       label: '개요',
@@ -225,6 +234,9 @@ export function OrganizationDashboardPage() {
         ]
       : []),
     { id: 'members', label: '구성원', content: <OrgMembersPanel myRole={myRole} organization={organization} /> },
+    ...(approved && isStaff ? [{ id: 'invites', label: '초대', content: <OrgInvitesPanel orgId={organization.id} /> }] : []),
+    ...(isStaff ? [{ id: 'billing', label: '요금제·사용량', content: <OrgBillingPanel orgId={organization.id} /> }] : []),
+    ...(approved && isAdmin ? [{ id: 'audit', label: '감사 로그', content: <OrgAuditPanel orgId={organization.id} /> }] : []),
     ...(isAdmin
       ? [
           { id: 'verification', label: '인증', content: <OrgVerificationPanel organization={organization} /> },
@@ -257,6 +269,7 @@ export function OrganizationDashboardPage() {
         </div>
 
         <StatusBanner dashboard={dashboard} onOpenVerification={() => changeTab('verification')} />
+        {approved && isStaff ? <OrgBillingBanner onOpenBilling={() => changeTab('billing')} orgId={organization.id} /> : null}
 
         <Tabs activeTab={activeTab} onChange={changeTab} tabs={tabs} variant="underline" />
       </div>

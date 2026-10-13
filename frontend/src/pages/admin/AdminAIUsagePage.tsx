@@ -4,6 +4,7 @@ import { Badge } from '../../components/common/Badge'
 import { Card, CardDescription, CardHeader, CardTitle } from '../../components/common/Card'
 import { LoadingState } from '../../components/common/LoadingState'
 import { AppLayout } from '../../components/layout/AppLayout'
+import { AdminTabs } from '../../components/admin/AdminNav'
 import { getAiUsage } from '../../services/insightService'
 import { useAuthStore } from '../../stores/authStore'
 import type { AiUsageReport } from '../../types/insights'
@@ -63,6 +64,7 @@ export function AdminAIUsagePage() {
   return (
     <AppLayout>
       <div className="space-y-6">
+        <AdminTabs />
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-ink-strong">AI 운영 관리</h1>

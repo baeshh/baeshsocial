@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Gauge, Plus, ShieldCheck, UserRound, UserSearch } from 'lucide-react'
+import { Check, ChevronDown, Gauge, LifeBuoy, Plus, Settings, ShieldCheck, UserRound, UserSearch } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useMyOrganizations } from '../../hooks/useMyOrganizations'
@@ -131,26 +131,26 @@ export function OrgSwitcher() {
             조직 등록 · 가입
           </button>
           {user?.role === 'admin' ? (
-            <button
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-ink-body hover:bg-surface-muted"
-              onClick={() => go('/admin/organizations')}
-              role="menuitem"
-              type="button"
-            >
-              <ShieldCheck size={18} />
-              조직 인증 심사
-            </button>
-          ) : null}
-          {user?.role === 'admin' ? (
-            <button
-              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-ink-body hover:bg-surface-muted"
-              onClick={() => go('/admin/ai')}
-              role="menuitem"
-              type="button"
-            >
-              <Gauge size={18} />
-              AI 운영 관리
-            </button>
+            <>
+              <button
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-ink-body hover:bg-surface-muted"
+                onClick={() => go('/admin/ops')}
+                role="menuitem"
+                type="button"
+              >
+                <Gauge size={18} />
+                운영자 콘솔
+              </button>
+              <button
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-ink-body hover:bg-surface-muted"
+                onClick={() => go('/admin/organizations')}
+                role="menuitem"
+                type="button"
+              >
+                <ShieldCheck size={18} />
+                조직 인증 심사
+              </button>
+            </>
           ) : null}
           {activeMemberships.some((m) => m.organization.type === 'company' && m.organization.verificationStatus === 'approved') ? (
             <button
@@ -163,6 +163,25 @@ export function OrgSwitcher() {
               인재 검색
             </button>
           ) : null}
+          <div className="my-1 border-t border-surface-border" />
+          <button
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-ink-body hover:bg-surface-muted"
+            onClick={() => go('/support')}
+            role="menuitem"
+            type="button"
+          >
+            <LifeBuoy size={18} />
+            고객 지원
+          </button>
+          <button
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-ink-body hover:bg-surface-muted"
+            onClick={() => go('/settings')}
+            role="menuitem"
+            type="button"
+          >
+            <Settings size={18} />
+            계정·보안 설정
+          </button>
         </div>
       ) : null}
     </div>

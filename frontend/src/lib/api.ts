@@ -6,12 +6,40 @@ type ApiOptions = RequestInit & {
 
 export class ApiError extends Error {
   readonly status: number
+  readonly code: string | null
+  readonly details: unknown
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code: string | null = null, details: unknown = null) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.code = code
+    this.details = details
   }
+}
+
+type ErrorBody = { message?: string; code?: string; details?: unknown } | null
+
+let onSessionEnded: ((message: string) => void) | null = null
+
+/** Called once when the server says the session is gone (revoked, expired, suspended account). */
+export function setSessionEndedHandler(handler: (message: string) => void) {
+  onSessionEnded = handler
+}
+
+function toApiError(status: number, data: ErrorBody, fallback: string, sentToken: boolean) {
+  const code = data?.code ?? null
+  if (sentToken && code && (code.startsWith('session_') || code === 'invalid_token')) {
+    onSessionEnded?.(data?.message ?? '로그인이 만료되었습니다. 다시 로그인해 주세요.')
+  }
+  const details = data?.details ?? null
+  const detailCode = details && typeof details === 'object' && 'code' in details ? String((details as { code: unknown }).code) : null
+  return new ApiError(status, data?.message ?? fallback, code ?? detailCode, details)
+}
+
+/** 402 from plan limits / ended contracts / features outside the plan. */
+export function isBillingError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 402
 }
 
 export async function apiRequest<T>(path: string, options: ApiOptions = {}): Promise<T> {
@@ -33,7 +61,7 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
   const data = contentType?.includes('application/json') ? await response.json() : null
 
   if (!response.ok) {
-    throw new ApiError(response.status, data?.message ?? 'API request failed')
+    throw toApiError(response.status, data, 'API request failed', Boolean(token))
   }
 
   return data as T
@@ -60,7 +88,7 @@ export async function apiUpload<T>(path: string, body: FormData, options: { toke
   const contentType = response.headers.get('content-type')
   const data = contentType?.includes('application/json') ? await response.json() : null
   if (!response.ok) {
-    throw new ApiError(response.status, data?.message ?? '업로드에 실패했습니다.')
+    throw toApiError(response.status, data, '업로드에 실패했습니다.', Boolean(options.token))
   }
   return data as T
 }
@@ -70,7 +98,7 @@ export async function apiDownload(path: string, token: string, fallbackName: str
   const response = await fetch(`${API_BASE_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } })
   if (!response.ok) {
     const data = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null
-    throw new ApiError(response.status, data?.message ?? '파일을 내려받지 못했습니다.')
+    throw toApiError(response.status, data, '파일을 내려받지 못했습니다.', true)
   }
   const disposition = response.headers.get('content-disposition') ?? ''
   const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1]

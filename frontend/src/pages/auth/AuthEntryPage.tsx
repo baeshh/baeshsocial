@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button } from '../../components/common/Button'
 import { Card } from '../../components/common/Card'
 import { Input } from '../../components/common/Input'
@@ -10,11 +10,15 @@ import { ORG_TYPE_META, REGISTRABLE_ORG_TYPES } from '../../lib/organizations'
 import { login, register } from '../../services/authService'
 import type { RegistrableOrganizationType } from '../../services/organizationService'
 import { useAuthStore } from '../../stores/authStore'
+import { showToast } from '../../stores/toastStore'
 
 type AccountPurpose = 'personal' | RegistrableOrganizationType
 
 export function AuthEntryPage() {
   const { mode } = useParams()
+  const [searchParams] = useSearchParams()
+  const inviteToken = searchParams.get('invite')
+  const inviteQuery = inviteToken ? `?invite=${encodeURIComponent(inviteToken)}` : ''
   const navigate = useNavigate()
   const { token, setSession } = useAuthStore()
   const [name, setName] = useState('')
@@ -34,16 +38,26 @@ export function AuthEntryPage() {
   const authMutation = useMutation({
     mutationFn: () =>
       isRegister
-        ? register({ email, password, name })
+        ? register({ email, password, name, ...(inviteToken ? { inviteToken } : {}) })
         : login({ email, password }),
-    onSuccess: ({ token: nextToken, user }) => {
+    onSuccess: ({ token: nextToken, user, invite, inviteError }) => {
       setSession(nextToken, user)
+      if (invite) {
+        showToast(`${invite.organizationName}에 합류했습니다.`)
+        navigate(invite.programId ? `/org/${invite.organizationId}/programs/${invite.programId}` : `/org/${invite.organizationId}`)
+        return
+      }
+      if (inviteToken) {
+        if (inviteError) showToast(inviteError, 'error')
+        navigate(`/invite/${encodeURIComponent(inviteToken)}`)
+        return
+      }
       navigate(isRegister && purpose !== 'personal' ? `/organizations/new?type=${purpose}` : '/dashboard')
     },
   })
 
-  if (token) {
-    return <Navigate replace to="/dashboard" />
+  if (token && !authMutation.isPending && !authMutation.isSuccess) {
+    return <Navigate replace to={inviteToken ? `/invite/${encodeURIComponent(inviteToken)}` : '/dashboard'} />
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -94,7 +108,13 @@ export function AuthEntryPage() {
             value={password}
           />
 
-          {isRegister ? (
+          {inviteToken ? (
+            <p className="rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-800">
+              초대받은 이메일 주소로 {isRegister ? '가입하면' : '로그인하면'} 초대가 자동으로 연결됩니다.
+            </p>
+          ) : null}
+
+          {isRegister && !inviteToken ? (
             <fieldset>
               <legend className="text-sm font-semibold text-ink-strong">어떤 용도로 시작하시나요?</legend>
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -143,7 +163,7 @@ export function AuthEntryPage() {
           {isRegister ? '이미 계정이 있나요?' : '아직 계정이 없나요?'}{' '}
           <Link
             className="font-semibold text-brand-600"
-            to={isRegister ? '/auth/login' : '/auth/register'}
+            to={`${isRegister ? '/auth/login' : '/auth/register'}${inviteQuery}`}
           >
             {isRegister ? '로그인' : '회원가입'}
           </Link>

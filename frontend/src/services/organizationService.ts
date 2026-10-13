@@ -73,7 +73,7 @@ export function getOrganizationDashboard(token: string, orgId: string, programId
 }
 
 export function getOrganizationMembers(token: string, orgId: string) {
-  return apiRequest<{ members: OrganizationMember[]; pendingRequests: OrganizationMember[] }>(
+  return apiRequest<{ members: OrganizationMember[]; pendingRequests: OrganizationMember[]; suspendedMembers?: OrganizationMember[] }>(
     `/organizations/${orgId}/members`,
     { token },
   )
