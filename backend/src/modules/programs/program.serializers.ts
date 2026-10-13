@@ -1,4 +1,4 @@
-import type { EvidenceFile, EvidenceReview, Program, ProjectEvidence, VerifiedRecordStatus } from '@prisma/client'
+import type { EvidenceFile, EvidenceReview, Prisma, Program, ProjectEvidence, VerifiedRecordStatus } from '@prisma/client'
 
 export const userBriefSelect = { id: true, name: true, email: true, avatarUrl: true } as const
 
@@ -56,6 +56,31 @@ export function recruitmentState(program: Program, now = new Date()): Recruitmen
   if (closed) return program.announceAt && now >= program.announceAt ? 'selected' : 'closed'
   if (program.applyStartAt && now < program.applyStartAt) return 'scheduled'
   return 'open'
+}
+
+/**
+ * `recruitmentState` as query conditions for published programs, so listings can filter and page in the
+ * database. `ended` covers 'closed' and announced 'selected'; `noApplications` covers PRESELECTED / INVITE.
+ */
+export function recruitmentPhaseWhere(phase: 'open' | 'upcoming' | 'ended' | 'noApplications', now: Date): Prisma.ProgramWhereInput {
+  if (phase === 'noApplications') return { recruitmentMode: { in: ['PRESELECTED', 'INVITE'] } }
+  const closed: Prisma.ProgramWhereInput[] = [
+    { status: { in: ['COMPLETED', 'ARCHIVED'] } },
+    { recruitmentClosedAt: { lte: now } },
+    { applyEndAt: { lt: now } },
+  ]
+  const takes: Prisma.ProgramWhereInput = { recruitmentMode: { in: ['OPEN', 'MIXED'] } }
+  if (phase === 'ended') return { AND: [takes, { OR: closed }] }
+  // Spelled out rather than NOT(closed): NOT over a nullable column drops the NULL rows in SQL.
+  return {
+    AND: [
+      takes,
+      { status: { notIn: ['COMPLETED', 'ARCHIVED'] } },
+      { OR: [{ recruitmentClosedAt: null }, { recruitmentClosedAt: { gt: now } }] },
+      { OR: [{ applyEndAt: null }, { applyEndAt: { gte: now } }] },
+      phase === 'open' ? { OR: [{ applyStartAt: null }, { applyStartAt: { lte: now } }] } : { applyStartAt: { gt: now } },
+    ],
+  }
 }
 
 type Eligibility = { schools?: string; grades?: number[]; majors?: string; regions?: string; requirements?: string }

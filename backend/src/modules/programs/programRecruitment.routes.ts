@@ -6,7 +6,9 @@ import {
   ProgramStatus,
   ProgramVisibility,
   type Prisma,
+  type ProgramAudience,
   type ProgramCategory,
+  type ProgramDeliveryMode,
 } from '@prisma/client'
 import type { RequestHandler, Router as ExpressRouter } from 'express'
 import multer from 'multer'
@@ -32,6 +34,7 @@ import {
   saveApplicationSchema,
 } from '../../validators/program.validator.js'
 import {
+  recruitmentPhaseWhere,
   recruitmentState,
   serializeApplicationField,
   serializeRecruitment,
@@ -40,9 +43,11 @@ import {
   type RecruitmentState,
 } from './program.serializers.js'
 
-const DISCOVER_POOL_SIZE = 200
 const MAX_APPLICATION_FILE_BYTES = 20 * 1024 * 1024
-const STATE_ORDER: Record<RecruitmentState, number> = { open: 0, scheduled: 1, closed: 2, selected: 3, invite_only: 4, draft: 5 }
+
+type DiscoverSegment = { where: Prisma.ProgramWhereInput; orderBy: Prisma.ProgramOrderByWithRelationInput[] }
+const CLOSING_SOON: Prisma.ProgramOrderByWithRelationInput[] = [{ applyEndAt: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }]
+const STARTING_SOON: Prisma.ProgramOrderByWithRelationInput[] = [{ applyStartAt: 'asc' }, { id: 'asc' }]
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_APPLICATION_FILE_BYTES, files: 1, fields: 5 } })
 const acceptFile: RequestHandler = (req, res, next) => upload.single('file')(req, res, next)
@@ -281,9 +286,10 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
       const authUser = res.locals.user as AuthTokenPayload | undefined
       const userId = authUser?.id ?? null
       const query = discoverProgramsSchema.parse(req.query)
-      const search: Prisma.ProgramWhereInput[] = []
+      const now = new Date()
+      const filters: Prisma.ProgramWhereInput[] = [listableWhere(userId)]
       if (query.q) {
-        search.push({
+        filters.push({
           OR: [
             { title: { contains: query.q, mode: 'insensitive' } },
             { description: { contains: query.q, mode: 'insensitive' } },
@@ -292,39 +298,63 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
           ],
         })
       }
-      if (query.category) search.push({ category: query.category.toUpperCase() as ProgramCategory })
-      const rows = await prisma.program.findMany({
-        where: { ...listableWhere(userId), ...(search.length ? { AND: search } : {}) },
-        include: viewerInclude(userId),
-        orderBy: { publishedAt: 'desc' },
-        take: DISCOVER_POOL_SIZE,
-      })
+      if (query.category) filters.push({ category: query.category.toUpperCase() as ProgramCategory })
+      if (query.audience) filters.push({ audiences: { has: query.audience.toUpperCase() as ProgramAudience } })
+      if (query.deliveryMode) filters.push({ deliveryMode: query.deliveryMode.toUpperCase() as ProgramDeliveryMode })
+      const base: Prisma.ProgramWhereInput = { AND: filters }
 
-      const now = new Date()
-      const ranked = rows
-        .map((program) => ({ program, state: recruitmentState(program, now) }))
-        .filter((row) => !query.openOnly || row.state === 'open')
-        .sort((a, b) => {
-          const byState = STATE_ORDER[a.state] - STATE_ORDER[b.state]
-          if (byState !== 0) return byState
-          if (a.state === 'open' || a.state === 'scheduled') {
-            const key = a.state === 'open' ? 'applyEndAt' : 'applyStartAt'
-            return (a.program[key]?.getTime() ?? Infinity) - (b.program[key]?.getTime() ?? Infinity)
-          }
-          return (b.program.publishedAt?.getTime() ?? 0) - (a.program.publishedAt?.getTime() ?? 0)
-        })
+      const recent: Prisma.ProgramOrderByWithRelationInput[] = [{ publishedAt: 'desc' }, { id: 'asc' }]
+      const segments: DiscoverSegment[] =
+        query.state === 'open'
+          ? [{ where: recruitmentPhaseWhere('open', now), orderBy: query.sort === 'recent' ? recent : CLOSING_SOON }]
+          : query.state === 'upcoming'
+            ? [{ where: recruitmentPhaseWhere('upcoming', now), orderBy: query.sort === 'recent' ? recent : STARTING_SOON }]
+            : query.sort === 'recent'
+              ? [{ where: {}, orderBy: recent }]
+              : [
+                  { where: recruitmentPhaseWhere('open', now), orderBy: CLOSING_SOON },
+                  { where: recruitmentPhaseWhere('upcoming', now), orderBy: STARTING_SOON },
+                  { where: recruitmentPhaseWhere('ended', now), orderBy: recent },
+                  { where: recruitmentPhaseWhere('noApplications', now), orderBy: recent },
+                ]
 
-      const total = ranked.length
+      const [counts, openCount] = await Promise.all([
+        Promise.all(segments.map((segment) => prisma.program.count({ where: { AND: [base, segment.where] } }))),
+        prisma.program.count({ where: { AND: [base, recruitmentPhaseWhere('open', now)] } }),
+      ])
+      const total = counts.reduce((sum, count) => sum + count, 0)
       const totalPages = Math.max(1, Math.ceil(total / query.pageSize))
       const page = Math.min(query.page, totalPages)
-      const slice = ranked.slice((page - 1) * query.pageSize, page * query.pageSize)
+
+      // Walk the segments in order and read only the rows that fall on the requested page.
+      let skip = (page - 1) * query.pageSize
+      let take = query.pageSize
+      const rows: ViewerRow[] = []
+      for (const [index, segment] of segments.entries()) {
+        if (take === 0) break
+        if (skip >= counts[index]) {
+          skip -= counts[index]
+          continue
+        }
+        const chunk = await prisma.program.findMany({
+          where: { AND: [base, segment.where] },
+          include: viewerInclude(userId),
+          orderBy: segment.orderBy,
+          skip,
+          take,
+        })
+        rows.push(...chunk)
+        take -= chunk.length
+        skip = 0
+      }
+
       res.status(200).json({
-        programs: slice.map(({ program }) => serializeDiscoverable(program, { detail: false })),
+        programs: rows.map((program) => serializeDiscoverable(program, { detail: false })),
         page,
         pageSize: query.pageSize,
         total,
         totalPages,
-        openCount: rows.filter((program) => recruitmentState(program, now) === 'open').length,
+        openCount,
       })
     } catch (error) {
       next(error)

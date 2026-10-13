@@ -176,16 +176,25 @@ export const updateProgramSchema = z
   })
   .superRefine(checkProgramDates)
 
-export const discoverProgramsSchema = z.object({
-  page: z.coerce.number().int().min(1).max(100).default(1),
-  pageSize: z.coerce.number().int().min(1).max(30).default(6),
-  q: z.string().trim().max(80).optional(),
-  category: programCategorySchema.optional(),
-  openOnly: z
-    .enum(['true', 'false'])
-    .optional()
-    .transform((value) => value === 'true'),
-})
+export const discoverProgramsSchema = z
+  .object({
+    page: z.coerce.number().int().min(1).max(10_000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(30).default(6),
+    q: z.string().trim().max(80).optional(),
+    category: programCategorySchema.optional(),
+    audience: programAudienceSchema.optional(),
+    deliveryMode: z.enum(['online', 'offline', 'hybrid']).optional(),
+    /** `open`: taking applications now; `upcoming`: recruitment not started yet. */
+    state: z.enum(['all', 'open', 'upcoming']).default('all'),
+    /** Kept for older clients; same as `state=open`. */
+    openOnly: z
+      .enum(['true', 'false'])
+      .optional()
+      .transform((value) => value === 'true'),
+    /** `deadline`: open first by closing date, then upcoming, then the rest by publication. */
+    sort: z.enum(['deadline', 'recent']).default('deadline'),
+  })
+  .transform(({ openOnly, ...query }) => ({ ...query, state: openOnly ? ('open' as const) : query.state }))
 
 export const programViewQuerySchema = z.object({
   t: z.string().trim().max(64).optional(),

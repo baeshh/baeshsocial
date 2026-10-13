@@ -1,10 +1,11 @@
-import { OpportunityEnrollmentStatus, OpportunityType, UserRole } from '@prisma/client'
+import { OpportunityEnrollmentStatus, OpportunityType, Prisma, UserRole } from '@prisma/client'
 import { Router, type Response } from 'express'
 import { prisma } from '../../config/prisma.js'
 import { authenticate, requireRoles } from '../../middlewares/auth.middleware.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { updateEnrollmentStatusSchema } from '../../validators/enrollment.validator.js'
 import {
+  opportunityListQuerySchema,
   opportunitySchema,
   updateOpportunitySchema,
 } from '../../validators/opportunity.validator.js'
@@ -131,43 +132,73 @@ async function requireOpportunity(id: string) {
   return opportunity
 }
 
+const listOrder = {
+  match: Prisma.sql`score DESC, "createdAt" DESC, id ASC`,
+  deadline: Prisma.sql`deadline ASC NULLS LAST, "createdAt" DESC, id ASC`,
+  recent: Prisma.sql`"createdAt" DESC, id ASC`,
+} as const
+
+const escapeLike = (value: string) => value.replace(/[\\%_]/g, (char) => `\\${char}`)
+
+/**
+ * Filtering, match scoring (same formula as `calculateMatchScore`) and paging all run in PostgreSQL, so
+ * the list stays correct however many opportunities there are.
+ */
 opportunitiesRouter.get('/', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
-    const query = String(req.query.q ?? '').trim()
-    const type = String(req.query.type ?? '').trim()
-    const remote = String(req.query.remote ?? '').trim()
-    const skill = String(req.query.skill ?? '').trim()
-    const savedOnly = String(req.query.saved ?? '').trim() === 'true'
+    const query = opportunityListQuerySchema.parse(req.query)
     const profile = await prisma.profile.findUnique({
       where: { userId: authUser.id },
       select: { skills: true },
     })
+    const profileSkills = (profile?.skills ?? []).map((skill) => skill.toLowerCase())
 
-    const opportunities = await prisma.opportunity.findMany({
-      where: {
-        ...(query
-          ? {
-              OR: [
-                { title: { contains: query, mode: 'insensitive' } },
-                { organization: { contains: query, mode: 'insensitive' } },
-                { description: { contains: query, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-        ...(type && type in typeMap ? { type: typeMap[type as keyof typeof typeMap] } : {}),
-        ...(remote === 'true' ? { isRemote: true } : {}),
-        ...(skill ? { skills: { has: skill } } : {}),
-        ...(savedOnly ? { savedOpportunities: { some: { userId: authUser.id } } } : {}),
-      },
-      include: opportunityInclude,
-      orderBy: { createdAt: 'desc' },
-    })
+    const conditions: Prisma.Sql[] = [Prisma.sql`TRUE`]
+    if (query.q) {
+      const pattern = `%${escapeLike(query.q)}%`
+      conditions.push(Prisma.sql`(o.title ILIKE ${pattern} OR o.organization ILIKE ${pattern} OR o.description ILIKE ${pattern})`)
+    }
+    if (query.types.length > 0) {
+      const types = query.types.map((type) => typeMap[type])
+      conditions.push(Prisma.sql`o.type::text = ANY(${types}::text[])`)
+    }
+    if (query.remote) conditions.push(Prisma.sql`o."isRemote" = TRUE`)
+    if (query.skill) conditions.push(Prisma.sql`${query.skill} = ANY(o.skills)`)
+    if (query.saved) {
+      conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM "SavedOpportunity" s WHERE s."opportunityId" = o.id AND s."userId" = ${authUser.id})`)
+    }
+    if (query.openOnly) conditions.push(Prisma.sql`(o.deadline IS NULL OR o.deadline >= date_trunc('day', now()))`)
+    const where = Prisma.join(conditions, ' AND ')
 
+    const [{ total }] = await prisma.$queryRaw<{ total: bigint }[]>`SELECT count(*) AS total FROM "Opportunity" o WHERE ${where}`
+    const totalPages = Math.max(1, Math.ceil(Number(total) / query.pageSize))
+    const page = Math.min(query.page, totalPages)
+    const ranked = await prisma.$queryRaw<{ id: string; score: number }[]>`
+      SELECT id, score FROM (
+        SELECT o.id, o.deadline, o."createdAt",
+          CASE WHEN cardinality(o.skills) = 0 THEN 50
+            ELSE LEAST(98, GREATEST(35, ROUND(100.0 * (
+              SELECT count(*) FROM unnest(o.skills) AS k(skill) WHERE lower(k.skill) = ANY(${profileSkills}::text[])
+            ) / cardinality(o.skills))))
+          END::int AS score
+        FROM "Opportunity" o
+        WHERE ${where}
+      ) scored
+      ORDER BY ${listOrder[query.sort]}
+      LIMIT ${query.pageSize} OFFSET ${(page - 1) * query.pageSize}`
+
+    const rows = await prisma.opportunity.findMany({ where: { id: { in: ranked.map((row) => row.id) } }, include: opportunityInclude })
+    const byId = new Map(rows.map((row) => [row.id, row]))
     res.status(200).json({
-      opportunities: opportunities
-        .map((opportunity) => enrichOpportunity(opportunity, authUser.id, profile?.skills ?? []))
-        .sort((a, b) => b.matchScore - a.matchScore),
+      opportunities: ranked.flatMap(({ id, score }) => {
+        const row = byId.get(id)
+        return row ? [{ ...enrichOpportunity(row, authUser.id, profile?.skills ?? []), matchScore: score }] : []
+      }),
+      page,
+      pageSize: query.pageSize,
+      total: Number(total),
+      totalPages,
     })
   } catch (error) {
     next(error)
