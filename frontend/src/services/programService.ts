@@ -2,15 +2,28 @@ import { apiRequest, apiUpload } from '../lib/api'
 import type {
   Evidence,
   EvidenceCategory,
+  LinkableProject,
+  MyVerifiedRecord,
   Program,
   ProgramDetail,
   ProgramListItem,
   ProgramParticipant,
+  ProgramPolicy,
   ProgramProject,
+  ProgramProjectsSummary,
   ProgramProjectStatus,
   ProgramStatus,
   ProjectEvidenceResponse,
+  ProjectRegistration,
+  ProjectReview,
+  ProjectReviewKind,
+  ProjectReviewsResponse,
+  ProjectVerificationResponse,
+  ProjectVisibility,
+  RecordDisclosure,
+  RegistrationStatus,
   TeamRole,
+  VerifyMemberInput,
 } from '../types/program'
 
 const json = (body: unknown) => JSON.stringify(body)
@@ -23,7 +36,7 @@ export type ProgramPayload = {
   startDate?: string | null
   endDate?: string | null
   managerUserIds?: string[]
-}
+} & Partial<ProgramPolicy>
 
 export type ProgramProjectPayload = {
   title: string
@@ -66,7 +79,9 @@ export function deleteProgram(token: string, programId: string) {
 /* ------------------------------ Projects ----------------------------- */
 
 export function getProgramProjects(token: string, programId: string) {
-  return apiRequest<{ projects: ProgramProject[] }>(`/programs/${programId}/projects`, { token })
+  return apiRequest<{ projects: ProgramProject[]; summary: ProgramProjectsSummary | null }>(`/programs/${programId}/projects`, {
+    token,
+  })
 }
 
 export function createProgramProject(token: string, programId: string, payload: ProgramProjectPayload) {
@@ -113,6 +128,135 @@ export function assignTeamMembers(
 
 export function removeTeamMember(token: string, programId: string, projectId: string, userId: string) {
   return apiRequest<void>(`/programs/${programId}/projects/${projectId}/members/${userId}`, { method: 'DELETE', token })
+}
+
+/* ---------------------- Student project registration --------------------- */
+
+export type ProjectRequestPayload =
+  | {
+      mode: 'new'
+      title: string
+      teamName?: string | null
+      objective?: string | null
+      description?: string | null
+      skills?: string[]
+      visibility?: ProjectVisibility
+      message?: string | null
+    }
+  | { mode: 'existing'; projectId: string; teamName?: string | null; message?: string | null }
+
+export function createProjectRequest(token: string, programId: string, payload: ProjectRequestPayload) {
+  return apiRequest<{ registration: ProjectRegistration }>(`/programs/${programId}/project-requests`, {
+    method: 'POST',
+    token,
+    body: json(payload),
+  })
+}
+
+export function getProjectRequests(token: string, programId: string, status: RegistrationStatus | 'all' = 'all') {
+  return apiRequest<{ requests: ProjectRegistration[] }>(`/programs/${programId}/project-requests?status=${status}`, { token })
+}
+
+export function decideProjectRequest(
+  token: string,
+  programId: string,
+  requestId: string,
+  decision: 'approve' | 'reject' | 'withdraw',
+  note?: string,
+) {
+  return apiRequest<{ registration: ProjectRegistration }>(`/programs/${programId}/project-requests/${requestId}`, {
+    method: 'PATCH',
+    token,
+    body: json({ decision, note: note || undefined }),
+  })
+}
+
+export function getLinkableProjects(token: string, programId: string) {
+  return apiRequest<{ projects: LinkableProject[] }>(`/programs/${programId}/linkable-projects`, { token })
+}
+
+/* --------------------------- Reviews & removal --------------------------- */
+
+export function getProjectReviews(token: string, programId: string, projectId: string) {
+  return apiRequest<ProjectReviewsResponse>(`/programs/${programId}/projects/${projectId}/reviews`, { token })
+}
+
+export function createProjectReview(
+  token: string,
+  programId: string,
+  projectId: string,
+  payload: { kind: ProjectReviewKind; body: string; parentId?: string; targetUserId?: string },
+) {
+  return apiRequest<{ review: ProjectReview }>(`/programs/${programId}/projects/${projectId}/reviews`, {
+    method: 'POST',
+    token,
+    body: json(payload),
+  })
+}
+
+export function resolveProjectReview(token: string, programId: string, projectId: string, reviewId: string, note?: string) {
+  return apiRequest<{ review: ProjectReview }>(`/programs/${programId}/projects/${projectId}/reviews/${reviewId}`, {
+    method: 'PATCH',
+    token,
+    body: json({ status: 'resolved', note: note || undefined }),
+  })
+}
+
+export function removeProgramProject(token: string, programId: string, projectId: string, reason: string) {
+  return apiRequest<{ ok: true }>(`/programs/${programId}/projects/${projectId}/remove`, {
+    method: 'POST',
+    token,
+    body: json({ reason }),
+  })
+}
+
+/* ---------------------------- Verification ---------------------------- */
+
+export function getProjectVerification(token: string, programId: string, projectId: string) {
+  return apiRequest<ProjectVerificationResponse>(`/programs/${programId}/projects/${projectId}/verification`, { token })
+}
+
+export function verifyProject(
+  token: string,
+  programId: string,
+  projectId: string,
+  payload: { outcomeSummary: string; members: VerifyMemberInput[] },
+) {
+  return apiRequest<{ verificationId: string }>(`/programs/${programId}/projects/${projectId}/verification`, {
+    method: 'POST',
+    token,
+    body: json(payload),
+  })
+}
+
+export function verifyProjectMembers(token: string, programId: string, projectId: string, members: VerifyMemberInput[]) {
+  return apiRequest<{ ok: true }>(`/programs/${programId}/projects/${projectId}/verify-members`, {
+    method: 'POST',
+    token,
+    body: json({ members }),
+  })
+}
+
+export function revokeProjectVerification(token: string, programId: string, projectId: string, reason: string, userId?: string) {
+  return apiRequest<{ ok: true; revoked: number }>(`/programs/${programId}/projects/${projectId}/revoke-verification`, {
+    method: 'POST',
+    token,
+    body: json({ reason, userId }),
+  })
+}
+
+/* --------------------------- Record disclosure --------------------------- */
+
+export function getMyVerifiedRecords(token: string) {
+  return apiRequest<{ records: MyVerifiedRecord[] }>('/verified-records/mine', { token })
+}
+
+export function updateRecordDisclosure(token: string, recordId: string, disclosure: RecordDisclosure) {
+  return apiRequest<{ record: MyVerifiedRecord }>(`/verified-records/${recordId}/visibility`, {
+    method: 'PATCH',
+    token,
+    body: json({ disclosure }),
+  })
 }
 
 /* ---------------------------- Participants --------------------------- */

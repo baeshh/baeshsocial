@@ -1,4 +1,4 @@
-import type { Program, ProgramStatus } from '../types/program'
+import type { Program, ProgramPolicy, ProgramStatus } from '../types/program'
 import { toDateInput } from './programs'
 
 export type ProgramFormValue = {
@@ -9,7 +9,17 @@ export type ProgramFormValue = {
   startDate: string
   endDate: string
   managerUserIds: string[]
+  policy: ProgramPolicy
 }
+
+export const defaultProgramPolicy = (): ProgramPolicy => ({
+  allowStudentProjects: false,
+  requireProjectApproval: true,
+  allowStudentTeams: false,
+  allowPublicProjects: false,
+  allowMultipleProjects: false,
+  recordDisclosure: 'summary',
+})
 
 export const emptyProgramForm = (): ProgramFormValue => ({
   title: '',
@@ -19,6 +29,7 @@ export const emptyProgramForm = (): ProgramFormValue => ({
   startDate: '',
   endDate: '',
   managerUserIds: [],
+  policy: defaultProgramPolicy(),
 })
 
 export function programToForm(program: Program): ProgramFormValue {
@@ -30,6 +41,7 @@ export function programToForm(program: Program): ProgramFormValue {
     startDate: toDateInput(program.startDate),
     endDate: toDateInput(program.endDate),
     managerUserIds: program.managers.map((manager) => manager.id),
+    policy: program.policy ?? defaultProgramPolicy(),
   }
 }
 
@@ -41,5 +53,6 @@ export function toProgramPayload(value: ProgramFormValue) {
     status: value.status,
     startDate: value.startDate || null,
     endDate: value.endDate || null,
+    ...value.policy,
   }
 }

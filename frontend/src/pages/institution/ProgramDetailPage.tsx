@@ -7,6 +7,7 @@ import { Tabs, type TabItem } from '../../components/common/Tabs'
 import { ProgramKpiPanel } from '../../components/institution/KpiPanels'
 import { ProgramParticipantsPanel } from '../../components/institution/ProgramParticipantsPanel'
 import { ProgramProjectsPanel } from '../../components/institution/ProgramProjectsPanel'
+import { ProgramRequestsPanel } from '../../components/institution/ProgramRequestsPanel'
 import { ProgramReviewPanel } from '../../components/institution/ProgramReviewPanel'
 import { ProgramSettingsPanel } from '../../components/institution/ProgramSettingsPanel'
 import { AppLayout } from '../../components/layout/AppLayout'
@@ -49,11 +50,12 @@ export function ProgramDetailPage() {
   const tabs: TabItem[] = [
     {
       id: 'projects',
-      label: myAccess.isStaff ? `프로젝트 ${program.projectCount ?? ''}` : '내 팀',
+      label: myAccess.isStaff ? `프로젝트 ${program.projectCount ?? ''}` : '내 프로젝트',
       content: <ProgramProjectsPanel access={myAccess} program={program} />,
     },
     ...(myAccess.isStaff
       ? [
+          { id: 'requests', label: '등록 요청', content: <ProgramRequestsPanel program={program} /> },
           { id: 'participants', label: `참여 학생 ${program.participantCount ?? ''}`, content: <ProgramParticipantsPanel program={program} /> },
           { id: 'review', label: '증빙 검토', content: <ProgramReviewPanel program={program} /> },
           { id: 'kpis', label: '성과 분석', content: <ProgramKpiPanel program={program} /> },
