@@ -1,8 +1,10 @@
 name: CI
 
+# Job names are referenced by main's branch protection (required status checks). Renaming a job
+# requires updating the protection rule, otherwise PRs wait forever for the old check name.
 on:
   push:
-    branches: [main]
+    branches: [main, develop, 'feat/**', 'fix/**', 'hotfix/**', 'chore/**', 'release/**']
   pull_request:
   workflow_dispatch:
 
@@ -10,12 +12,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   backend:
-    name: Backend (typecheck · tests · migrations)
+    name: Backend tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -36,8 +38,6 @@ jobs:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/baesh_ci_test?schema=public
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -49,23 +49,69 @@ jobs:
         run: npm run typecheck
       - name: Build
         run: npm run build
-      - name: Integration tests (isolation · auth · billing · invites · ops)
+      - name: Integration tests (isolation · auth · billing · invites · recruitment · concurrency)
         run: npm test
+
+  migrations:
+    name: DB migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/baesh_ci?schema=public
+      UPGRADE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/baesh_upgrade?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - name: Resolve comparison base
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            BASE="origin/$BASE_REF"
+          elif [ "$REF_NAME" = "$DEFAULT_BRANCH" ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            BASE="$BEFORE"
+          else
+            BASE="origin/$DEFAULT_BRANCH"
+          fi
+          echo "Comparing against $BASE ($(git rev-parse --short "$BASE"))"
+          echo "ref=$BASE" >> "$GITHUB_OUTPUT"
       - name: Migrations apply cleanly to an empty database
         run: npx prisma migrate deploy
+      - name: Migrations match schema.prisma (no drift)
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
       - name: Destructive migration guard
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE="origin/${{ github.base_ref }}"
-          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
-            BASE="${{ github.event.before }}"
-          else
-            BASE="HEAD~1"
-          fi
-          npm run migrations:check -- --base "$BASE"
+        run: npm run migrations:check -- --base "${{ steps.base.outputs.ref }}"
+      - name: Upgrade path from the base release (seeded data survives, API still serves it)
+        run: npx tsx scripts/checkUpgradePath.ts --base "${{ steps.base.outputs.ref }}"
 
   frontend:
-    name: Frontend (lint · typecheck · build)
+    name: Frontend build & lint
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -87,7 +133,7 @@ jobs:
           VITE_API_URL: https://api.example.invalid/api
 
   security:
-    name: Security (secrets · dependencies)
+    name: Security scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

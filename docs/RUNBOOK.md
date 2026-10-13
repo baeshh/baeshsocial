@@ -54,7 +54,7 @@ https가 아닌 `FRONTEND_URL`, `STORAGE_DRIVER≠s3`, `RATE_LIMIT_ENABLED=false
 
 | 단계 | 방법 |
 |------|------|
-| CI | PR·push마다 `ci.yml`: 타입 검사, 빌드, 테스트(실제 PostgreSQL), 마이그레이션 적용·위험 검사, lint, gitleaks, npm audit |
+| CI | 모든 PR과 `main`·`develop`·`feat/**`·`fix/**`·`hotfix/**`·`chore/**`·`release/**` push마다 `ci.yml` 실행. 작업 4개: **Backend tests**(타입 검사·빌드·통합 테스트, 실제 PostgreSQL), **DB migrations**(빈 DB 적용·스키마 차이·데이터 손실 검사·기준 브랜치 데이터 업그레이드 경로), **Frontend build & lint**, **Security scan**(gitleaks·npm audit·.env 커밋 금지) |
 | 스테이징 | `main`에 머지되고 CI가 통과하면 `deploy-staging.yml`이 자동 배포 → 스모크 테스트 → 커밋 상태 `deploy/staging` |
 | 운영 | Actions → **Deploy production** → `ref` 입력 → `production` 환경 승인자 승인 |
 
@@ -161,4 +161,6 @@ BAESH_ENV=production deploy/scripts/restore-s3-object.sh evidence/<id>/<file>.pd
 | Variable | `UPTIME_URLS` | 저장소 | 업타임 점검 대상. 공백으로 구분한 `/api`까지의 주소 (예: `https://api.baesh.kr/api https://staging-api.baesh.kr/api`) |
 | Secret | `ALERT_WEBHOOK_URL` | 저장소 | 업타임 실패 알림 |
 
-`main` 브랜치 보호: CI의 `backend`, `frontend`, `security` 작업 통과를 필수로 지정합니다.
+`main` 브랜치 보호: PR로만 병합하고, 승인 리뷰 1건 이상과 CI 필수 검사 `Backend tests`, `DB migrations`, `Frontend build & lint`, `Security scan` 통과를 요구합니다. 작업 이름을 바꾸면 보호 규칙의 필수 검사 이름도 함께 바꿔야 합니다.
+
+마이그레이션 업그레이드 경로 검사(로컬): `UPGRADE_DATABASE_URL=postgresql://…/baesh_upgrade npx tsx scripts/checkUpgradePath.ts --base origin/main` (backend 폴더). 이름에 `upgrade`가 들어간 임시 DB만 허용하며, 그 DB는 지우고 다시 만듭니다.
