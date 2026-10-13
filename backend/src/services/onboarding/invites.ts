@@ -12,7 +12,7 @@ import { prisma } from '../../config/prisma.js'
 import { HttpError } from '../../utils/httpError.js'
 import { canManageMember, hasOrgRole, toApiOrgRole } from '../../utils/organizations.js'
 import { audit } from '../audit/audit.js'
-import { assertOrgCapacity } from '../billing/entitlements.js'
+import { assertOrgCapacity, assertParticipantSeats } from '../billing/entitlements.js'
 import { sendMail } from '../mail/mail.js'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -116,10 +116,17 @@ export async function createInvites(params: {
     }
   }
 
+  const participantOnly = (row: { role: OrganizationRole }) => Boolean(program) && row.role === OrganizationRole.MEMBER
   const newMembers = toInvite.filter(
-    (row) => userByEmail.get(row.email)?.organizationMemberships[0]?.status !== OrganizationMemberStatus.ACTIVE,
+    (row) => !participantOnly(row) && userByEmail.get(row.email)?.organizationMemberships[0]?.status !== OrganizationMemberStatus.ACTIVE,
   ).length
   if (newMembers > 0) await assertOrgCapacity(organization.id, 'members', newMembers)
+  const newParticipants = toInvite.filter(participantOnly)
+  const knownParticipants = newParticipants.flatMap((row) => {
+    const user = userByEmail.get(row.email)
+    return user ? [user.id] : []
+  })
+  await assertParticipantSeats(organization.id, knownParticipants, newParticipants.length - knownParticipants.length)
 
   const batchId = randomBytes(6).toString('hex')
   const expiresAt = new Date(Date.now() + env.INVITE_TTL_DAYS * DAY)
@@ -276,24 +283,30 @@ export async function acceptInviteToken(
     where: { organizationId_userId: { organizationId: invite.organizationId, userId: user.id } },
   })
   if (membership?.status === OrganizationMemberStatus.SUSPENDED) throw new HttpError(403, '이 조직에서 이용이 정지된 계정입니다.')
-  if (membership?.status !== OrganizationMemberStatus.ACTIVE) await assertOrgCapacity(invite.organizationId, 'members', 1)
+
+  // A participant invite enrolls the person in the program only; it never makes them part of the organization.
+  const participantOnly = Boolean(invite.program) && invite.role === OrganizationRole.MEMBER
+  if (participantOnly) await assertParticipantSeats(invite.organizationId, [user.id])
+  else if (membership?.status !== OrganizationMemberStatus.ACTIVE) await assertOrgCapacity(invite.organizationId, 'members', 1)
 
   const role =
     membership?.status === OrganizationMemberStatus.ACTIVE && hasOrgRole(membership.role, invite.role) ? membership.role : invite.role
 
   await prisma.$transaction(async (tx) => {
-    await tx.organizationMember.upsert({
-      where: { organizationId_userId: { organizationId: invite.organizationId, userId: user.id } },
-      create: {
-        organizationId: invite.organizationId,
-        userId: user.id,
-        role,
-        status: OrganizationMemberStatus.ACTIVE,
-        joinedAt: new Date(),
-        title: null,
-      },
-      update: { role, status: OrganizationMemberStatus.ACTIVE, joinedAt: membership?.joinedAt ?? new Date() },
-    })
+    if (!participantOnly) {
+      await tx.organizationMember.upsert({
+        where: { organizationId_userId: { organizationId: invite.organizationId, userId: user.id } },
+        create: {
+          organizationId: invite.organizationId,
+          userId: user.id,
+          role,
+          status: OrganizationMemberStatus.ACTIVE,
+          joinedAt: new Date(),
+          title: null,
+        },
+        update: { role, status: OrganizationMemberStatus.ACTIVE, joinedAt: membership?.joinedAt ?? new Date() },
+      })
+    }
     if (invite.program) {
       if (hasOrgRole(role, OrganizationRole.MANAGER) && invite.role !== OrganizationRole.MEMBER) {
         await tx.programManager.upsert({
@@ -331,7 +344,7 @@ export async function acceptInviteToken(
     organizationId: invite.organizationId,
     targetType: 'invite',
     targetId: invite.id,
-    metadata: { role, programId: invite.program?.id ?? null },
+    metadata: { role: participantOnly ? null : role, programId: invite.program?.id ?? null, participantOnly },
   })
   if (invite.invitedById) {
     await prisma.notification
@@ -352,5 +365,6 @@ export async function acceptInviteToken(
     organizationName: invite.organization.name,
     programId: invite.program?.id ?? null,
     role: toApiOrgRole(role),
+    participantOnly,
   }
 }

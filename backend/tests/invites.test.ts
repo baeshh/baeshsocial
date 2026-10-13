@@ -41,10 +41,40 @@ describe('bulk invitations', () => {
     expect(register.status).toBe(201)
     expect(register.body.invite).toMatchObject({ organizationId: org.id, programId: program.id, role: 'member' })
 
+    expect(register.body.invite.participantOnly).toBe(true)
+
     const participant = await prisma.programParticipant.findFirstOrThrow({ where: { programId: program.id } })
     expect(participant).toMatchObject({ studentNo: '20260001', department: '컴퓨터공학과' })
+    expect(await prisma.organizationMember.count({ where: { organizationId: org.id, userId: participant.userId } })).toBe(0)
     const reuse = await api().post(`/api/invites/${token}/accept`).set(bearer(register.body.token))
     expect(reuse.status).toBe(410)
+  })
+
+  it('an organization invite without a program still adds an organization member', async () => {
+    const owner = await createUserWithToken()
+    const org = await createOrg(owner.user.id)
+    const staff = await createUserWithToken()
+    const response = await api().post(`/api/organizations/${org.id}/invites`).set(bearer(owner.token)).send({ rows: [{ email: staff.user.email }] })
+    const accept = await api().post(`/api/invites/${tokenOf(response.body.results[0].inviteUrl)}/accept`).set(bearer(staff.token))
+    expect(accept.status).toBe(200)
+    expect(accept.body.participantOnly).toBe(false)
+    expect(await prisma.organizationMember.count({ where: { organizationId: org.id, userId: staff.user.id, status: 'ACTIVE' } })).toBe(1)
+  })
+
+  it('program participant invites count against the participant limit, not the member limit', async () => {
+    const owner = await createUserWithToken()
+    const org = await createOrg(owner.user.id)
+    const program = await createProgram(org.id)
+    await prisma.subscription.updateMany({ where: { organizationId: org.id }, data: { limitOverrides: { members: 1, participants: 1 } } })
+    const invite = (emails: string[]) =>
+      api()
+        .post(`/api/organizations/${org.id}/invites`)
+        .set(bearer(owner.token))
+        .send({ programId: program.id, rows: emails.map((email) => ({ email })) })
+    expect((await invite(['p1@test.baesh.dev'])).status).toBe(201)
+    const tooMany = await invite(['p2@test.baesh.dev', 'p3@test.baesh.dev'])
+    expect(tooMany.status).toBe(402)
+    expect(tooMany.body.details).toMatchObject({ code: 'plan_limit', metric: 'participants' })
   })
 
   it('an invite can only be accepted by the invited email', async () => {

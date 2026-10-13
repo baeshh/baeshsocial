@@ -28,8 +28,8 @@ async function loadProgramAccess(programId: string, userId: string) {
           type: true,
           verificationStatus: true,
           members: {
-            where: { userId, status: OrganizationMemberStatus.ACTIVE },
-            select: { id: true, role: true },
+            where: { userId },
+            select: { id: true, role: true, status: true },
           },
         },
       },
@@ -39,14 +39,17 @@ async function loadProgramAccess(programId: string, userId: string) {
   })
   if (!program) return null
 
-  const membership = program.organization.members[0] ?? null
+  const orgMember = program.organization.members[0] ?? null
+  const membership = orgMember?.status === OrganizationMemberStatus.ACTIVE ? orgMember : null
+  const suspended = orgMember?.status === OrganizationMemberStatus.SUSPENDED
   const approved = program.organization.verificationStatus === OrganizationVerificationStatus.APPROVED
   const isOrgAdmin = Boolean(approved && membership && hasOrgRole(membership.role, OrganizationRole.ADMIN))
   const isManager = Boolean(
     approved && membership && program.managers.length > 0 && hasOrgRole(membership.role, OrganizationRole.MANAGER),
   )
   const isStaff = isOrgAdmin || isManager
-  const isParticipant = Boolean(membership && program.participants.length > 0)
+  // Participation is its own relationship: external participants are not organization members.
+  const isParticipant = !suspended && program.participants.length > 0
 
   return {
     program,
@@ -61,8 +64,8 @@ async function loadProgramAccess(programId: string, userId: string) {
 }
 
 /**
- * Resolves the caller's relationship to a program. Non-members of the owning organization always
- * get 404 so program existence is not leaked across organizations.
+ * Resolves the caller's relationship to a program. Anyone who is neither staff nor a participant
+ * gets 404 so program existence is not leaked across organizations.
  */
 export async function requireProgramAccess(
   programId: string,
@@ -70,7 +73,7 @@ export async function requireProgramAccess(
   level: 'view' | 'staff' | 'admin' = 'view',
 ) {
   const access = await loadProgramAccess(programId, userId)
-  if (!access || !access.membership || !access.canView) {
+  if (!access || !access.canView) {
     throw new ProgramAccessError(404, '프로그램을 찾을 수 없습니다.')
   }
   if (level === 'staff' && !access.isStaff) {
@@ -83,6 +86,14 @@ export async function requireProgramAccess(
 }
 
 export const getProgramAccess = loadProgramAccess
+
+/**
+ * Row lock on the program for the rest of the transaction. Seat checks run after it, so two staff
+ * selecting the last seat at the same moment are serialised instead of both passing the check.
+ */
+export async function lockProgramSeats(tx: Prisma.TransactionClient, programId: string) {
+  await tx.$queryRaw`SELECT id FROM "Program" WHERE id = ${programId} FOR UPDATE`
+}
 
 export function assertProgramWritable(status: ProgramStatus) {
   if (status === ProgramStatus.ARCHIVED) {

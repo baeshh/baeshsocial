@@ -28,7 +28,7 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization.middleware.js'
 import { audit } from '../../services/audit/audit.js'
-import { assertOrgCapacity } from '../../services/billing/entitlements.js'
+import { assertOrgCapacity, assertParticipantSeats } from '../../services/billing/entitlements.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { hasOrgRole } from '../../utils/organizations.js'
@@ -47,7 +47,7 @@ import {
   updateProgramProjectSchema,
   updateProgramSchema,
 } from '../../validators/program.validator.js'
-import { findTeamConflicts, isStudentLed, loadStudentLed } from '../../services/programs/programProjects.js'
+import { activeParticipantIds, findTeamConflicts, isStudentLed, loadStudentLed } from '../../services/programs/programProjects.js'
 import {
   evidenceInclude,
   serializeApplicationField,
@@ -513,7 +513,7 @@ programsRouter.get('/:programId', authenticate, async (req, res, next) => {
         isOrgAdmin: access.isOrgAdmin,
         isManager: access.isManager,
         isParticipant: access.isParticipant,
-        orgRole: access.membership!.role.toLowerCase(),
+        orgRole: access.membership?.role.toLowerCase() ?? null,
       },
     })
   } catch (error) {
@@ -935,19 +935,7 @@ programsRouter.post('/:programId/projects/:projectId/members', authenticate, asy
     const project = await findProgramProject(access.program.id, String(req.params.projectId))
     const input = assignTeamMembersSchema.parse(req.body)
 
-    const participants = await prisma.programParticipant.findMany({
-      where: {
-        programId: access.program.id,
-        userId: { in: input.userIds },
-        user: {
-          organizationMemberships: {
-            some: { organizationId: access.organization.id, status: OrganizationMemberStatus.ACTIVE },
-          },
-        },
-      },
-      select: { userId: true },
-    })
-    const participantIds = new Set(participants.map((p) => p.userId))
+    const participantIds = await activeParticipantIds(prisma, access.program, input.userIds)
     const otherTeamByUser = await findTeamConflicts(prisma, access.program, input.userIds, project.id)
 
     const role = await prisma.projectRole.findUnique({
@@ -1095,7 +1083,7 @@ programsRouter.post('/:programId/participants', authenticate, async (req, res, n
         email: true,
         organizationMemberships: {
           where: { organizationId: access.organization.id },
-          select: { id: true, status: true },
+          select: { status: true },
         },
       },
     })
@@ -1110,48 +1098,39 @@ programsRouter.post('/:programId/participants', authenticate, async (req, res, n
       ).map((row) => row.userId),
     )
 
-    const pendingToApprove = new Set(
-      participants.flatMap((entry) => {
-        const user = entry.userId ? byId.get(entry.userId) : byEmail.get(entry.email!)
-        return user?.organizationMemberships[0]?.status === OrganizationMemberStatus.PENDING ? [user.id] : []
-      }),
-    )
-    if (pendingToApprove.size > 0) {
-      await assertOrgCapacity(access.organization.id, 'members', pendingToApprove.size)
-    }
-
     const added: string[] = []
-    const skipped: { input: string; reason: string }[] = []
-    const approvedMemberships: string[] = []
+    const skipped: { input: string; reason: string; needsInvite?: boolean }[] = []
+    const accepted: { entry: (typeof participants)[number]; userId: string }[] = []
 
+    // Direct registration skips the participant's consent, so it is limited to the organization's own
+    // active members and people already in the program. Everyone else confirms through an invite link.
     for (const entry of participants) {
       const label = entry.email ?? entry.userId!
       const user = entry.userId ? byId.get(entry.userId) : byEmail.get(entry.email!)
       if (!user) {
-        skipped.push({ input: label, reason: 'BAESH 계정을 찾을 수 없습니다.' })
+        skipped.push({ input: label, reason: 'BAESH 계정이 없습니다. 초대 링크로 가입과 참여를 함께 안내해 주세요.', needsInvite: Boolean(entry.email) })
         continue
       }
-      const membership = user.organizationMemberships[0]
-      if (!membership || membership.status === OrganizationMemberStatus.REJECTED) {
-        skipped.push({ input: label, reason: '조직에 가입하지 않은 사용자입니다. 먼저 조직 가입을 요청하도록 안내해 주세요.' })
+      const status = user.organizationMemberships[0]?.status
+      if (status === OrganizationMemberStatus.SUSPENDED) {
+        skipped.push({ input: label, reason: '조직에서 이용이 정지된 사용자입니다.' })
         continue
       }
-      if (membership.status === OrganizationMemberStatus.SUSPENDED) {
-        skipped.push({ input: label, reason: '조직에서 이용이 정지된 구성원입니다.' })
+      if (status !== OrganizationMemberStatus.ACTIVE && !existing.has(user.id)) {
+        skipped.push({ input: label, reason: '조직 구성원이 아니어서 바로 등록할 수 없습니다. 초대 링크로 참여 의사를 확인해 주세요.', needsInvite: Boolean(entry.email) })
         continue
       }
-      if (membership.status === OrganizationMemberStatus.PENDING) {
-        await prisma.organizationMember.update({
-          where: { id: membership.id },
-          data: { status: OrganizationMemberStatus.ACTIVE, role: OrganizationRole.MEMBER, joinedAt: new Date() },
-        })
-        approvedMemberships.push(user.id)
-      }
+      accepted.push({ entry, userId: user.id })
+    }
+
+    await assertParticipantSeats(access.organization.id, accepted.map((row) => row.userId))
+
+    for (const { entry, userId } of accepted) {
       await prisma.programParticipant.upsert({
-        where: { programId_userId: { programId: access.program.id, userId: user.id } },
+        where: { programId_userId: { programId: access.program.id, userId } },
         create: {
           programId: access.program.id,
-          userId: user.id,
+          userId,
           studentNo: entry.studentNo ?? null,
           department: entry.department ?? null,
           addedById: authUser.id,
@@ -1161,9 +1140,9 @@ programsRouter.post('/:programId/participants', authenticate, async (req, res, n
           ...(entry.department !== undefined ? { department: entry.department } : {}),
         },
       })
-      if (!existing.has(user.id)) {
-        existing.add(user.id)
-        added.push(user.id)
+      if (!existing.has(userId)) {
+        existing.add(userId)
+        added.push(userId)
       }
     }
 
@@ -1180,9 +1159,9 @@ programsRouter.post('/:programId/participants', authenticate, async (req, res, n
       organizationId: access.organization.id,
       targetType: 'program',
       targetId: access.program.id,
-      metadata: { added: added.length, skipped: skipped.length, approvedMemberships },
+      metadata: { added: added.length, skipped: skipped.length },
     })
-    res.status(200).json({ added, skipped, approvedMemberships })
+    res.status(200).json({ added, skipped })
   } catch (error) {
     next(error)
   }

@@ -1,4 +1,4 @@
-import { OrganizationMemberStatus, OrganizationRole, ProgramStatus } from '@prisma/client'
+import { OrganizationRole, ProgramStatus } from '@prisma/client'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { addMember, api, bearer, createOrg, createProgram, createUserWithToken, prisma, resetDb } from './helpers.js'
 
@@ -284,7 +284,7 @@ describe('program applications', () => {
     expect(invalid.status).toBe(400)
   })
 
-  it('turns an accepted application into a participant and organization member', async () => {
+  it('turns an accepted application into a program participant without making them an organization member', async () => {
     const queue = await api().get(`/api/programs/${recruitingId}/applications`).set(bearer(professor.token))
     const applicationId = queue.body.applications[0].id as string
     expect((await api().patch(`/api/programs/${recruitingId}/applications/${applicationId}`).set(bearer(member.token)).send({ decision: 'accept' })).status).toBe(404)
@@ -295,12 +295,74 @@ describe('program applications', () => {
 
     const participant = await prisma.programParticipant.findUnique({ where: { programId_userId: { programId: recruitingId, userId: outsider.user.id } } })
     expect(participant).not.toBeNull()
-    const membership = await prisma.organizationMember.findUnique({ where: { organizationId_userId: { organizationId: orgId, userId: outsider.user.id } } })
-    expect(membership).toMatchObject({ status: OrganizationMemberStatus.ACTIVE, role: OrganizationRole.MEMBER })
-    expect((await api().get(`/api/programs/${recruitingId}`).set(bearer(outsider.token))).status).toBe(200)
+    expect(await prisma.organizationMember.count({ where: { organizationId: orgId, userId: outsider.user.id } })).toBe(0)
 
     const again = await api().patch(`/api/programs/${recruitingId}/applications/${applicationId}`).set(bearer(professor.token)).send({ decision: 'reject' })
     expect(again.status).toBe(409)
+  })
+
+  it('gives external participants access to their program but not to the organization', async () => {
+    const program = await api().get(`/api/programs/${recruitingId}`).set(bearer(outsider.token))
+    expect(program.status).toBe(200)
+    expect(program.body.myAccess).toMatchObject({ isParticipant: true, isStaff: false, orgRole: null })
+
+    expect((await api().get(`/api/organizations/${orgId}/programs`).set(bearer(outsider.token))).status).toBe(403)
+    expect((await api().get(`/api/organizations/${orgId}/members`).set(bearer(outsider.token))).status).toBe(403)
+    expect((await api().get(`/api/programs/${recruitingId}/participants`).set(bearer(outsider.token))).status).toBe(403)
+
+    const mine = await api().get('/api/programs/participating').set(bearer(outsider.token))
+    expect(mine.status).toBe(200)
+    expect(mine.body.programs).toEqual([expect.objectContaining({ id: recruitingId, isOrgMember: false, organization: { id: orgId, name: 'A대학교' } })])
+
+    const usage = await api().get(`/api/organizations/${orgId}/billing`).set(bearer(admin.token))
+    const rows = usage.body.usage as { key: string; used: number }[]
+    expect(rows.find((row) => row.key === 'participants')?.used).toBe(1)
+    expect(rows.find((row) => row.key === 'members')?.used).toBe(3)
+  })
+
+  it('lets only one of two simultaneous selections take the last seat', async () => {
+    const program = await recruitingProgram(orgId, '동시 선발', { capacity: 1 })
+    const applicants = await Promise.all([createUserWithToken(), createUserWithToken()])
+    for (const applicant of applicants) expect((await save(applicant, program.id, { submit: true })).status).toBe(200)
+    const applications = await prisma.programApplication.findMany({ where: { programId: program.id } })
+
+    const decide = (applicationId: string) =>
+      api().patch(`/api/programs/${program.id}/applications/${applicationId}`).set(bearer(professor.token)).send({ decision: 'accept' })
+    const responses = await Promise.all(applications.map((application) => decide(application.id)))
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409])
+    expect(await prisma.programParticipant.count({ where: { programId: program.id } })).toBe(1)
+    expect(await prisma.programApplication.count({ where: { programId: program.id, status: 'ACCEPTED' } })).toBe(1)
+  })
+
+  it('decides one application only once even when two reviewers act at the same time', async () => {
+    const program = await recruitingProgram(orgId, '중복 심사')
+    const applicant = await createUserWithToken()
+    expect((await save(applicant, program.id, { submit: true })).status).toBe(200)
+    const application = await prisma.programApplication.findFirstOrThrow({ where: { programId: program.id } })
+    const path = `/api/programs/${program.id}/applications/${application.id}`
+    const responses = await Promise.all([
+      api().patch(path).set(bearer(professor.token)).send({ decision: 'accept' }),
+      api().patch(path).set(bearer(admin.token)).send({ decision: 'reject' }),
+    ])
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409])
+    const final = await prisma.programApplication.findUniqueOrThrow({ where: { id: application.id } })
+    expect(await prisma.programParticipant.count({ where: { programId: program.id } })).toBe(final.status === 'ACCEPTED' ? 1 : 0)
+  })
+
+  it('registers organization members directly but asks outsiders to confirm through an invite', async () => {
+    const program = await createProgram(orgId, { managerIds: [professor.user.id], title: '기선발 등록' })
+    const stranger = await createUserWithToken()
+    const response = await api()
+      .post(`/api/programs/${program.id}/participants`)
+      .set(bearer(professor.token))
+      .send({ participants: [{ email: member.user.email, studentNo: 'A1023' }, { email: stranger.user.email }, { email: 'nobody@test.baesh.dev' }] })
+    expect(response.status).toBe(200)
+    expect(response.body.added).toEqual([member.user.id])
+    expect(response.body.skipped).toEqual([
+      expect.objectContaining({ input: stranger.user.email, needsInvite: true }),
+      expect.objectContaining({ input: 'nobody@test.baesh.dev', needsInvite: true }),
+    ])
+    expect(await prisma.organizationMember.count({ where: { organizationId: orgId, userId: stranger.user.id } })).toBe(0)
   })
 
   it('stops accepting once the capacity is filled', async () => {

@@ -10,9 +10,10 @@ import type { Router as ExpressRouter } from 'express'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { audit } from '../../services/audit/audit.js'
-import { assertOrgCapacity } from '../../services/billing/entitlements.js'
+import { assertOrgCapacity, assertParticipantSeats } from '../../services/billing/entitlements.js'
 import {
   activeOrgMemberIds,
+  activeParticipantIds,
   assertProgramOpenForStudents,
   findTeamConflicts,
   isLeaderSlug,
@@ -133,10 +134,13 @@ async function assertEligible(db: Prisma.TransactionClient | typeof prisma, acce
     throw new HttpError(400, '이 프로그램은 전체 공개 프로젝트를 허용하지 않습니다. 공개 범위를 팀 공개로 바꾼 뒤 요청해 주세요.')
   }
   const memberIds = project.members.map((m) => m.userId)
-  const active = await activeOrgMemberIds(db, access.organization.id, memberIds)
-  const outsiders = project.members.filter((m) => !active.has(m.userId)).map((m) => m.user.name)
+  const [participants, orgMembers] = await Promise.all([
+    activeParticipantIds(db, access.program, memberIds),
+    activeOrgMemberIds(db, access.organization.id, memberIds),
+  ])
+  const outsiders = project.members.filter((m) => !participants.has(m.userId) && !orgMembers.has(m.userId)).map((m) => m.user.name)
   if (outsiders.length > 0) {
-    throw new HttpError(400, `${access.organization.name} 구성원이 아닌 팀원이 있어 등록할 수 없습니다: ${outsiders.join(', ')}`)
+    throw new HttpError(400, `이 프로그램 참여자가 아닌 팀원이 있어 등록할 수 없습니다: ${outsiders.join(', ')}`)
   }
   const conflicts = await findTeamConflicts(db, access.program, memberIds, project.id)
   if (conflicts.size > 0) {
@@ -155,6 +159,7 @@ async function approveInTx(
 ) {
   const registration = await tx.programProjectRegistration.findUniqueOrThrow({ where: { id: registrationId } })
   const project = await assertEligible(tx, access, registration.projectId)
+  await assertParticipantSeats(access.organization.id, project.members.map((member) => member.userId))
   const updated = await tx.programProjectRegistration.updateMany({
     where: { id: registrationId, status: ProgramProjectRegistrationStatus.PENDING },
     data: {

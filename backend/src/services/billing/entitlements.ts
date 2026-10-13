@@ -1,4 +1,4 @@
-import { OrganizationMemberStatus, ProgramStatus, ProjectStatus, ReportStatus } from '@prisma/client'
+import { OrganizationMemberStatus, ProgramStatus, ProjectStatus, ReportStatus, type Prisma } from '@prisma/client'
 import { env } from '../../config/env.js'
 import { prisma } from '../../config/prisma.js'
 import { HttpError } from '../../utils/httpError.js'
@@ -23,8 +23,9 @@ export async function computeOrgUsage(organizationId: string, subscription: Subs
   const now = Date.now()
   const periodStart = subscription?.startsAt ?? new Date(now - 365 * DAY)
   const programWhere = { program: { organizationId } }
-  const [members, activePrograms, projects, evidenceBytes, reportBytes, reports, searches, aiCalls, applicationBytes] = await Promise.all([
+  const [members, participants, activePrograms, projects, evidenceBytes, reportBytes, reports, searches, aiCalls, applicationBytes] = await Promise.all([
     prisma.organizationMember.count({ where: { organizationId, status: OrganizationMemberStatus.ACTIVE } }),
+    prisma.programParticipant.groupBy({ by: ['userId'], where: orgParticipantWhere(organizationId) }).then((rows) => rows.length),
     prisma.program.count({ where: { organizationId, status: ProgramStatus.ACTIVE } }),
     prisma.project.count({ where: { ...programWhere, status: { not: ProjectStatus.ARCHIVED } } }),
     prisma.evidenceFile.aggregate({ _sum: { sizeBytes: true }, where: { evidence: { project: programWhere } } }),
@@ -42,6 +43,7 @@ export async function computeOrgUsage(organizationId: string, subscription: Subs
     (evidenceBytes._sum.sizeBytes ?? 0) + (reportBytes._sum.sizeBytes ?? 0) + (applicationBytes._sum.sizeBytes ?? 0)
   return {
     members,
+    participants,
     activePrograms,
     projects,
     storageGb: Math.round((storageBytes / GB) * 1000) / 1000,
@@ -121,6 +123,28 @@ export async function assertOrgCapacity(organizationId: string, metric: OrgLimit
 }
 
 export const bytesToGb = (bytes: number) => bytes / GB
+
+/** A person counts once against the participant limit, however many of the organization's live programs they join. */
+export const orgParticipantWhere = (organizationId: string): Prisma.ProgramParticipantWhereInput => ({
+  program: { organizationId, status: { not: ProgramStatus.ARCHIVED } },
+})
+
+/**
+ * Checks the participant limit only for people not yet counted for this organization. `withoutAccount`
+ * is for invitees who have no BAESH account yet and therefore always count as new.
+ */
+export async function assertParticipantSeats(organizationId: string, userIds: string[], withoutAccount = 0) {
+  const unique = [...new Set(userIds)]
+  const counted = unique.length
+    ? await prisma.programParticipant.findMany({
+        where: { ...orgParticipantWhere(organizationId), userId: { in: unique } },
+        distinct: ['userId'],
+        select: { userId: true },
+      })
+    : []
+  const fresh = unique.length - counted.length + withoutAccount
+  if (fresh > 0) await assertOrgCapacity(organizationId, 'participants', fresh)
+}
 
 /** Personal plan checks (portfolio generation and PDF export). */
 export async function assertPersonalFeature(userId: string, feature: 'portfolio' | 'portfolioPdf') {

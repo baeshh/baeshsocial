@@ -4,6 +4,7 @@ import { prisma } from '../../config/prisma.js'
 /** Organization limit keys. Missing or null = unlimited. */
 export const ORG_LIMIT_KEYS = [
   'members',
+  'participants',
   'activePrograms',
   'projects',
   'storageGb',
@@ -20,7 +21,8 @@ export type PersonalLimitKey = (typeof PERSONAL_LIMIT_KEYS)[number]
 export type PlanLimits = Partial<Record<OrgLimitKey | PersonalLimitKey, number | boolean | null>>
 
 export const LIMIT_LABELS: Record<OrgLimitKey | PersonalLimitKey, string> = {
-  members: '활성 구성원(참여자·담당자)',
+  members: '조직 구성원(담당자·내부 인원)',
+  participants: '프로그램 참여자(중복 제외)',
   activePrograms: '운영 중 프로그램',
   projects: '프로그램 프로젝트',
   storageGb: '증빙·보고서 저장공간(GB)',
@@ -85,6 +87,7 @@ export const DEFAULT_PLANS: PlanSeed[] = [
     vatIncluded: false,
     limits: {
       members: 120,
+      participants: 120,
       activePrograms: 2,
       projects: 20,
       storageGb: 5,
@@ -105,7 +108,7 @@ export const DEFAULT_PLANS: PlanSeed[] = [
     priceKrw: 5_000_000,
     billingPeriod: BillingPeriod.SEMESTER,
     vatIncluded: false,
-    limits: { members: 600, activePrograms: 5, projects: 120, storageGb: 50, reportsPerPeriod: 30, aiCallsPerDay: 300 },
+    limits: { members: 600, participants: 600, activePrograms: 5, projects: 120, storageGb: 50, reportsPerPeriod: 30, aiCallsPerDay: 300 },
     features: ['참여자 600명', '운영 프로그램 5개', '프로젝트 120개', '저장공간 50GB', '결과보고서 학기당 30회'],
     sortOrder: 40,
   },
@@ -118,8 +121,8 @@ export const DEFAULT_PLANS: PlanSeed[] = [
     priceKrw: 10_000_000,
     billingPeriod: BillingPeriod.YEAR,
     vatIncluded: false,
-    limits: { members: 2000, activePrograms: 30, projects: 500, storageGb: 200, reportsPerPeriod: 200, aiCallsPerDay: 1000 },
-    features: ['구성원 2,000명', '운영 프로그램 30개', '프로젝트 500개', '저장공간 200GB', '결과보고서 연 200회'],
+    limits: { members: 2000, participants: 2000, activePrograms: 30, projects: 500, storageGb: 200, reportsPerPeriod: 200, aiCallsPerDay: 1000 },
+    features: ['참여자 2,000명', '운영 프로그램 30개', '프로젝트 500개', '저장공간 200GB', '결과보고서 연 200회'],
     sortOrder: 50,
   },
   {
@@ -131,7 +134,7 @@ export const DEFAULT_PLANS: PlanSeed[] = [
     priceKrw: null,
     billingPeriod: BillingPeriod.YEAR,
     vatIncluded: false,
-    limits: { members: 20, talentSearchesPerMonth: 1000, aiCallsPerDay: 500 },
+    limits: { members: 20, participants: 500, talentSearchesPerMonth: 1000, aiCallsPerDay: 500 },
     features: ['채용 담당자 20명', '인재 검색 월 1,000회', 'AI 추천 설명', 'API 연동(별도 협의)'],
     sortOrder: 60,
   },

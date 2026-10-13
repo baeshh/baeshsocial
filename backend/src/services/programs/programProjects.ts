@@ -60,7 +60,7 @@ export async function findTeamConflicts(
   return conflicts
 }
 
-/** Program participants who are still ACTIVE members of the program's organization. */
+/** Program participants who are not suspended by the program's organization. Membership is not required. */
 export async function activeParticipantIds(db: Db, program: Pick<ProgramPolicy, 'id' | 'organizationId'>, userIds: string[]) {
   if (userIds.length === 0) return new Set<string>()
   const rows = await db.programParticipant.findMany({
@@ -69,7 +69,7 @@ export async function activeParticipantIds(db: Db, program: Pick<ProgramPolicy, 
       userId: { in: userIds },
       user: {
         organizationMemberships: {
-          some: { organizationId: program.organizationId, status: OrganizationMemberStatus.ACTIVE },
+          none: { organizationId: program.organizationId, status: OrganizationMemberStatus.SUSPENDED },
         },
       },
     },

@@ -14,7 +14,7 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate, optionalAuthenticate } from '../../middlewares/auth.middleware.js'
 import { limits } from '../../middlewares/rateLimit.js'
 import { audit } from '../../services/audit/audit.js'
-import { assertOrgCapacity, bytesToGb } from '../../services/billing/entitlements.js'
+import { assertOrgCapacity, assertParticipantSeats, bytesToGb } from '../../services/billing/entitlements.js'
 import { MAX_FILES_PER_FIELD, normaliseAnswers } from '../../services/programs/applicationForm.js'
 import { notifyUsers, programStaffIds } from '../../services/programs/programProjects.js'
 import { FileRejectedError, validateUpload } from '../../services/storage/fileValidation.js'
@@ -22,7 +22,7 @@ import { buildStorageKey, storage } from '../../services/storage/storage.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { hasOrgRole } from '../../utils/organizations.js'
-import { assertProgramWritable, requireProgramAccess } from '../../utils/programAccess.js'
+import { assertProgramWritable, lockProgramSeats, requireProgramAccess } from '../../utils/programAccess.js'
 import {
   decideProgramApplicationSchema,
   discoverProgramsSchema,
@@ -325,6 +325,57 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
     }
   })
 
+  /** Programs the caller takes part in, whether or not they belong to the organization running them. */
+  router.get('/participating', authenticate, async (_req, res, next) => {
+    try {
+      const authUser = res.locals.user as AuthTokenPayload
+      const rows = await prisma.programParticipant.findMany({
+        where: {
+          userId: authUser.id,
+          program: {
+            organization: { members: { none: { userId: authUser.id, status: OrganizationMemberStatus.SUSPENDED } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          createdAt: true,
+          program: {
+            select: {
+              id: true,
+              title: true,
+              term: true,
+              status: true,
+              startDate: true,
+              endDate: true,
+              organization: {
+                select: {
+                  id: true,
+                  name: true,
+                  members: { where: { userId: authUser.id, status: OrganizationMemberStatus.ACTIVE }, select: { id: true } },
+                },
+              },
+            },
+          },
+        },
+      })
+      res.status(200).json({
+        programs: rows.map(({ program, createdAt }) => ({
+          id: program.id,
+          title: program.title,
+          term: program.term,
+          status: program.status.toLowerCase(),
+          startDate: program.startDate,
+          endDate: program.endDate,
+          joinedAt: createdAt,
+          organization: { id: program.organization.id, name: program.organization.name },
+          isOrgMember: program.organization.members.length > 0,
+        })),
+      })
+    } catch (error) {
+      next(error)
+    }
+  })
+
   router.get('/applications/me', authenticate, async (_req, res, next) => {
     try {
       const authUser = res.locals.user as AuthTokenPayload
@@ -602,11 +653,24 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
       if (application.status !== ProgramApplicationStatus.PENDING) throw new HttpError(409, '이미 처리된 지원서입니다.')
 
       const organizationId = access.organization.id
+      const decided = (status: ProgramApplicationStatus) => ({
+        status,
+        reviewNote: input.note ?? null,
+        reviewedById: authUser.id,
+        reviewedAt: new Date(),
+      })
+      const claim = async (tx: Prisma.TransactionClient, status: ProgramApplicationStatus) => {
+        const claimed = await tx.programApplication.updateMany({
+          where: { id: application.id, status: ProgramApplicationStatus.PENDING },
+          data: decided(status),
+        })
+        if (claimed.count === 0) throw new HttpError(409, '이미 처리된 지원서입니다.')
+      }
+
       if (input.decision === 'reject') {
-        const updated = await prisma.programApplication.update({
-          where: { id: application.id },
-          data: { status: ProgramApplicationStatus.REJECTED, reviewNote: input.note ?? null, reviewedById: authUser.id, reviewedAt: new Date() },
-          include: applicationInclude,
+        const updated = await prisma.$transaction(async (tx) => {
+          await claim(tx, ProgramApplicationStatus.REJECTED)
+          return tx.programApplication.findUniqueOrThrow({ where: { id: application.id }, include: applicationInclude })
         })
         await audit(req, res, {
           action: 'program.application_reject',
@@ -626,49 +690,32 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
         return
       }
 
-      if (access.program.capacity) {
-        const participants = await prisma.programParticipant.count({ where: { programId: access.program.id } })
-        if (participants >= access.program.capacity) {
-          throw new HttpError(409, `정원(${access.program.capacity}명)이 모두 찼습니다. 설정에서 정원을 늘린 뒤 선발해 주세요.`)
-        }
-      }
       const membership = await prisma.organizationMember.findUnique({
         where: { organizationId_userId: { organizationId, userId: application.userId } },
-        select: { id: true, status: true },
+        select: { status: true },
       })
       if (membership?.status === OrganizationMemberStatus.SUSPENDED) {
         throw new HttpError(409, '조직에서 이용이 정지된 사용자는 선발할 수 없습니다.')
       }
-      const joinsOrganization = membership?.status !== OrganizationMemberStatus.ACTIVE
-      if (joinsOrganization) await assertOrgCapacity(organizationId, 'members', 1)
+      await assertParticipantSeats(organizationId, [application.userId])
 
+      // Selection only creates a ProgramParticipant. Joining the organization itself stays a separate decision.
       const updated = await prisma.$transaction(async (tx) => {
-        if (!membership) {
-          await tx.organizationMember.create({
-            data: {
-              organizationId,
-              userId: application.userId,
-              role: OrganizationRole.MEMBER,
-              status: OrganizationMemberStatus.ACTIVE,
-              joinedAt: new Date(),
-            },
-          })
-        } else if (joinsOrganization) {
-          await tx.organizationMember.update({
-            where: { id: membership.id },
-            data: { status: OrganizationMemberStatus.ACTIVE, role: OrganizationRole.MEMBER, joinedAt: new Date() },
-          })
+        await lockProgramSeats(tx, access.program.id)
+        const { capacity } = await tx.program.findUniqueOrThrow({ where: { id: access.program.id }, select: { capacity: true } })
+        if (capacity) {
+          const participants = await tx.programParticipant.count({ where: { programId: access.program.id } })
+          if (participants >= capacity) {
+            throw new HttpError(409, `정원(${capacity}명)이 모두 찼습니다. 설정에서 정원을 늘린 뒤 선발해 주세요.`)
+          }
         }
+        await claim(tx, ProgramApplicationStatus.ACCEPTED)
         await tx.programParticipant.upsert({
           where: { programId_userId: { programId: access.program.id, userId: application.userId } },
           create: { programId: access.program.id, userId: application.userId, addedById: authUser.id },
           update: {},
         })
-        return tx.programApplication.update({
-          where: { id: application.id },
-          data: { status: ProgramApplicationStatus.ACCEPTED, reviewNote: input.note ?? null, reviewedById: authUser.id, reviewedAt: new Date() },
-          include: applicationInclude,
-        })
+        return tx.programApplication.findUniqueOrThrow({ where: { id: application.id }, include: applicationInclude })
       })
 
       await audit(req, res, {
@@ -676,7 +723,7 @@ export function registerProgramRecruitmentRoutes(router: ExpressRouter) {
         organizationId,
         targetType: 'program',
         targetId: access.program.id,
-        metadata: { applicationId: application.id, userId: application.userId, joinedOrganization: joinsOrganization },
+        metadata: { applicationId: application.id, userId: application.userId },
       })
       await notifyUsers(
         [application.userId],
