@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { getOrganizationKpis, getProgramKpis, updateKpiTargets, type PeriodParams } from '../../services/insightService'
 import { useAuthStore } from '../../stores/authStore'
@@ -10,6 +10,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from '../common/Card'
 import { EmptyState } from '../common/EmptyState'
 import { LoadingState } from '../common/LoadingState'
 import { KpiDashboard, PeriodFilter } from './KpiDashboard'
+import { keepPreviousDataWithin } from '../../lib/queryPlaceholder'
 
 const TARGET_FIELDS: Array<{ key: KpiTargetKey; unit: string; max: number }> = [
   { key: 'participationRate', unit: '%', max: 100 },
@@ -87,7 +88,7 @@ export function ProgramKpiPanel({ program }: { program: Program }) {
     queryKey: ['kpis', 'program', program.id, period],
     queryFn: () => getProgramKpis(token!, program.id, period),
     enabled: Boolean(token),
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousDataWithin(['kpis', 'program', program.id]),
   })
 
   return (
@@ -109,7 +110,7 @@ export function OrgKpiPanel({ orgId }: { orgId: string }) {
     queryKey: ['kpis', 'org', orgId, period],
     queryFn: () => getOrganizationKpis(token!, orgId, period),
     enabled: Boolean(token),
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousDataWithin(['kpis', 'org', orgId]),
   })
 
   return (

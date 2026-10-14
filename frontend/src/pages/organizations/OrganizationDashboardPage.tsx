@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Check, Clock3, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -33,6 +33,7 @@ import { hasOrgRole, ORG_ROLE_LABEL, ORG_TYPE_META, VERIFICATION_STATUS_META } f
 import { getOrganizationDashboard } from '../../services/organizationService'
 import { useAuthStore } from '../../stores/authStore'
 import type { OrganizationDashboard, OrganizationRole, OrganizationType } from '../../types/organization'
+import { keepPreviousDataWithin } from '../../lib/queryPlaceholder'
 
 const TYPE_MODULES: Partial<Record<OrganizationType, Array<{ title: string; description: string }>>> = {
   university: [
@@ -185,7 +186,7 @@ export function OrganizationDashboardPage() {
     queryKey: ['organizations', orgId, 'dashboard', programFilter],
     queryFn: () => getOrganizationDashboard(token!, orgId, programFilter),
     enabled: Boolean(token && orgId),
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousDataWithin(['organizations', orgId]),
   })
 
   if (dashboardQuery.isLoading) {
