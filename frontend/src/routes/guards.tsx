@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
+import { ErrorState } from '../components/common/ErrorState'
 import { ShellSkeleton } from '../components/layout/ShellSkeleton'
 import { useMyOrganizations } from '../hooks/useMyOrganizations'
 import { useAuthStore } from '../stores/authStore'
@@ -13,7 +14,7 @@ export function RequireOrgMembership({ children }: { children: ReactNode }) {
   const { orgId } = useParams()
   const token = useAuthStore((state) => state.token)
   const setActiveOrg = useOrgContextStore((state) => state.setActiveOrg)
-  const { activeMemberships, isLoading, isError } = useMyOrganizations()
+  const { activeMemberships, isLoading, isError, error, refetch, isRefetching } = useMyOrganizations()
   const membership = activeMemberships.find((item) => item.organization.id === orgId)
 
   useEffect(() => {
@@ -26,11 +27,22 @@ export function RequireOrgMembership({ children }: { children: ReactNode }) {
     return <Navigate replace to="/auth/login" />
   }
 
-  if (isLoading) {
+  if (isLoading || (isError && isRefetching)) {
     return <ShellSkeleton label="조직 권한을 확인하는 중입니다" />
   }
 
-  if (isError || !membership) {
+  if (!membership) {
+    // A failed lookup is not a denial: say so and let the user retry instead of claiming they lack access.
+    if (isError) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-surface-canvas p-6">
+          <div className="w-full max-w-md space-y-4 text-center">
+            <h1 className="text-xl font-bold text-ink-strong">조직 정보를 확인하지 못했습니다</h1>
+            <ErrorState error={error} onRetry={() => void refetch()} />
+          </div>
+        </div>
+      )
+    }
     return <Navigate replace state={{ denied: true }} to="/organizations" />
   }
 

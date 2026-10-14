@@ -16,6 +16,7 @@ import { Avatar } from '../common/Avatar'
 import { Button } from '../common/Button'
 import { Card, CardDescription, CardHeader, CardTitle } from '../common/Card'
 import { LoadingState } from '../common/LoadingState'
+import { ErrorState } from '../common/ErrorState'
 
 /** One participant per line: "email[, 소속번호(학번·사번)[, 소속(학과·부서)]]". */
 function parseLines(text: string): ParticipantInput[] {
@@ -98,7 +99,7 @@ export function ProgramParticipantsPanel({ program }: { program: Program }) {
   }, [participantsQuery.data, search, onlyUnassigned])
 
   if (participantsQuery.isLoading) return <LoadingState />
-  if (participantsQuery.isError) return <p className="text-sm text-red-700">{(participantsQuery.error as Error).message}</p>
+  if (participantsQuery.isError) return <ErrorState error={participantsQuery.error} onRetry={() => void participantsQuery.refetch()} />
 
   const total = participantsQuery.data?.participants.length ?? 0
   const unassigned = participantsQuery.data?.participants.filter((p) => !p.team).length ?? 0

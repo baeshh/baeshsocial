@@ -8,6 +8,7 @@ import { AdminTabs } from '../../components/admin/AdminNav'
 import { getAiUsage } from '../../services/insightService'
 import { useAuthStore } from '../../stores/authStore'
 import type { AiUsageReport } from '../../types/insights'
+import { ErrorState } from '../../components/common/ErrorState'
 
 const FEATURE_LABEL: Record<string, string> = {
   portfolio: 'AI 포트폴리오',
@@ -85,7 +86,7 @@ export function AdminAIUsagePage() {
         </div>
 
         {query.isLoading ? <LoadingState /> : null}
-        {query.isError ? <p className="text-sm text-red-700">{(query.error as Error).message}</p> : null}
+        {query.isError ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : null}
 
         {data ? (
           <>

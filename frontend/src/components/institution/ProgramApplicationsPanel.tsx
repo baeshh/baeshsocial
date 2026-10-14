@@ -15,6 +15,7 @@ import { EmptyState } from '../common/EmptyState'
 import { Select, Textarea } from '../common/Input'
 import { LoadingState } from '../common/LoadingState'
 import { Modal } from '../common/Modal'
+import { ErrorState } from '../common/ErrorState'
 
 const FILTERS: Array<{ id: ApplicationStatus | 'all'; label: string }> = [
   { id: 'pending', label: '심사 중' },
@@ -278,9 +279,10 @@ export function ProgramApplicationsPanel({ program }: { program: Program }) {
         ) : null}
       </Card>
 
-      <div className="flex flex-wrap gap-1 rounded-full border border-surface-border bg-white p-1 sm:w-fit">
+      <div aria-label="지원서 상태" className="flex flex-wrap gap-1 rounded-full border border-surface-border bg-white p-1 sm:w-fit" role="group">
         {FILTERS.map((item) => (
           <button
+            aria-pressed={filter === item.id}
             className={`rounded-full px-3 py-1 text-sm font-semibold transition ${
               filter === item.id ? 'bg-brand-600 text-white' : 'text-ink-body hover:bg-surface-muted'
             }`}
@@ -297,7 +299,7 @@ export function ProgramApplicationsPanel({ program }: { program: Program }) {
       {applicationsQuery.isLoading ? (
         <LoadingState />
       ) : applicationsQuery.isError ? (
-        <p className="text-sm text-red-700">{(applicationsQuery.error as Error).message}</p>
+        <ErrorState error={applicationsQuery.error} onRetry={() => void applicationsQuery.refetch()} />
       ) : (data?.applications ?? []).length === 0 ? (
         <EmptyState
           description={filter === 'pending' ? '지원서가 들어오면 알림과 함께 이곳에 표시됩니다.' : '해당하는 지원서가 없습니다.'}

@@ -13,6 +13,7 @@ import { EmptyState } from '../common/EmptyState'
 import { Textarea } from '../common/Input'
 import { LoadingState } from '../common/LoadingState'
 import { Modal } from '../common/Modal'
+import { ErrorState } from '../common/ErrorState'
 
 const FILTERS: Array<{ id: RegistrationStatus | 'all'; label: string }> = [
   { id: 'pending', label: '승인 대기' },
@@ -168,7 +169,7 @@ export function ProgramRequestsPanel({ program }: { program: Program }) {
       {requestsQuery.isLoading ? (
         <LoadingState />
       ) : requestsQuery.isError ? (
-        <p className="text-sm text-red-700">{(requestsQuery.error as Error).message}</p>
+        <ErrorState error={requestsQuery.error} onRetry={() => void requestsQuery.refetch()} />
       ) : (requestsQuery.data?.requests ?? []).length === 0 ? (
         <EmptyState
           description={filter === 'pending' ? '새 등록 요청이 들어오면 알림과 함께 이곳에 표시됩니다.' : '아직 등록 이력이 없습니다.'}

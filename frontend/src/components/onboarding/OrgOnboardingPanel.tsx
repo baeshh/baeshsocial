@@ -6,13 +6,14 @@ import { LoadingState } from '../common/LoadingState'
 import { cn } from '../../lib/cn'
 import { getOnboarding } from '../../services/commercialService'
 import { useAuthStore } from '../../stores/authStore'
+import { ErrorState } from '../common/ErrorState'
 
 export function OrgOnboardingPanel({ orgId, onOpenTab }: { orgId: string; onOpenTab: (tab: string) => void }) {
   const token = useAuthStore((state) => state.token)
   const query = useQuery({ queryKey: ['organizations', orgId, 'onboarding'], queryFn: () => getOnboarding(token!, orgId), enabled: Boolean(token) })
 
   if (query.isLoading) return <LoadingState />
-  if (query.isError || !query.data) return <p className="text-sm text-red-700">{(query.error as Error | null)?.message ?? '불러오지 못했습니다.'}</p>
+  if (query.isError || !query.data) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   const { steps, completed, total, nextStep } = query.data
   return (

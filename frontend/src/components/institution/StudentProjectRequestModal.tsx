@@ -161,7 +161,7 @@ export function StudentProjectRequestModal({ program, onClose }: { program: Prog
           </>
         )}
         <Textarea label="담당자에게 남길 말 (선택)" maxLength={1000} onChange={(e) => setMessage(e.target.value)} value={message} />
-        {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{error}</p> : null}
+        {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
         <div className="flex justify-end">
           <Button disabled={submit.isPending || (mode === 'existing' && !projectId)} type="submit">
             {submit.isPending ? '보내는 중…' : program.policy.requireProjectApproval ? '등록 요청' : '등록'}

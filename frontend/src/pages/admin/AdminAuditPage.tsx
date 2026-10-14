@@ -8,6 +8,7 @@ import { LoadingState } from '../../components/common/LoadingState'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { adminGetAuditLogs } from '../../services/commercialService'
 import { useAuthStore } from '../../stores/authStore'
+import { ErrorState } from '../../components/common/ErrorState'
 
 const ACTION_PREFIXES = [
   { value: '', label: '전체 작업' },
@@ -58,10 +59,10 @@ export function AdminAuditPage() {
             <option value="denied">거부</option>
             <option value="failure">실패</option>
           </select>
-          <input className="h-10 w-64 rounded-full border border-surface-border bg-white px-4 text-sm" onChange={(e) => setActor(e.target.value)} placeholder="수행자 이메일" value={actor} />
+          <input aria-label="수행자 이메일" className="h-10 w-64 rounded-full border border-surface-border bg-white px-4 text-sm" onChange={(e) => setActor(e.target.value)} placeholder="수행자 이메일" value={actor} />
         </div>
         <Card>
-          {query.isLoading ? <LoadingState /> : query.isError ? <p className="text-sm text-red-700">{(query.error as Error).message}</p> : <AuditLogTable logs={logs} showNetwork showOrg />}
+          {query.isLoading ? <LoadingState /> : query.isError ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : <AuditLogTable logs={logs} showNetwork showOrg />}
           {query.hasNextPage ? (
             <div className="mt-4 flex justify-center">
               <Button disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} variant="secondary">

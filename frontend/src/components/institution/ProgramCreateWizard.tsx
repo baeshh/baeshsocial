@@ -318,7 +318,7 @@ export function ProgramCreateWizard({
             </div>
           ) : null}
 
-          {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{error}</p> : null}
+          {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-surface-border pt-4">
             <Button

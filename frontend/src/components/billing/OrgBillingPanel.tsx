@@ -11,6 +11,7 @@ import { formatDate } from '../../lib/programs'
 import { getOrgBilling, getOrgContractDocument } from '../../services/commercialService'
 import { useAuthStore } from '../../stores/authStore'
 import { showToast } from '../../stores/toastStore'
+import { ErrorState } from '../common/ErrorState'
 
 export function OrgBillingPanel({ orgId }: { orgId: string }) {
   const token = useAuthStore((state) => state.token)
@@ -22,7 +23,7 @@ export function OrgBillingPanel({ orgId }: { orgId: string }) {
   })
 
   if (query.isLoading) return <LoadingState />
-  if (query.isError || !query.data) return <p className="text-sm text-red-700">{(query.error as Error | null)?.message ?? '요금제 정보를 불러오지 못했습니다.'}</p>
+  if (query.isError || !query.data) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   const billing = query.data
   const state = ACCESS_STATE_META[billing.state]

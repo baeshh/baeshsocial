@@ -46,7 +46,7 @@ function Panel({ title, action, children, className }: { title: string; action?:
 
 function PanelError({ onRetry }: { onRetry: () => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 text-sm text-danger-700">
+    <div className="flex flex-wrap items-center gap-3 text-sm text-danger-700" role="alert">
       불러오지 못했습니다.
       <Button onClick={onRetry} size="sm" variant="secondary">
         <RefreshCw size={14} />

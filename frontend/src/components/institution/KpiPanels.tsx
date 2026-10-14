@@ -11,6 +11,7 @@ import { EmptyState } from '../common/EmptyState'
 import { LoadingState } from '../common/LoadingState'
 import { KpiDashboard, PeriodFilter } from './KpiDashboard'
 import { keepPreviousDataWithin } from '../../lib/queryPlaceholder'
+import { ErrorState } from '../common/ErrorState'
 
 const TARGET_FIELDS: Array<{ key: KpiTargetKey; unit: string; max: number }> = [
   { key: 'participationRate', unit: '%', max: 100 },
@@ -95,7 +96,7 @@ export function ProgramKpiPanel({ program }: { program: Program }) {
     <div className="space-y-5">
       <PeriodFilter onChange={setPeriod} result={query.data} />
       {query.isLoading ? <LoadingState label="성과 지표를 집계하는 중입니다" /> : null}
-      {query.isError ? <p className="text-sm text-red-700">{(query.error as Error).message}</p> : null}
+      {query.isError ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : null}
       {query.data ? (
         <KpiDashboard aside={<TargetsEditor key={query.data.generatedAt.slice(0, 16)} program={program} result={query.data} />} result={query.data} />
       ) : null}
@@ -117,7 +118,7 @@ export function OrgKpiPanel({ orgId }: { orgId: string }) {
     <div className="space-y-5">
       <PeriodFilter onChange={setPeriod} result={query.data} />
       {query.isLoading ? <LoadingState label="성과 지표를 집계하는 중입니다" /> : null}
-      {query.isError ? <p className="text-sm text-red-700">{(query.error as Error).message}</p> : null}
+      {query.isError ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : null}
       {query.data && query.data.programs.length === 0 ? (
         <EmptyState description="관리 권한이 있는 프로그램이 생기면 성과 지표가 집계됩니다." title="집계할 프로그램이 없습니다" />
       ) : null}

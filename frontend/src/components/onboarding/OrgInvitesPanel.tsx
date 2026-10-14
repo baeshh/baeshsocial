@@ -13,6 +13,7 @@ import { getOrganizationPrograms } from '../../services/programService'
 import { useAuthStore } from '../../stores/authStore'
 import { showToast } from '../../stores/toastStore'
 import type { BulkInviteResult, InviteRole, InviteRowInput } from '../../types/commercial'
+import { ErrorState } from '../common/ErrorState'
 
 const RESULT_LABEL: Record<string, { label: string; tone: 'green' | 'blue' | 'gray' | 'red' }> = {
   invited: { label: '초대함', tone: 'green' },
@@ -243,7 +244,7 @@ export function OrgInvitesPanel({ orgId }: { orgId: string }) {
         {invitesQuery.isLoading ? (
           <LoadingState />
         ) : invitesQuery.isError ? (
-          <p className="text-sm text-red-700">{(invitesQuery.error as Error).message}</p>
+          <ErrorState error={invitesQuery.error} onRetry={() => void invitesQuery.refetch()} />
         ) : invitesQuery.data!.invites.length === 0 ? (
           <p className="text-sm text-ink-muted">해당 상태의 초대가 없습니다.</p>
         ) : (

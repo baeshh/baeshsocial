@@ -37,6 +37,7 @@ import { LoadingState } from '../common/LoadingState'
 import { Modal } from '../common/Modal'
 import { RegistrationCard } from './ProgramRequestsPanel'
 import { StudentProjectRequestModal } from './StudentProjectRequestModal'
+import { ErrorState } from '../common/ErrorState'
 
 type Props = { program: Program; access: ProgramAccess }
 
@@ -123,7 +124,7 @@ function ProjectFormModal({ program, project, onClose }: { program: Program; pro
           <Input label="시작일" onChange={(e) => set('startDate', e.target.value)} type="date" value={form.startDate} />
           <Input label="종료일" onChange={(e) => set('endDate', e.target.value)} type="date" value={form.endDate} />
         </div>
-        {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{error}</p> : null}
+        {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
         <div className="flex justify-end">
           <Button disabled={save.isPending} type="submit">
             {save.isPending ? '저장 중…' : project ? '저장' : '추가'}
@@ -187,8 +188,10 @@ function AssignModal({ program, project, onClose }: { program: Program; project:
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
             <input
+              aria-label="참여자 검색"
               className="h-10 flex-1 rounded-full border border-surface-border px-4 text-sm outline-none focus:border-brand-500"
               onChange={(e) => setSearch(e.target.value)}
+              type="search"
               placeholder="이름·이메일·소속번호 검색"
               value={search}
             />
@@ -462,7 +465,7 @@ export function ProgramProjectsPanel({ program, access }: Props) {
   })
 
   if (projectsQuery.isLoading) return <LoadingState />
-  if (projectsQuery.isError) return <p className="text-sm text-red-700">{(projectsQuery.error as Error).message}</p>
+  if (projectsQuery.isError) return <ErrorState error={projectsQuery.error} onRetry={() => void projectsQuery.refetch()} />
 
   const allProjects = projectsQuery.data?.projects ?? []
   const summary = projectsQuery.data?.summary ?? null

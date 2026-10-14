@@ -14,6 +14,7 @@ import { formatDate } from '../../lib/programs'
 import { changePassword, getMyBilling, getPlans, getSessions, logoutOthers, revokeSession } from '../../services/commercialService'
 import { useAuthStore } from '../../stores/authStore'
 import { showToast } from '../../stores/toastStore'
+import { ErrorState } from '../../components/common/ErrorState'
 
 function SecurityTab() {
   const token = useAuthStore((state) => state.token)
@@ -130,7 +131,7 @@ function PlanTab() {
   const plansQuery = useQuery({ queryKey: ['billing', 'plans'], queryFn: getPlans })
 
   if (billingQuery.isLoading) return <LoadingState />
-  if (billingQuery.isError || !billingQuery.data) return <p className="text-sm text-red-700">{(billingQuery.error as Error | null)?.message}</p>
+  if (billingQuery.isError || !billingQuery.data) return <ErrorState error={billingQuery.error} onRetry={() => void billingQuery.refetch()} />
   const billing = billingQuery.data
   const personalPlans = (plansQuery.data?.plans ?? []).filter((plan) => plan.audience === 'personal')
   const organizationPlans = (plansQuery.data?.plans ?? []).filter((plan) => plan.audience === 'organization')
