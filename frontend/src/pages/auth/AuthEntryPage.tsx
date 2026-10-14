@@ -155,7 +155,7 @@ export function AuthEntryPage() {
           ) : null}
 
           {authMutation.error ? (
-            <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">
               {authMutation.error.message}
             </p>
           ) : null}

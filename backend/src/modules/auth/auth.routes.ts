@@ -82,7 +82,7 @@ authRouter.post('/login', limits.loginIp, limits.loginAccount, async (req, res, 
         actor: { id: user?.id ?? null, email },
         metadata: { reason: user ? 'bad_password' : 'unknown_email' },
       })
-      res.status(401).json({ message: 'Invalid email or password' })
+      res.status(401).json({ message: '이메일 또는 비밀번호가 올바르지 않습니다.', code: 'invalid_credentials' })
       return
     }
 
