@@ -221,7 +221,7 @@ export async function resolveUserProjectPermissions(projectId: string, userId: s
         isProgramStaff: true,
       }
     }
-    if (!access?.membership || !member) return NO_ACCESS
+    if (!access?.canJoinTeams || !member) return NO_ACCESS
     if (lockedOut) return { ...NO_ACCESS, restricted: true }
     const canInvite = isLeader && Boolean(project.program?.allowStudentTeams)
     const permissions = sanitizePermissions(member.projectRole?.permissions ?? []).filter(

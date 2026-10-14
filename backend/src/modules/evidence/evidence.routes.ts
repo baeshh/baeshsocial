@@ -84,7 +84,7 @@ async function loadProjectContext(projectId: string, userId: string) {
     member &&
       (project.visibility !== ProjectVisibility.PRIVATE || member.privateAccess || isLeaderSlug(member.projectRole?.slug)),
   )
-  if (!access?.membership || (!access.isStaff && !isTeamMember)) {
+  if (!access || (!access.isStaff && !(access.canJoinTeams && isTeamMember))) {
     throw new HttpError(404, '프로젝트를 찾을 수 없습니다.')
   }
   return { project, program: project.program, access, isTeamMember, isStaff: access.isStaff }

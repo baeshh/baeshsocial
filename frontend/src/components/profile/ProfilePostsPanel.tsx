@@ -337,7 +337,7 @@ function ProfilePostCard({
         </div>
       ) : null}
 
-      {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+      {error ? <p className="mt-3 text-sm text-red-600" role="alert">{error}</p> : null}
     </article>
   )
 }

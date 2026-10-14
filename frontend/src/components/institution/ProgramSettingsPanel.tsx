@@ -181,7 +181,7 @@ function ApplicationFormCard({ program }: { program: Program }) {
       ) : (
         <div className="space-y-4">
           <ApplicationFormBuilder disabled={program.status === 'archived'} fields={fields} onChange={setDraft} />
-          {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{error}</p> : null}
+          {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
           {draft ? (
             <div className="flex justify-end gap-2">
               <Button onClick={() => setDraft(null)} variant="ghost">
@@ -279,7 +279,7 @@ export function ProgramSettingsPanel({ program, access }: { program: Program; ac
           <Section description="참여자 프로젝트·팀 구성·기록 공개 범위 같은 운영 규칙입니다." title="운영 정책">
             <ProgramPolicyFields onChange={(policy) => setForm((prev) => ({ ...prev, policy }))} value={form.policy} />
           </Section>
-          {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{error}</p> : null}
+          {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
           <div className="flex justify-end">
             <Button disabled={save.isPending} type="submit">
               {save.isPending ? '저장 중…' : '저장'}

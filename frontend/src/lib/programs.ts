@@ -21,17 +21,17 @@ import type {
   SupervisionHealth,
 } from '../types/program'
 
-type Tone = 'blue' | 'purple' | 'gray' | 'green' | 'red'
+type Tone = 'blue' | 'purple' | 'gray' | 'green' | 'amber' | 'red'
 
 export const SUPERVISION_META: Record<SupervisionHealth, { label: string; tone: Tone; hint: string }> = {
-  evidence_review: { label: '증빙 검토', tone: 'purple', hint: '제출된 증빙이 검토를 기다리고 있습니다.' },
+  evidence_review: { label: '증빙 검토', tone: 'amber', hint: '제출된 증빙이 검토를 기다리고 있습니다.' },
   feedback_needed: { label: '피드백 필요', tone: 'red', hint: '팀의 답변·제외 요청이 있거나 2주 이상 활동이 없습니다.' },
   revision_requested: { label: '수정 요청 중', tone: 'blue', hint: '팀이 수정 요청에 대응하고 있습니다.' },
   on_track: { label: '정상 진행', tone: 'green', hint: '처리할 항목이 없습니다.' },
 }
 
 export const REGISTRATION_STATUS_META: Record<RegistrationStatus, { label: string; tone: Tone }> = {
-  pending: { label: '승인 대기', tone: 'purple' },
+  pending: { label: '승인 대기', tone: 'amber' },
   approved: { label: '등록 승인', tone: 'blue' },
   rejected: { label: '반려', tone: 'red' },
   withdrawn: { label: '철회', tone: 'gray' },
@@ -163,9 +163,9 @@ export function programShareUrl(programId: string, shareToken?: string | null) {
 
 export const APPLICATION_STATUS_META: Record<ApplicationStatus, { label: string; tone: Tone }> = {
   draft: { label: '작성 중', tone: 'gray' },
-  pending: { label: '심사 중', tone: 'purple' },
-  waitlisted: { label: '대기', tone: 'blue' },
-  accepted: { label: '합격 · 응답 대기', tone: 'green' },
+  pending: { label: '심사 중', tone: 'amber' },
+  waitlisted: { label: '대기', tone: 'amber' },
+  accepted: { label: '합격 · 응답 대기', tone: 'amber' },
   confirmed: { label: '참여 확정', tone: 'green' },
   declined: { label: '참여 포기', tone: 'gray' },
   rejected: { label: '미선발', tone: 'gray' },
@@ -181,6 +181,32 @@ export const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
 export function formatDateTime(value: string | null | undefined) {
   if (!value) return '—'
   return new Date(value).toLocaleString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+/**
+ * Response window left on an accepted offer, mirroring the server's `liveOfferWhere`: no `offerExpiresAt`
+ * means the offer never lapses, otherwise it is live until that instant.
+ */
+export function offerTimeLeft(offerExpiresAt: string | null, now: number) {
+  if (!offerExpiresAt) return { expired: false, urgent: false, label: '응답 기한 없음' }
+  const left = new Date(offerExpiresAt).getTime() - now
+  if (left <= 0) return { expired: true, urgent: false, label: '응답 기한 지남' }
+  const days = Math.floor(left / DAY)
+  const hours = Math.floor((left % DAY) / HOUR)
+  const minutes = Math.floor((left % HOUR) / MINUTE)
+  const label =
+    days > 0
+      ? `${days}일${hours ? ` ${hours}시간` : ''} 남음`
+      : hours > 0
+        ? `${hours}시간${minutes ? ` ${minutes}분` : ''} 남음`
+        : minutes > 0
+          ? `${minutes}분 남음`
+          : '1분 미만 남음'
+  return { expired: false, urgent: left < DAY, label }
 }
 
 /** `datetime-local` input value in the browser's time zone. */
@@ -218,7 +244,7 @@ export const PROJECT_STATUS_LABEL: Record<ProgramProjectStatus, string> = {
 
 export const EVIDENCE_STATUS_META: Record<EvidenceStatus, { label: string; tone: Tone }> = {
   draft: { label: '임시저장', tone: 'gray' },
-  submitted: { label: '검토 대기', tone: 'purple' },
+  submitted: { label: '검토 대기', tone: 'amber' },
   approved: { label: '승인', tone: 'green' },
   rejected: { label: '반려', tone: 'red' },
 }

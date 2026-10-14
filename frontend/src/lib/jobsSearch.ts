@@ -42,6 +42,29 @@ export const JOBS_SORT_LABEL: Record<JobsSort, string> = {
 
 export const EMPTY_JOBS_SEARCH: JobsSearch = { q: '', category: 'all', openOnly: false, sort: 'recommended' }
 
+/** Reads `q`, `category`, `open` and `sort` from the URL; unknown values fall back to defaults. */
+export function jobsSearchFromParams(params: URLSearchParams): JobsSearch {
+  const category = params.get('category')
+  const sort = params.get('sort')
+  return {
+    q: params.get('q') ?? '',
+    category: JOBS_CATEGORIES.some((item) => item.id === category) ? (category as JobsCategoryId) : 'all',
+    openOnly: params.get('open') === '1',
+    sort: sort && sort in JOBS_SORT_LABEL ? (sort as JobsSort) : 'recommended',
+  }
+}
+
+/** Writes the search into `params`, leaving unrelated keys (such as `tab`) alone. */
+export function writeJobsSearchParams(params: URLSearchParams, search: JobsSearch) {
+  const next = new URLSearchParams(params)
+  const set = (key: string, value: string | null) => (value ? next.set(key, value) : next.delete(key))
+  set('q', search.q.trim() || null)
+  set('category', search.category === 'all' ? null : search.category)
+  set('open', search.openOnly ? '1' : null)
+  set('sort', search.sort === 'recommended' ? null : search.sort)
+  return next
+}
+
 const categoryOf = (id: JobsCategoryId): JobsCategory => JOBS_CATEGORIES.find((category) => category.id === id) ?? JOBS_CATEGORIES[0]
 
 /** Query for institution programs, or `null` when the chosen category has none. */

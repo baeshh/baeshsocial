@@ -8,6 +8,7 @@ import { LoadingState } from '../common/LoadingState'
 import { EvidenceCard } from '../evidence/EvidenceCard'
 import { EvidenceReviewActions } from '../evidence/EvidenceReviewActions'
 import { EvidenceRevokeAction } from '../evidence/EvidenceRevokeAction'
+import { ErrorState } from '../common/ErrorState'
 
 type Filter = 'submitted' | 'approved' | 'rejected' | 'all'
 
@@ -75,7 +76,7 @@ export function ProgramReviewPanel({ program }: { program: Program }) {
       {queueQuery.isLoading ? (
         <LoadingState />
       ) : queueQuery.isError ? (
-        <p className="text-sm text-red-700">{(queueQuery.error as Error).message}</p>
+        <ErrorState error={queueQuery.error} onRetry={() => void queueQuery.refetch()} />
       ) : visible.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-surface-border p-8 text-center text-sm text-ink-muted">
           {filter === 'submitted' ? '검토할 증빙이 없습니다.' : '해당하는 증빙이 없습니다.'}

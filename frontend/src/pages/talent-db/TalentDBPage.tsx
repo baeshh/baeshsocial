@@ -9,6 +9,10 @@ import { Card, CardDescription, CardHeader, CardTitle } from '../../components/c
 import { EmptyState } from '../../components/common/EmptyState'
 import { LoadingState } from '../../components/common/LoadingState'
 import { AppLayout } from '../../components/layout/AppLayout'
+import { ManagementAppShell } from '../../components/layout/ManagementAppShell'
+import { ShellSkeleton } from '../../components/layout/ShellSkeleton'
+import { buildOrgNav } from '../../components/organizations/orgNavigation'
+import { ORG_ROLE_LABEL, ORG_TYPE_META } from '../../lib/organizations'
 import { useMyOrganizations } from '../../hooks/useMyOrganizations'
 import { cn } from '../../lib/cn'
 import { getTalentMeta, getTalentSearch, getTalentSearches, runTalentSearch, setMatchFeedback } from '../../services/insightService'
@@ -199,7 +203,8 @@ export function TalentDBPage() {
   const [params, setParams] = useSearchParams()
   const { activeMemberships, isLoading } = useMyOrganizations()
   const companies = activeMemberships.filter((m) => m.organization.type === 'company' && m.organization.verificationStatus === 'approved')
-  const orgId = companies.find((m) => m.organization.id === params.get('org'))?.organization.id ?? companies[0]?.organization.id ?? ''
+  const membership = companies.find((m) => m.organization.id === params.get('org')) ?? companies[0] ?? null
+  const orgId = membership?.organization.id ?? ''
   const searchId = params.get('search') ?? ''
 
   const [title, setTitle] = useState('')
@@ -226,14 +231,10 @@ export function TalentDBPage() {
   const openSearch = (search: TalentSearch) => setParams({ org: orgId, search: search.id }, { replace: true })
 
   if (isLoading) {
-    return (
-      <AppLayout>
-        <LoadingState label="조직 권한을 확인하는 중입니다" />
-      </AppLayout>
-    )
+    return <ShellSkeleton label="조직 권한을 확인하는 중입니다" />
   }
 
-  if (!orgId) {
+  if (!membership) {
     return (
       <AppLayout>
         <EmptyState
@@ -248,12 +249,24 @@ export function TalentDBPage() {
   const meta = metaQuery.data
   const current = searchQuery.data
 
+  const orgMeta = ORG_TYPE_META[membership.organization.type]
   return (
-    <AppLayout>
+    <ManagementAppShell
+      nav={buildOrgNav(
+        { orgId, orgType: membership.organization.type, role: membership.role, approved: true },
+        { active: 'talent' },
+      )}
+      workspace={{
+        name: membership.organization.name,
+        caption: `${orgMeta.label} · ${ORG_ROLE_LABEL[membership.role]}`,
+        icon: orgMeta.icon,
+        homeTo: `/org/${orgId}`,
+      }}
+    >
       <div className="space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-ink-strong">Talent DB</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-ink-strong">인재 검색</h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink-body">
               인재 검색에 동의한 사용자의 공개 프로젝트와 기관 검증 기록만으로 후보를 찾습니다. 점수는 규칙으로 계산하고, AI는 추천 이유만 근거와 함께 설명합니다.
             </p>
@@ -384,6 +397,6 @@ export function TalentDBPage() {
           </div>
         </div>
       </div>
-    </AppLayout>
+    </ManagementAppShell>
   )
 }

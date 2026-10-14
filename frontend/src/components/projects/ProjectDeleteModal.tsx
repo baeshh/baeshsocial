@@ -56,7 +56,7 @@ export function ProjectDeleteModal({
           type="password"
           value={password}
         />
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        {error ? <p className="text-sm text-red-600" role="alert">{error}</p> : null}
         <div className="flex flex-wrap justify-end gap-2">
           <Button disabled={isPending} onClick={onClose} type="button" variant="secondary">
             취소

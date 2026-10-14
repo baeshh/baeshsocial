@@ -12,6 +12,7 @@ import { Card } from '../common/Card'
 import { EmptyState } from '../common/EmptyState'
 import { LoadingState } from '../common/LoadingState'
 import { ProgramCreateWizard } from './ProgramCreateWizard'
+import { ErrorState } from '../common/ErrorState'
 
 type Props = { organization: Organization; myRole: OrganizationRole }
 
@@ -28,7 +29,7 @@ export function OrgProgramsPanel({ organization, myRole }: Props) {
 
   if (programsQuery.isLoading) return <LoadingState />
   if (programsQuery.isError || !programsQuery.data) {
-    return <p className="text-sm text-red-700">{(programsQuery.error as Error | null)?.message}</p>
+    return <ErrorState error={programsQuery.error} onRetry={() => void programsQuery.refetch()} />
   }
 
   const { programs, canCreate } = programsQuery.data

@@ -58,12 +58,12 @@ export function AuthEntryPage() {
         navigate(`/invite/${encodeURIComponent(inviteToken)}`)
         return
       }
-      navigate(isRegister && purpose !== 'personal' ? `/organizations/new?type=${purpose}` : (nextPath ?? '/network'))
+      navigate(isRegister && purpose !== 'personal' ? `/organizations/new?type=${purpose}` : (nextPath ?? '/dashboard'))
     },
   })
 
   if (token && !authMutation.isPending && !authMutation.isSuccess) {
-    return <Navigate replace to={inviteToken ? `/invite/${encodeURIComponent(inviteToken)}` : (nextPath ?? '/network')} />
+    return <Navigate replace to={inviteToken ? `/invite/${encodeURIComponent(inviteToken)}` : (nextPath ?? '/dashboard')} />
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -155,7 +155,7 @@ export function AuthEntryPage() {
           ) : null}
 
           {authMutation.error ? (
-            <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">
               {authMutation.error.message}
             </p>
           ) : null}

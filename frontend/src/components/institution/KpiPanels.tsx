@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { getOrganizationKpis, getProgramKpis, updateKpiTargets, type PeriodParams } from '../../services/insightService'
 import { useAuthStore } from '../../stores/authStore'
@@ -10,6 +10,8 @@ import { Card, CardDescription, CardHeader, CardTitle } from '../common/Card'
 import { EmptyState } from '../common/EmptyState'
 import { LoadingState } from '../common/LoadingState'
 import { KpiDashboard, PeriodFilter } from './KpiDashboard'
+import { keepPreviousDataWithin } from '../../lib/queryPlaceholder'
+import { ErrorState } from '../common/ErrorState'
 
 const TARGET_FIELDS: Array<{ key: KpiTargetKey; unit: string; max: number }> = [
   { key: 'participationRate', unit: '%', max: 100 },
@@ -87,14 +89,14 @@ export function ProgramKpiPanel({ program }: { program: Program }) {
     queryKey: ['kpis', 'program', program.id, period],
     queryFn: () => getProgramKpis(token!, program.id, period),
     enabled: Boolean(token),
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousDataWithin(['kpis', 'program', program.id]),
   })
 
   return (
     <div className="space-y-5">
       <PeriodFilter onChange={setPeriod} result={query.data} />
       {query.isLoading ? <LoadingState label="성과 지표를 집계하는 중입니다" /> : null}
-      {query.isError ? <p className="text-sm text-red-700">{(query.error as Error).message}</p> : null}
+      {query.isError ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : null}
       {query.data ? (
         <KpiDashboard aside={<TargetsEditor key={query.data.generatedAt.slice(0, 16)} program={program} result={query.data} />} result={query.data} />
       ) : null}
@@ -109,14 +111,14 @@ export function OrgKpiPanel({ orgId }: { orgId: string }) {
     queryKey: ['kpis', 'org', orgId, period],
     queryFn: () => getOrganizationKpis(token!, orgId, period),
     enabled: Boolean(token),
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousDataWithin(['kpis', 'org', orgId]),
   })
 
   return (
     <div className="space-y-5">
       <PeriodFilter onChange={setPeriod} result={query.data} />
       {query.isLoading ? <LoadingState label="성과 지표를 집계하는 중입니다" /> : null}
-      {query.isError ? <p className="text-sm text-red-700">{(query.error as Error).message}</p> : null}
+      {query.isError ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : null}
       {query.data && query.data.programs.length === 0 ? (
         <EmptyState description="관리 권한이 있는 프로그램이 생기면 성과 지표가 집계됩니다." title="집계할 프로그램이 없습니다" />
       ) : null}

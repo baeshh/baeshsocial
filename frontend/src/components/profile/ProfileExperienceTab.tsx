@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -11,6 +11,7 @@ import { LoadingState } from '../common/LoadingState'
 import { Pagination } from '../common/Pagination'
 import { HistoryFormModal, type HistoryFormTarget } from './HistoryFormModal'
 import { HistoryItemCard } from './HistoryItemCard'
+import { keepPreviousDataWithin } from '../../lib/queryPlaceholder'
 
 const PAGE_SIZE = 10
 const EDITABLE_KINDS = new Set<string>(['career', 'award', 'certificate'])
@@ -60,7 +61,7 @@ export function ProfileExperienceTab({
   const historyQuery = useQuery({
     queryKey: ['profiles', userId, 'history', filter, page],
     queryFn: () => getProfileHistoryPage(token, userId, { type: filter, page, limit: PAGE_SIZE }),
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousDataWithin(['profiles', userId]),
   })
 
   const totalPages = historyQuery.data?.totalPages ?? null

@@ -6,6 +6,7 @@ import { LoadingState } from '../common/LoadingState'
 import { AuditLogTable } from './AuditLogTable'
 import { getOrgAuditLogs } from '../../services/commercialService'
 import { useAuthStore } from '../../stores/authStore'
+import { ErrorState } from '../common/ErrorState'
 
 const ACTION_FILTERS = [
   { value: '', label: '전체' },
@@ -50,7 +51,7 @@ export function OrgAuditPanel({ orgId }: { orgId: string }) {
           <option value="failure">실패</option>
         </select>
       </div>
-      {query.isLoading ? <LoadingState /> : query.isError ? <p className="text-sm text-red-700">{(query.error as Error).message}</p> : <AuditLogTable logs={logs} />}
+      {query.isLoading ? <LoadingState /> : query.isError ? <ErrorState error={query.error} onRetry={() => void query.refetch()} /> : <AuditLogTable logs={logs} />}
       {query.hasNextPage ? (
         <div className="mt-4 flex justify-center">
           <Button disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()} variant="secondary">

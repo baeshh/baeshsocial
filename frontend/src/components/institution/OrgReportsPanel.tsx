@@ -11,6 +11,7 @@ import { Button } from '../common/Button'
 import { Card, CardDescription, CardHeader, CardTitle } from '../common/Card'
 import { EmptyState } from '../common/EmptyState'
 import { LoadingState } from '../common/LoadingState'
+import { ErrorState } from '../common/ErrorState'
 
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : '')
 const today = () => new Date().toISOString().slice(0, 10)
@@ -67,7 +68,7 @@ export function OrgReportsPanel({ orgId }: { orgId: string }) {
   }
 
   if (query.isLoading) return <LoadingState />
-  if (query.isError) return <p className="text-sm text-red-700">{(query.error as Error).message}</p>
+  if (query.isError) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
 
   const programTitle = new Map(programs.map((p) => [p.id, p.title]))
 

@@ -343,12 +343,12 @@ projectsRouter.get('/', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
     const query = projectListQuerySchema.parse(req.query)
+    const mine: Prisma.ProjectWhereInput = {
+      OR: [{ ownerId: authUser.id, programId: null }, { members: { some: { userId: authUser.id } } }],
+    }
     const rows = await prisma.project.findMany({
       where: {
-        AND: [
-          { OR: [{ ownerId: authUser.id, programId: null }, { members: { some: { userId: authUser.id } } }] },
-          keysetAfter('updatedAt', decodeCursor(query.cursor)) as Prisma.ProjectWhereInput,
-        ],
+        AND: [mine, keysetAfter('updatedAt', decodeCursor(query.cursor)) as Prisma.ProjectWhereInput],
       },
       select: {
         id: true,
@@ -379,6 +379,13 @@ projectsRouter.get('/', authenticate, async (req, res, next) => {
         })
       : []
     const doneByProject = new Map(doneCounts.map((row) => [row.projectId, row._count._all]))
+    // Totals across every page, so a "N active projects" summary does not depend on the page size.
+    let statusCounts: Record<ProjectStatus, number> | undefined
+    if (!query.cursor) {
+      const grouped = await prisma.project.groupBy({ by: ['status'], where: mine, _count: { _all: true } })
+      statusCounts = { PLANNING: 0, ACTIVE: 0, COMPLETED: 0, ARCHIVED: 0 }
+      for (const row of grouped) statusCounts[row.status] = row._count._all
+    }
 
     res.status(200).json({
       projects: page.items.map(({ _count, ...row }) => ({
@@ -386,6 +393,7 @@ projectsRouter.get('/', authenticate, async (req, res, next) => {
         counts: { ..._count, doneTasks: doneByProject.get(row.id) ?? 0 },
       })),
       nextCursor: page.nextCursor,
+      ...(statusCounts ? { statusCounts } : {}),
     })
   } catch (error) {
     next(error)

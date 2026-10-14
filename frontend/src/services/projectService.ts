@@ -53,7 +53,12 @@ export type FilePayload = {
 }
 
 export function getProjects(token: string, params: { cursor?: string | null; limit?: number } = {}) {
-  return apiRequest<{ projects: ProjectSummary[]; nextCursor: string | null }>(
+  return apiRequest<{
+    projects: ProjectSummary[]
+    nextCursor: string | null
+    /** Totals across every page; only sent with the first page (no cursor). */
+    statusCounts?: Record<ProjectSummary['status'], number>
+  }>(
     withQuery('/projects', { limit: params.limit, cursor: params.cursor }),
     { token },
   )

@@ -19,6 +19,7 @@ import { useAuthStore } from '../../stores/authStore'
 import { useOrgContextStore } from '../../stores/orgContextStore'
 import { showToast } from '../../stores/toastStore'
 import type { Organization, OrganizationRole } from '../../types/organization'
+import { ErrorState } from '../common/ErrorState'
 
 type Props = {
   organization: Organization
@@ -102,7 +103,7 @@ export function OrgMembersPanel({ organization, myRole }: Props) {
     return <LoadingState />
   }
   if (membersQuery.isError) {
-    return <p className="text-sm text-red-700">{(membersQuery.error as Error).message}</p>
+    return <ErrorState error={membersQuery.error} onRetry={() => void membersQuery.refetch()} />
   }
 
   const { members, pendingRequests, suspendedMembers = [] } = membersQuery.data!

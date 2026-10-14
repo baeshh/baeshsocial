@@ -31,6 +31,7 @@ import { EvidenceCard } from './EvidenceCard'
 import { EvidenceFilePicker } from './EvidenceFilePicker'
 import { EvidenceReviewActions } from './EvidenceReviewActions'
 import { EvidenceRevokeAction } from './EvidenceRevokeAction'
+import { ErrorState } from '../common/ErrorState'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const emptyForm = (): EvidenceFields => ({ title: '', description: '', category: 'development', activityDate: today() })
@@ -139,7 +140,7 @@ function EvidenceFormModal({
         ) : (
           <p className="text-xs text-ink-muted">첨부 파일은 증빙 카드에서 추가·삭제할 수 있습니다.</p>
         )}
-        {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{error}</p> : null}
+        {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
         <div className="flex flex-wrap justify-end gap-2">
           <Button disabled={save.isPending} type="submit" variant="secondary">
             임시저장
@@ -251,7 +252,7 @@ export function ProjectEvidencePanel({ projectId }: { projectId: string }) {
 
   if (evidenceQuery.isLoading) return <LoadingState />
   if (evidenceQuery.isError || !evidenceQuery.data) {
-    return <p className="text-sm text-red-700">{(evidenceQuery.error as Error | null)?.message}</p>
+    return <ErrorState error={evidenceQuery.error} onRetry={() => void evidenceQuery.refetch()} />
   }
 
   const { evidence, program, canCreate, canReview, limits } = evidenceQuery.data

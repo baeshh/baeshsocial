@@ -8,6 +8,8 @@ description = "Test fixtures and documented placeholders"
 paths = [
   '''backend/tests/''',
   '''backend/vitest\.config\.ts''',
+  '''frontend/playwright\.config\.ts''',
+  '''frontend/e2e/''',
   '''\.env\.example$''',
   '''package-lock\.json$''',
 ]

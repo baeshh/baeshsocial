@@ -28,11 +28,12 @@ import {
   unsaveOpportunity,
 } from '../../services/opportunityService'
 import {
-  EMPTY_JOBS_SEARCH,
   EMPTY_OPPORTUNITY_FILTERS,
   OPPORTUNITY_TYPE_LABEL,
+  jobsSearchFromParams,
   opportunityQuery,
   programQuery,
+  writeJobsSearchParams,
   type JobsSearch,
   type OpportunityFilters,
 } from '../../lib/jobsSearch'
@@ -89,22 +90,53 @@ export function OpportunitiesPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const pageTab: 'browse' | 'my' = searchParams.get('tab') === 'my' ? 'my' : 'browse'
-  const setPageTab = (tab: 'browse' | 'my') => setSearchParams(tab === 'my' ? { tab: 'my' } : {}, { replace: true })
-  const [filterModalOpen, setFilterModalOpen] = useState(false)
-  const [search, setSearch] = useState<JobsSearch>(EMPTY_JOBS_SEARCH)
-  const [debouncedQ, setDebouncedQ] = useState('')
-  const [filters, setFiltersState] = useState<OpportunityFilters>(EMPTY_OPPORTUNITY_FILTERS)
-  const [institutionPage, setInstitutionPage] = useState(1)
-  const [opportunityPage, setOpportunityPage] = useState(1)
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedQ(search.q), 300)
-    return () => window.clearTimeout(timer)
-  }, [search.q])
-  const updateSearch = (next: Partial<JobsSearch>) => {
-    setSearch((prev) => ({ ...prev, ...next }))
-    setInstitutionPage(1)
-    setOpportunityPage(1)
+  // setSearchParams(prev => …) hands over the params of the last render, which lag behind a navigation that is
+  // still rendering (router updates run in a transition). Building on the address bar keeps quick successive
+  // changes, such as a category click followed at once by a sort change, from dropping each other.
+  const currentParams = () => new URLSearchParams(window.location.search)
+  const setPageTab = (tab: 'browse' | 'my') => {
+    const next = currentParams()
+    if (tab === 'my') next.set('tab', 'my')
+    else next.delete('tab')
+    setSearchParams(next)
   }
+  const [filterModalOpen, setFilterModalOpen] = useState(false)
+
+  // The URL is the source of truth so back/forward and links (e.g. the 기회 menu) always match the screen.
+  // Only the search box keeps a draft, committed 300 ms after typing stops without adding history entries.
+  const effectiveSearch = useMemo(() => jobsSearchFromParams(searchParams), [searchParams])
+  const [qDraft, setQDraft] = useState(effectiveSearch.q)
+  const [syncedQ, setSyncedQ] = useState(effectiveSearch.q)
+  if (effectiveSearch.q !== syncedQ) {
+    setSyncedQ(effectiveSearch.q)
+    setQDraft(effectiveSearch.q)
+  }
+  const search: JobsSearch = { ...effectiveSearch, q: qDraft }
+  useEffect(() => {
+    if (qDraft.trim() === effectiveSearch.q) return
+    const timer = window.setTimeout(() => {
+      const current = new URLSearchParams(window.location.search)
+      setSearchParams(writeJobsSearchParams(current, { ...jobsSearchFromParams(current), q: qDraft }), { replace: true })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [qDraft, effectiveSearch.q, setSearchParams])
+  const updateSearch = (next: Partial<JobsSearch>) => {
+    if (next.q !== undefined) {
+      setQDraft(next.q)
+      return
+    }
+    const current = currentParams()
+    setSearchParams(writeJobsSearchParams(current, { ...jobsSearchFromParams(current), q: qDraft, ...next }))
+  }
+
+  const [filters, setFiltersState] = useState<OpportunityFilters>(EMPTY_OPPORTUNITY_FILTERS)
+  const searchKey = writeJobsSearchParams(new URLSearchParams(), effectiveSearch).toString()
+  const [pages, setPages] = useState({ searchKey, institution: 1, opportunity: 1 })
+  const currentPages = pages.searchKey === searchKey ? pages : { searchKey, institution: 1, opportunity: 1 }
+  const institutionPage = currentPages.institution
+  const opportunityPage = currentPages.opportunity
+  const setInstitutionPage = (page: number) => setPages({ ...currentPages, institution: page })
+  const setOpportunityPage = (page: number) => setPages({ ...currentPages, opportunity: page })
   const setFilters: typeof setFiltersState = (next) => {
     setFiltersState(next)
     setOpportunityPage(1)
@@ -120,8 +152,7 @@ export function OpportunitiesPage() {
     deadline: '',
     applyUrl: '',
   })
-  const effectiveSearch = useMemo(() => ({ ...search, q: debouncedQ }), [search, debouncedQ])
-  const searchNarrowed = Boolean(debouncedQ.trim() || search.category !== 'all' || search.openOnly)
+  const searchNarrowed = Boolean(effectiveSearch.q || effectiveSearch.category !== 'all' || effectiveSearch.openOnly)
   const programFilters = useMemo(() => programQuery(effectiveSearch), [effectiveSearch])
   const opportunityFilters = useMemo(() => opportunityQuery(effectiveSearch), [effectiveSearch])
   const institutionPrograms = useDiscoverPrograms(token, institutionPage, programFilters)

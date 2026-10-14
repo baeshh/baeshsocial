@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronRight } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useManagerCandidates } from '../../hooks/useManagerCandidates'
 import {
@@ -161,6 +161,15 @@ export function ProgramCreateWizard({
     onError: (err: Error) => setError(err.message),
   })
 
+  // Nothing reaches the server until 임시저장 or 게시, so leaving after choosing a mode loses the input.
+  const dirty = open && step !== 'start'
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
+
   const chooseMode = (mode: RecruitmentMode) => {
     setForm((prev) => ({ ...prev, recruitmentMode: mode, visibility: visibilityForMode(mode, prev.visibility) }))
     setStep('basics')
@@ -211,6 +220,7 @@ export function ProgramCreateWizard({
   return (
     <Modal
       description={step === 'start' ? '개인 프로젝트에는 영향을 주지 않습니다. 팀 구성·프로젝트 정책 같은 세부 설정은 개설 후에 정할 수 있습니다.' : undefined}
+      confirmCloseMessage={dirty ? '아직 저장하지 않은 내용이 있습니다. 닫으면 입력한 내용이 사라집니다. 닫을까요?' : null}
       onClose={close}
       open={open}
       title={step === 'start' ? '프로그램 만들기' : STEP_TITLE[step]}
@@ -246,6 +256,7 @@ export function ProgramCreateWizard({
               return (
                 <li className="flex items-center gap-1" key={id}>
                   <button
+                    aria-current={current ? 'step' : undefined}
                     className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 transition ${
                       current ? 'bg-brand-600 text-white' : done ? 'bg-brand-50 text-brand-700 hover:bg-brand-100' : 'bg-surface-muted text-ink-muted'
                     }`}
@@ -307,7 +318,7 @@ export function ProgramCreateWizard({
             </div>
           ) : null}
 
-          {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{error}</p> : null}
+          {error ? <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700" role="alert">{error}</p> : null}
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-surface-border pt-4">
             <Button

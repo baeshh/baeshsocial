@@ -22,6 +22,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from '../common/Card'
 import { Input, Select, Textarea } from '../common/Input'
 import { LoadingState } from '../common/LoadingState'
 import { Modal } from '../common/Modal'
+import { ErrorState } from '../common/ErrorState'
 
 type Props = { projectId: string; programId: string; programTitle: string; organizationName: string }
 
@@ -216,7 +217,7 @@ function VerificationSection({ projectId, programId, organizationName }: Omit<Pr
   }
 
   if (query.isLoading) return <LoadingState />
-  if (query.isError || !query.data) return <p className="text-sm text-red-700">{(query.error as Error | null)?.message}</p>
+  if (query.isError || !query.data) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
   const data = query.data
   const current = data.verifications.find((v) => v.id === data.current) ?? null
   const history = data.verifications.filter((v) => v.id !== data.current)
@@ -357,7 +358,7 @@ export function ProjectInstitutionPanel({ projectId, programId, programTitle, or
   })
 
   if (query.isLoading) return <LoadingState />
-  if (query.isError || !query.data) return <p className="text-sm text-red-700">{(query.error as Error | null)?.message}</p>
+  if (query.isError || !query.data) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
   const { reviews, members, tasks, permissions, origin } = query.data
 
   const kindOptions: ProjectReviewKind[] = [

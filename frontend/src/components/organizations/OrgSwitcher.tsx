@@ -1,5 +1,6 @@
-import { Check, ChevronDown, Gauge, LifeBuoy, Plus, Settings, ShieldCheck, UserRound, UserSearch } from 'lucide-react'
+import { Check, ChevronDown, Gauge, Plus, ShieldCheck, UserRound, UserSearch } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { PERSONAL_HOME } from '../layout/navigation'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useMyOrganizations } from '../../hooks/useMyOrganizations'
 import { cn } from '../../lib/cn'
@@ -44,7 +45,7 @@ export function OrgSwitcher() {
 
   const selectPersonal = () => {
     setActiveOrg(null)
-    go('/network')
+    go(PERSONAL_HOME)
   }
 
   const selectOrganization = (orgId: string) => {
@@ -57,6 +58,7 @@ export function OrgSwitcher() {
       <button
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label={`작업 공간: ${current ? current.organization.name : '개인'}`}
         className={cn(
           'inline-flex h-10 max-w-[11rem] items-center gap-2 rounded-full border px-3 text-sm font-semibold transition sm:max-w-[14rem]',
           current
@@ -67,7 +69,7 @@ export function OrgSwitcher() {
         type="button"
       >
         <CurrentIcon className="shrink-0" size={16} />
-        <span className="truncate lg:hidden xl:inline">{current ? current.organization.name : '개인'}</span>
+        <span className="hidden truncate sm:inline md:hidden xl:inline">{current ? current.organization.name : '개인'}</span>
         <ChevronDown className={cn('shrink-0 transition', open && 'rotate-180')} size={14} />
       </button>
 
@@ -163,25 +165,6 @@ export function OrgSwitcher() {
               인재 검색
             </button>
           ) : null}
-          <div className="my-1 border-t border-surface-border" />
-          <button
-            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-ink-body hover:bg-surface-muted"
-            onClick={() => go('/support')}
-            role="menuitem"
-            type="button"
-          >
-            <LifeBuoy size={18} />
-            고객 지원
-          </button>
-          <button
-            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-ink-body hover:bg-surface-muted"
-            onClick={() => go('/settings')}
-            role="menuitem"
-            type="button"
-          >
-            <Settings size={18} />
-            계정·보안 설정
-          </button>
         </div>
       ) : null}
     </div>

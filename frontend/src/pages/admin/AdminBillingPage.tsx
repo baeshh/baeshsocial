@@ -29,6 +29,7 @@ import {
 import { useAuthStore } from '../../stores/authStore'
 import { showToast } from '../../stores/toastStore'
 import type { AdminBillingOrgDetail, Invoice } from '../../types/commercial'
+import { ErrorState } from '../../components/common/ErrorState'
 
 const field = 'h-10 w-full rounded-xl border border-surface-border bg-white px-3 text-sm outline-none focus:border-brand-500'
 const today = () => new Date().toISOString().slice(0, 10)
@@ -370,7 +371,7 @@ function OrgDetail({ orgId }: { orgId: string }) {
   const upload = useBillingMutation(({ contractId, file }: { contractId: string; file: File }) => adminUploadContractDocument(token, contractId, file), '계약서를 올렸습니다.', orgId)
 
   if (query.isLoading) return <LoadingState />
-  if (query.isError || !query.data) return <p className="text-sm text-red-700">{(query.error as Error | null)?.message}</p>
+  if (query.isError || !query.data) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
   const detail = query.data
   const current = detail.current
 
