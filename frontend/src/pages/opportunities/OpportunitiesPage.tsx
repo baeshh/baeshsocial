@@ -90,13 +90,16 @@ export function OpportunitiesPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const pageTab: 'browse' | 'my' = searchParams.get('tab') === 'my' ? 'my' : 'browse'
-  const setPageTab = (tab: 'browse' | 'my') =>
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (tab === 'my') next.set('tab', 'my')
-      else next.delete('tab')
-      return next
-    })
+  // setSearchParams(prev => …) hands over the params of the last render, which lag behind a navigation that is
+  // still rendering (router updates run in a transition). Building on the address bar keeps quick successive
+  // changes, such as a category click followed at once by a sort change, from dropping each other.
+  const currentParams = () => new URLSearchParams(window.location.search)
+  const setPageTab = (tab: 'browse' | 'my') => {
+    const next = currentParams()
+    if (tab === 'my') next.set('tab', 'my')
+    else next.delete('tab')
+    setSearchParams(next)
+  }
   const [filterModalOpen, setFilterModalOpen] = useState(false)
 
   // The URL is the source of truth so back/forward and links (e.g. the 기회 menu) always match the screen.
@@ -111,10 +114,10 @@ export function OpportunitiesPage() {
   const search: JobsSearch = { ...effectiveSearch, q: qDraft }
   useEffect(() => {
     if (qDraft.trim() === effectiveSearch.q) return
-    const timer = window.setTimeout(
-      () => setSearchParams((prev) => writeJobsSearchParams(prev, { ...jobsSearchFromParams(prev), q: qDraft }), { replace: true }),
-      300,
-    )
+    const timer = window.setTimeout(() => {
+      const current = new URLSearchParams(window.location.search)
+      setSearchParams(writeJobsSearchParams(current, { ...jobsSearchFromParams(current), q: qDraft }), { replace: true })
+    }, 300)
     return () => window.clearTimeout(timer)
   }, [qDraft, effectiveSearch.q, setSearchParams])
   const updateSearch = (next: Partial<JobsSearch>) => {
@@ -122,7 +125,8 @@ export function OpportunitiesPage() {
       setQDraft(next.q)
       return
     }
-    setSearchParams((prev) => writeJobsSearchParams(prev, { ...jobsSearchFromParams(prev), q: qDraft, ...next }))
+    const current = currentParams()
+    setSearchParams(writeJobsSearchParams(current, { ...jobsSearchFromParams(current), q: qDraft, ...next }))
   }
 
   const [filters, setFiltersState] = useState<OpportunityFilters>(EMPTY_OPPORTUNITY_FILTERS)
