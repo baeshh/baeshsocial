@@ -13,7 +13,7 @@ import {
   Sparkles,
   UserRound,
 } from 'lucide-react'
-import { type ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
@@ -33,10 +33,13 @@ const PROJECT_STATUS_LABEL = { PLANNING: '기획 중', ACTIVE: '진행 중', COM
 type NextAction = { id: string; icon: ReactNode; title: string; detail: string; badge?: string; to: string; cta: string; urgent: boolean }
 
 function Panel({ title, action, children, className }: { title: string; action?: ReactNode; children: ReactNode; className?: string }) {
+  const headingId = useId()
   return (
-    <section className={cn('rounded-2xl border border-surface-border bg-white', className)}>
+    <section aria-labelledby={headingId} className={cn('rounded-2xl border border-surface-border bg-white', className)}>
       <div className="flex items-center justify-between gap-3 border-b border-surface-border px-5 py-3.5">
-        <h2 className="text-base font-bold text-ink-strong">{title}</h2>
+        <h2 className="text-base font-bold text-ink-strong" id={headingId}>
+          {title}
+        </h2>
         {action}
       </div>
       <div className="p-5">{children}</div>
@@ -58,9 +61,10 @@ function PanelError({ onRetry }: { onRetry: () => void }) {
 
 function Lines({ count = 3 }: { count?: number }) {
   return (
-    <div aria-hidden className="space-y-3">
+    <div className="space-y-3" role="status">
+      <span className="sr-only">불러오는 중</span>
       {Array.from({ length: count }, (_, index) => (
-        <span className="block h-12 animate-pulse rounded-xl bg-surface-muted" key={index} />
+        <span aria-hidden className="block h-12 animate-pulse rounded-xl bg-surface-muted" key={index} />
       ))}
     </div>
   )
@@ -196,22 +200,23 @@ export function HomePage() {
             </h1>
             <p className="mt-1 text-sm text-ink-muted">지원 상태와 지금 처리할 작업을 먼저 보여드려요.</p>
           </div>
-          <dl className="flex flex-wrap gap-2">
+          <ul className="flex flex-wrap gap-2">
             {[
               { label: '진행 프로젝트', value: activeProjects, to: '/projects' },
               { label: '응답 필요', value: applicationsQuery.isSuccess ? offers.length : null, to: '/opportunities?tab=my' },
               { label: '인증 기록', value: overview ? overview.stats.verifiedCount : null, to: '/profile' },
             ].map((stat) => (
-              <Link
-                className="flex min-h-11 items-center gap-2 rounded-xl border border-surface-border bg-white px-3.5 transition hover:border-brand-200"
-                key={stat.label}
-                to={stat.to}
-              >
-                <dt className="text-xs font-semibold text-ink-muted">{stat.label}</dt>
-                <dd className="text-lg font-bold tabular-nums text-ink-strong">{stat.value ?? '–'}</dd>
-              </Link>
+              <li key={stat.label}>
+                <Link
+                  className="flex min-h-11 items-center gap-2 rounded-xl border border-surface-border bg-white px-3.5 transition hover:border-brand-200"
+                  to={stat.to}
+                >
+                  <span className="text-xs font-semibold text-ink-muted">{stat.label}</span>
+                  <span className="text-lg font-bold tabular-nums text-ink-strong">{stat.value ?? '–'}</span>
+                </Link>
+              </li>
             ))}
-          </dl>
+          </ul>
         </header>
 
         <div className="grid gap-5 lg:grid-cols-3">
