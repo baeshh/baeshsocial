@@ -91,30 +91,48 @@ export function OpportunitiesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const pageTab: 'browse' | 'my' = searchParams.get('tab') === 'my' ? 'my' : 'browse'
   const setPageTab = (tab: 'browse' | 'my') =>
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
-        if (tab === 'my') next.set('tab', 'my')
-        else next.delete('tab')
-        return next
-      },
-      { replace: true },
-    )
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (tab === 'my') next.set('tab', 'my')
+      else next.delete('tab')
+      return next
+    })
   const [filterModalOpen, setFilterModalOpen] = useState(false)
-  const [search, setSearch] = useState<JobsSearch>(() => jobsSearchFromParams(searchParams))
-  const [debouncedQ, setDebouncedQ] = useState(search.q)
-  const [filters, setFiltersState] = useState<OpportunityFilters>(EMPTY_OPPORTUNITY_FILTERS)
-  const [institutionPage, setInstitutionPage] = useState(1)
-  const [opportunityPage, setOpportunityPage] = useState(1)
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedQ(search.q), 300)
-    return () => window.clearTimeout(timer)
-  }, [search.q])
-  const updateSearch = (next: Partial<JobsSearch>) => {
-    setSearch((prev) => ({ ...prev, ...next }))
-    setInstitutionPage(1)
-    setOpportunityPage(1)
+
+  // The URL is the source of truth so back/forward and links (e.g. the 기회 menu) always match the screen.
+  // Only the search box keeps a draft, committed 300 ms after typing stops without adding history entries.
+  const effectiveSearch = useMemo(() => jobsSearchFromParams(searchParams), [searchParams])
+  const [qDraft, setQDraft] = useState(effectiveSearch.q)
+  const [syncedQ, setSyncedQ] = useState(effectiveSearch.q)
+  if (effectiveSearch.q !== syncedQ) {
+    setSyncedQ(effectiveSearch.q)
+    setQDraft(effectiveSearch.q)
   }
+  const search: JobsSearch = { ...effectiveSearch, q: qDraft }
+  useEffect(() => {
+    if (qDraft.trim() === effectiveSearch.q) return
+    const timer = window.setTimeout(
+      () => setSearchParams((prev) => writeJobsSearchParams(prev, { ...jobsSearchFromParams(prev), q: qDraft }), { replace: true }),
+      300,
+    )
+    return () => window.clearTimeout(timer)
+  }, [qDraft, effectiveSearch.q, setSearchParams])
+  const updateSearch = (next: Partial<JobsSearch>) => {
+    if (next.q !== undefined) {
+      setQDraft(next.q)
+      return
+    }
+    setSearchParams((prev) => writeJobsSearchParams(prev, { ...jobsSearchFromParams(prev), q: qDraft, ...next }))
+  }
+
+  const [filters, setFiltersState] = useState<OpportunityFilters>(EMPTY_OPPORTUNITY_FILTERS)
+  const searchKey = writeJobsSearchParams(new URLSearchParams(), effectiveSearch).toString()
+  const [pages, setPages] = useState({ searchKey, institution: 1, opportunity: 1 })
+  const currentPages = pages.searchKey === searchKey ? pages : { searchKey, institution: 1, opportunity: 1 }
+  const institutionPage = currentPages.institution
+  const opportunityPage = currentPages.opportunity
+  const setInstitutionPage = (page: number) => setPages({ ...currentPages, institution: page })
+  const setOpportunityPage = (page: number) => setPages({ ...currentPages, opportunity: page })
   const setFilters: typeof setFiltersState = (next) => {
     setFiltersState(next)
     setOpportunityPage(1)
@@ -130,17 +148,7 @@ export function OpportunitiesPage() {
     deadline: '',
     applyUrl: '',
   })
-  const effectiveSearch = useMemo(() => ({ ...search, q: debouncedQ }), [search, debouncedQ])
-  useEffect(() => {
-    setSearchParams(
-      (prev) => {
-        const next = writeJobsSearchParams(prev, effectiveSearch)
-        return next.toString() === prev.toString() ? prev : next
-      },
-      { replace: true },
-    )
-  }, [effectiveSearch, setSearchParams])
-  const searchNarrowed = Boolean(debouncedQ.trim() || search.category !== 'all' || search.openOnly)
+  const searchNarrowed = Boolean(effectiveSearch.q || effectiveSearch.category !== 'all' || effectiveSearch.openOnly)
   const programFilters = useMemo(() => programQuery(effectiveSearch), [effectiveSearch])
   const opportunityFilters = useMemo(() => opportunityQuery(effectiveSearch), [effectiveSearch])
   const institutionPrograms = useDiscoverPrograms(token, institutionPage, programFilters)
