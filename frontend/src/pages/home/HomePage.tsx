@@ -13,25 +13,24 @@ import {
   Sparkles,
   UserRound,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge } from '../../components/common/Badge'
 import { Button } from '../../components/common/Button'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { cn } from '../../lib/cn'
-import { APPLICATION_STATUS_META, formatDate, formatDateTime } from '../../lib/programs'
+import { useNow } from '../../hooks/useNow'
+import { APPLICATION_STATUS_META, formatDate, formatDateTime, offerTimeLeft } from '../../lib/programs'
 import { OPPORTUNITY_TYPE_LABEL } from '../../lib/jobsSearch'
 import { getOpportunities } from '../../services/opportunityService'
 import { getProfileOverview } from '../../services/profileService'
 import { discoverPrograms, getMyProgramApplications } from '../../services/programService'
 import { getProjects } from '../../services/projectService'
 import { useAuthStore } from '../../stores/authStore'
-import type { MyProgramApplication } from '../../types/program'
 
-const DAY = 24 * 60 * 60 * 1000
 const PROJECT_STATUS_LABEL = { PLANNING: '기획 중', ACTIVE: '진행 중', COMPLETED: '완료', ARCHIVED: '보관' } as const
 
-type NextAction = { id: string; icon: ReactNode; title: string; detail: string; to: string; cta: string; urgent: boolean }
+type NextAction = { id: string; icon: ReactNode; title: string; detail: string; badge?: string; to: string; cta: string; urgent: boolean }
 
 function Panel({ title, action, children, className }: { title: string; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -76,16 +75,10 @@ function MoreLink({ to, label }: { to: string; label: string }) {
   )
 }
 
-function offerDeadline(application: MyProgramApplication, now: number) {
-  if (!application.offerExpiresAt) return null
-  const left = new Date(application.offerExpiresAt).getTime() - now
-  return left > 0 ? left : null
-}
-
 export function HomePage() {
   const token = useAuthStore((state) => state.token)
   const user = useAuthStore((state) => state.user)
-  const [now] = useState(() => Date.now())
+  const now = useNow()
   const ready = Boolean(token && user)
 
   const applicationsQuery = useQuery({
@@ -119,18 +112,23 @@ export function HomePage() {
   const overview = overviewQuery.data
   const mySkills = new Set((overview?.profile.skills ?? []).map((skill) => skill.toLowerCase()))
 
-  const offers = applications.filter((application) => application.status === 'accepted' && offerDeadline(application, now) !== null)
+  const offers = applications.filter(
+    (application) => application.status === 'accepted' && !offerTimeLeft(application.offerExpiresAt, now).expired,
+  )
   const drafts = applications.filter((application) => application.status === 'draft')
   const inReview = applications.filter((application) => ['pending', 'waitlisted', 'accepted', 'confirmed'].includes(application.status))
 
   const actions: NextAction[] = [
     ...offers.map((application) => {
-      const left = offerDeadline(application, now) ?? 0
+      const timeLeft = offerTimeLeft(application.offerExpiresAt, now)
       return {
         id: `offer-${application.id}`,
         icon: <BadgeCheck size={18} />,
         title: '합격 제안에 응답해 주세요',
-        detail: `${application.program.title} · ${formatDateTime(application.offerExpiresAt)}까지${left < DAY ? ' (24시간 이내)' : ''}`,
+        detail: application.offerExpiresAt
+          ? `${application.program.title} · ${formatDateTime(application.offerExpiresAt)}까지`
+          : application.program.title,
+        badge: timeLeft.label,
         to: `/programs/${application.program.id}`,
         cta: '응답하기',
         urgent: true,
@@ -172,6 +170,10 @@ export function HomePage() {
         ]
       : []),
   ]
+  const activeProjects = projectsQuery.data
+    ? (projectsQuery.data.statusCounts?.ACTIVE ??
+      (projectsQuery.data.nextCursor ? null : projects.filter((project) => project.status === 'ACTIVE').length))
+    : null
   const actionsLoading = applicationsQuery.isLoading || projectsQuery.isLoading || overviewQuery.isLoading
 
   const completeness = overview
@@ -196,7 +198,7 @@ export function HomePage() {
           </div>
           <dl className="flex flex-wrap gap-2">
             {[
-              { label: '진행 프로젝트', value: projectsQuery.isSuccess ? projects.filter((project) => project.status === 'ACTIVE').length : null, to: '/projects' },
+              { label: '진행 프로젝트', value: activeProjects, to: '/projects' },
               { label: '응답 필요', value: applicationsQuery.isSuccess ? offers.length : null, to: '/opportunities?tab=my' },
               { label: '인증 기록', value: overview ? overview.stats.verifiedCount : null, to: '/profile' },
             ].map((stat) => (
@@ -239,7 +241,10 @@ export function HomePage() {
                         {action.icon}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-ink-strong">{action.title}</p>
+                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold text-ink-strong">
+                          {action.title}
+                          {action.badge ? <Badge tone={action.urgent ? 'amber' : 'gray'}>{action.badge}</Badge> : null}
+                        </p>
                         <p className="truncate text-xs text-ink-muted">{action.detail}</p>
                       </div>
                       <Button size="sm" to={action.to} variant={action.urgent ? 'primary' : 'secondary'}>

@@ -183,6 +183,32 @@ export function formatDateTime(value: string | null | undefined) {
   return new Date(value).toLocaleString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+/**
+ * Response window left on an accepted offer, mirroring the server's `liveOfferWhere`: no `offerExpiresAt`
+ * means the offer never lapses, otherwise it is live until that instant.
+ */
+export function offerTimeLeft(offerExpiresAt: string | null, now: number) {
+  if (!offerExpiresAt) return { expired: false, urgent: false, label: '응답 기한 없음' }
+  const left = new Date(offerExpiresAt).getTime() - now
+  if (left <= 0) return { expired: true, urgent: false, label: '응답 기한 지남' }
+  const days = Math.floor(left / DAY)
+  const hours = Math.floor((left % DAY) / HOUR)
+  const minutes = Math.floor((left % HOUR) / MINUTE)
+  const label =
+    days > 0
+      ? `${days}일${hours ? ` ${hours}시간` : ''} 남음`
+      : hours > 0
+        ? `${hours}시간${minutes ? ` ${minutes}분` : ''} 남음`
+        : minutes > 0
+          ? `${minutes}분 남음`
+          : '1분 미만 남음'
+  return { expired: false, urgent: left < DAY, label }
+}
+
 /** `datetime-local` input value in the browser's time zone. */
 export function toDateTimeInput(value: string | null | undefined) {
   if (!value) return ''

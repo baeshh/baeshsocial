@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
-import { formatDateTime } from '../../lib/programs'
+import { useNow } from '../../hooks/useNow'
+import { formatDateTime, offerTimeLeft } from '../../lib/programs'
 import { confirmProgramOffer, declineProgramOffer } from '../../services/programService'
 import { useAuthStore } from '../../stores/authStore'
 import { showToast } from '../../stores/toastStore'
@@ -12,7 +12,7 @@ type OfferApplication = { status: string; offerExpiresAt: string | null; lapsed:
 export function OfferResponse({ programId, programTitle, application }: { programId: string; programTitle: string; application: OfferApplication }) {
   const token = useAuthStore((s) => s.token)
   const queryClient = useQueryClient()
-  const [now] = useState(() => Date.now())
+  const now = useNow()
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['programs'] })
   const confirm = useMutation({
     mutationFn: () => confirmProgramOffer(token!, programId),
@@ -46,16 +46,21 @@ export function OfferResponse({ programId, programTitle, application }: { progra
   }
   if (application.status !== 'accepted') return null
 
-  const expired = Boolean(application.offerExpiresAt && new Date(application.offerExpiresAt).getTime() <= now)
-  if (expired) return <p className="mt-2 text-sm text-ink-muted">응답 기한이 지나 확정할 수 없습니다. 운영 기관에 문의해 주세요.</p>
+  const timeLeft = offerTimeLeft(application.offerExpiresAt, now)
+  if (timeLeft.expired) return <p className="mt-2 text-sm text-ink-muted">응답 기한이 지나 확정할 수 없습니다. 운영 기관에 문의해 주세요.</p>
   const busy = confirm.isPending || decline.isPending
 
   return (
     <div className="mt-2 space-y-2">
       <p className="text-sm text-ink-body">
         합격했습니다. {application.offerExpiresAt ? `${formatDateTime(application.offerExpiresAt)}까지 ` : ''}참여를 확정해야 참여자로 등록됩니다.
-        기한이 지나면 자리가 대기자에게 넘어갑니다.
+        {application.offerExpiresAt ? ' 기한이 지나면 자리가 대기자에게 넘어갑니다.' : null}
       </p>
+      {application.offerExpiresAt ? (
+        <p className={timeLeft.urgent ? 'text-xs font-semibold text-warning-700' : 'text-xs font-semibold text-ink-muted'}>
+          {timeLeft.label}
+        </p>
+      ) : null}
       <div className="flex gap-2">
         <Button className="min-h-9 flex-1 px-4" disabled={busy} onClick={() => confirm.mutate()}>
           참여 확정
