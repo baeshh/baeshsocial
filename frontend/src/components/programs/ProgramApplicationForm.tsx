@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Paperclip, Trash2 } from 'lucide-react'
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { resolveApiUrl } from '../../lib/api'
 import { formatBytes, formatDateTime } from '../../lib/programs'
 import {
@@ -106,6 +106,7 @@ function FileField({
       {files.length < MAX_FILES_PER_FIELD ? (
         <>
           <button
+            aria-label={`${field.label} 파일 선택`}
             className="rounded-full border border-dashed border-surface-border px-4 py-2 text-sm font-medium text-ink-body hover:border-brand-300 disabled:opacity-50"
             disabled={upload.isPending}
             onClick={() => inputRef.current?.click()}
@@ -147,6 +148,7 @@ export function ProgramApplicationForm({
   const application = program.myStatus.application
   const [answers, setAnswers] = useState<Record<string, AnswerValue>>(() => application?.answers ?? {})
   const [missing, setMissing] = useState<string[]>([])
+  const [dirty, setDirty] = useState(false)
   const files = application?.files ?? []
   const filesFor = (fieldId: string) => files.filter((file) => file.fieldId === fieldId)
   const canSubmit = program.recruitment.state === 'open'
@@ -154,6 +156,7 @@ export function ProgramApplicationForm({
   const save = useMutation({
     mutationFn: (submit: boolean) => saveMyApplication(token, program.id, { answers, submit, shareToken }),
     onSuccess: (_, submit) => {
+      setDirty(false)
       showToast(submit ? '지원서를 제출했습니다. 결과는 알림으로 알려드립니다.' : '임시저장했습니다. 마감 전까지 이어서 작성할 수 있습니다.')
       void queryClient.invalidateQueries({ queryKey: ['programs', 'applications', 'me'] })
       onChanged()
@@ -161,9 +164,18 @@ export function ProgramApplicationForm({
     onError: (error: Error) => showToast(error.message, 'error'),
   })
 
+  // Answers live only in this component until 임시저장, so closing the tab would lose them.
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
+
   const setAnswer = (fieldId: string, value: AnswerValue) => {
     setAnswers((prev) => ({ ...prev, [fieldId]: value }))
     setMissing((prev) => prev.filter((id) => id !== fieldId))
+    setDirty(true)
   }
 
   const submit = (event: FormEvent) => {
@@ -172,7 +184,9 @@ export function ProgramApplicationForm({
     if (unanswered.length > 0) {
       setMissing(unanswered.map((field) => field.id))
       showToast(`필수 항목을 입력해 주세요: ${unanswered.map((field) => field.label).join(', ')}`, 'error')
-      document.getElementById(`field-${unanswered[0].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const first = document.getElementById(`field-${unanswered[0].id}`)
+      first?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      first?.querySelector<HTMLElement>('input, textarea, button')?.focus({ preventScroll: true })
       return
     }
     if (!window.confirm('제출한 지원서는 수정할 수 없습니다. 제출할까요?')) return
@@ -189,13 +203,27 @@ export function ProgramApplicationForm({
       {fields.map((field, index) => {
         const value = answers[field.id]
         const invalid = missing.includes(field.id)
+        const labelId = `field-${field.id}-label`
+        const noteId = `field-${field.id}-note`
+        const errorId = `field-${field.id}-error`
+        const described = {
+          'aria-describedby': [field.description ? noteId : '', invalid ? errorId : ''].filter(Boolean).join(' ') || undefined,
+          'aria-invalid': invalid || undefined,
+          'aria-required': field.required || undefined,
+        }
+        const labelled = { 'aria-labelledby': labelId, ...described }
         return (
           <div className={`rounded-2xl ${invalid ? 'ring-2 ring-red-200 ring-offset-4' : ''}`} id={`field-${field.id}`} key={field.id}>
             {field.type === 'consent' ? (
               <div className="rounded-2xl border border-surface-border bg-surface-muted/50 p-4">
-                {field.description ? <p className="whitespace-pre-wrap text-xs leading-5 text-ink-body">{field.description}</p> : null}
+                {field.description ? (
+                  <p className="whitespace-pre-wrap text-xs leading-5 text-ink-body" id={noteId}>
+                    {field.description}
+                  </p>
+                ) : null}
                 <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm font-medium text-ink-strong">
                   <input
+                    {...described}
                     checked={value === true}
                     className="mt-0.5 h-4 w-4 accent-brand-600"
                     onChange={(event) => setAnswer(field.id, event.target.checked)}
@@ -209,13 +237,24 @@ export function ProgramApplicationForm({
               </div>
             ) : (
               <>
-                <p className="text-sm font-semibold text-ink-strong">
+                <p className="text-sm font-semibold text-ink-strong" id={labelId}>
                   {index + 1}. {field.label}
-                  {field.required ? <span className="ml-1 text-red-600">*</span> : <span className="ml-1 text-xs font-normal text-ink-muted">(선택)</span>}
+                  {field.required ? (
+                    <span aria-hidden className="ml-1 text-red-600">
+                      *
+                    </span>
+                  ) : (
+                    <span className="ml-1 text-xs font-normal text-ink-muted">(선택)</span>
+                  )}
                 </p>
-                {field.description ? <p className="mt-0.5 whitespace-pre-wrap text-xs text-ink-muted">{field.description}</p> : null}
+                {field.description ? (
+                  <p className="mt-0.5 whitespace-pre-wrap text-xs text-ink-muted" id={noteId}>
+                    {field.description}
+                  </p>
+                ) : null}
                 {field.type === 'short_text' ? (
                   <input
+                    {...labelled}
                     className={inputClass}
                     maxLength={200}
                     onChange={(event) => setAnswer(field.id, event.target.value)}
@@ -224,6 +263,7 @@ export function ProgramApplicationForm({
                 ) : null}
                 {field.type === 'url' ? (
                   <input
+                    {...labelled}
                     className={inputClass}
                     maxLength={500}
                     onChange={(event) => setAnswer(field.id, event.target.value)}
@@ -235,6 +275,7 @@ export function ProgramApplicationForm({
                 {field.type === 'long_text' ? (
                   <>
                     <textarea
+                      {...labelled}
                       className={`${inputClass} min-h-32 resize-y`}
                       maxLength={4000}
                       onChange={(event) => setAnswer(field.id, event.target.value)}
@@ -244,7 +285,7 @@ export function ProgramApplicationForm({
                   </>
                 ) : null}
                 {field.type === 'single_choice' ? (
-                  <div className="mt-2 space-y-1.5">
+                  <div {...labelled} className="mt-2 space-y-1.5" role="radiogroup">
                     {field.options.map((option) => (
                       <label className="flex cursor-pointer items-center gap-2 text-sm text-ink-body" key={option}>
                         <input
@@ -260,7 +301,7 @@ export function ProgramApplicationForm({
                   </div>
                 ) : null}
                 {field.type === 'multi_choice' ? (
-                  <div className="mt-2 space-y-1.5">
+                  <div aria-describedby={described['aria-describedby']} aria-labelledby={labelId} className="mt-2 space-y-1.5" role="group">
                     {field.options.map((option) => {
                       const selected = Array.isArray(value) ? value : []
                       return (
@@ -294,6 +335,11 @@ export function ProgramApplicationForm({
                 ) : null}
               </>
             )}
+            {invalid ? (
+              <p className="mt-1.5 text-xs font-medium text-red-700" id={errorId}>
+                {field.type === 'consent' ? '동의가 필요합니다.' : '필수 항목입니다.'}
+              </p>
+            ) : null}
           </div>
         )
       })}
