@@ -60,6 +60,8 @@ async function loadProgramAccess(programId: string, userId: string) {
     isStaff,
     isParticipant,
     canView: isStaff || isParticipant,
+    /** May work on a team in this program: an active organization member or a participant selected from outside. */
+    canJoinTeams: Boolean(membership) || isParticipant,
   }
 }
 
