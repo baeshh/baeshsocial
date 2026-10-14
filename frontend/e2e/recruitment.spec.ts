@@ -5,7 +5,8 @@ import { MOVE_TARGET, USERS, expectToast, orgIds, signIn, type Role } from './su
  * One cohort end to end: an operator publishes a program, a person applies, gets an offer and confirms it,
  * the operator puts them on a team project and moves that project to another program, and the participant opens it.
  */
-test.describe.configure({ mode: 'serial' })
+// A retry would open a second cohort, which the trial plan's program limit rightly refuses.
+test.describe.configure({ mode: 'serial', retries: 0 })
 
 const title = `E2E 모집 ${Date.now().toString(36)}`
 const projectTitle = `${title} 팀 프로젝트`
@@ -145,6 +146,7 @@ test('참여자가 이동된 프로젝트를 열 수 있다', async () => {
   await expect(card).toContainText(MOVE_TARGET)
   await card.getByRole('link', { name: '상세 보기' }).click()
   await expect(applicant).toHaveURL(/\/projects\/[^/?]+/)
-  await expect(applicant.getByRole('heading', { name: projectTitle })).toBeVisible()
-  await expect(applicant.getByText(MOVE_TARGET).first()).toBeVisible()
+  await expect(applicant.getByRole('heading', { name: '프로젝트 목록' })).toHaveCount(0)
+  await expect(applicant.getByText('프로젝트를 찾을 수 없습니다')).toHaveCount(0)
+  await expect(applicant.getByRole('heading', { level: 1, name: projectTitle })).toBeVisible()
 })
