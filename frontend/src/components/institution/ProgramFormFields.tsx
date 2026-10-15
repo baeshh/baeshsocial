@@ -45,6 +45,7 @@ export function ChoiceCard({
   onSelect,
   name,
   badge,
+  disabled = false,
 }: {
   checked: boolean
   label: string
@@ -52,15 +53,20 @@ export function ChoiceCard({
   onSelect: () => void
   name: string
   badge?: ReactNode
+  disabled?: boolean
 }) {
   return (
     <label
-      className={`flex cursor-pointer flex-col rounded-2xl border px-4 py-3 transition ${
-        checked ? 'border-brand-600 bg-brand-50' : 'border-surface-border hover:border-brand-200'
+      className={`flex flex-col rounded-2xl border px-4 py-3 transition ${
+        disabled
+          ? 'cursor-not-allowed border-surface-border opacity-50'
+          : checked
+            ? 'cursor-pointer border-brand-600 bg-brand-50'
+            : 'cursor-pointer border-surface-border hover:border-brand-200'
       }`}
     >
       <span className="flex items-center gap-2">
-        <input checked={checked} className="h-4 w-4 accent-brand-600" name={name} onChange={onSelect} type="radio" />
+        <input checked={checked} className="h-4 w-4 accent-brand-600" disabled={disabled} name={name} onChange={onSelect} type="radio" />
         <span className="text-sm font-semibold text-ink-strong">{label}</span>
         {badge}
       </span>
@@ -456,7 +462,7 @@ export function ProgramRecruitmentFields({ value, onChange, lockMode = false }: 
 }
 
 /** Step 4 — 누가 볼 수 있게 할까요? */
-export function ProgramVisibilityFields({ value, onChange }: SectionProps) {
+export function ProgramVisibilityFields({ value, onChange, blockPrivate = false }: SectionProps & { blockPrivate?: boolean }) {
   const set = setter(onChange)
   const recruiting = takesApplications(value.recruitmentMode)
   return (
@@ -465,7 +471,12 @@ export function ProgramVisibilityFields({ value, onChange }: SectionProps) {
         {(Object.keys(PROGRAM_VISIBILITY_META) as ProgramVisibility[]).map((key) => (
           <ChoiceCard
             checked={value.visibility === key}
-            hint={PROGRAM_VISIBILITY_META[key].description}
+            disabled={blockPrivate && recruiting && key === 'private'}
+            hint={
+              blockPrivate && recruiting && key === 'private'
+                ? '지원서를 받는 프로그램은 내부 전용으로 둘 수 없습니다.'
+                : PROGRAM_VISIBILITY_META[key].description
+            }
             key={key}
             label={PROGRAM_VISIBILITY_META[key].label}
             name="program-visibility"
