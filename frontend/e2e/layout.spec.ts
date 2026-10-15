@@ -63,7 +63,7 @@ for (const viewport of VIEWPORTS) {
         await sidebar.getByRole('link', { name: '프로그램' }).click()
       }
       await expect(page).toHaveURL(new RegExp(`/org/${university}\\?tab=programs`))
-      await expect(page.getByRole('button', { name: '프로그램 만들기' })).toBeVisible()
+      await expect(page.getByRole('link', { name: '프로그램 만들기' })).toBeVisible()
       await expectNoHorizontalOverflow(page)
 
       await page.goto(`/org/${university}?tab=members`)

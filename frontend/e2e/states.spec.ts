@@ -47,7 +47,7 @@ test.describe('로딩·오류·빈 화면', () => {
     await expect(alert).toBeVisible({ timeout: 15_000 })
     fail = false
     await alert.getByRole('button', { name: '다시 시도' }).click()
-    await expect(page.getByRole('button', { name: '프로그램 만들기' })).toBeVisible()
+    await expect(page.getByRole('link', { name: '프로그램 만들기' })).toBeVisible()
   })
 })
 
@@ -88,7 +88,19 @@ test.describe('접근성 (axe)', () => {
     await expectNoA11yViolations(page)
 
     await page.goto(`/org/${university}?tab=programs`)
-    await expect(page.getByRole('button', { name: '프로그램 만들기' })).toBeVisible()
+    await expect(page.getByRole('link', { name: '프로그램 만들기' })).toBeVisible()
+    await expectNoA11yViolations(page)
+  })
+
+  test('프로그램 개설 위저드', async ({ page }) => {
+    const { university } = await orgIds(page.request)
+    await signIn(page, 'operator')
+    await page.goto(`/org/${university}/programs/new`)
+    await expect(page.getByRole('heading', { name: '어떤 방식으로 참여자를 모으나요?' })).toBeVisible()
+    await expectNoA11yViolations(page)
+
+    await page.getByRole('button', { name: /지금부터 지원자를 모집해요/ }).click()
+    await expect(page.getByLabel('프로그램 이름')).toBeVisible()
     await expectNoA11yViolations(page)
   })
 })
