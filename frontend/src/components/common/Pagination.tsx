@@ -7,6 +7,8 @@ type PaginationProps = {
   onPageChange: (page: number) => void
   disabled?: boolean
   className?: string
+  /** Accessible name; give each list its own when a page has several. */
+  label?: string
 }
 
 type PageItem = number | 'gap-start' | 'gap-end'
@@ -29,13 +31,13 @@ function pageItems(page: number, totalPages: number, siblings = 1): PageItem[] {
 const buttonClass =
   'inline-flex h-9 min-w-9 items-center justify-center rounded-full px-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40'
 
-export function Pagination({ page, totalPages, onPageChange, disabled = false, className }: PaginationProps) {
+export function Pagination({ page, totalPages, onPageChange, disabled = false, className, label = '페이지 이동' }: PaginationProps) {
   if (totalPages <= 1) {
     return null
   }
 
   return (
-    <nav aria-label="페이지 이동" className={cn('flex items-center justify-center gap-1', className)}>
+    <nav aria-label={label} className={cn('flex items-center justify-center gap-1', className)}>
       <button
         aria-label="이전 페이지"
         className={cn(buttonClass, 'text-ink-body hover:bg-surface-muted')}

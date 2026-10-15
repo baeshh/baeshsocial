@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright'
 import { expect, type APIRequestContext, type Page } from '@playwright/test'
 
 /** Mirrors backend/prisma/seedE2E.ts. */
@@ -12,6 +13,8 @@ export const USERS = {
 export const UNIVERSITY = 'E2E 대학교'
 export const COMPANY = 'E2E 테크'
 export const MOVE_TARGET = 'E2E 이동 대상 프로그램'
+export const JOBS_PROGRAM = 'E2E 공개 모집 프로그램'
+export const POSTINGS = { internship: 'E2E 프론트엔드 인턴십', education: 'E2E 데이터 분석 교육', closed: 'E2E 마감된 채용' } as const
 
 export type Role = keyof typeof USERS
 
@@ -72,4 +75,14 @@ export async function expectNoHorizontalOverflow(page: Page) {
 
 export async function expectToast(page: Page, text: string | RegExp) {
   await expect(page.getByText(text).first()).toBeVisible()
+}
+
+/** WCAG 2.1 A/AA checks; contrast is reviewed with the design tokens instead. */
+export async function expectNoA11yViolations(page: Page) {
+  const { violations } = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .disableRules(['color-contrast'])
+    .analyze()
+  const summary = violations.map((v) => `${v.impact} ${v.id}: ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(' | ')}`)
+  expect(summary).toEqual([])
 }

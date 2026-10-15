@@ -26,23 +26,25 @@ const typeMap = {
   startup_program: OpportunityType.STARTUP_PROGRAM,
 }
 
-const opportunityInclude = {
-  creator: {
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
+/** The viewer sees who posted (no contact details) and only their own save, never other users'. */
+const opportunityInclude = (viewerId: string) =>
+  ({
+    creator: {
+      select: {
+        id: true,
+        name: true,
+        role: true,
+      },
     },
-  },
-  savedOpportunities: {
-    select: {
-      id: true,
-      userId: true,
-      createdAt: true,
+    savedOpportunities: {
+      where: { userId: viewerId },
+      select: {
+        id: true,
+        userId: true,
+        createdAt: true,
+      },
     },
-  },
-} as const
+  }) as const
 
 function toOptionalDate(value?: string | null) {
   return value ? new Date(value) : null
@@ -76,13 +78,18 @@ function buildOpportunityUpdateData(input: ReturnType<typeof updateOpportunitySc
   }
 }
 
+/** The opportunity's skills that also appear on the viewer's profile, compared case-insensitively. */
+function matchedSkills(profileSkills: string[], opportunitySkills: string[]) {
+  const normalizedProfileSkills = new Set(profileSkills.map((skill) => skill.toLowerCase()))
+  return opportunitySkills.filter((skill) => normalizedProfileSkills.has(skill.toLowerCase()))
+}
+
 function calculateMatchScore(profileSkills: string[], opportunitySkills: string[]) {
   if (opportunitySkills.length === 0) {
     return 50
   }
 
-  const normalizedProfileSkills = new Set(profileSkills.map((skill) => skill.toLowerCase()))
-  const matched = opportunitySkills.filter((skill) => normalizedProfileSkills.has(skill.toLowerCase()))
+  const matched = matchedSkills(profileSkills, opportunitySkills)
   return Math.min(98, Math.max(35, Math.round((matched.length / opportunitySkills.length) * 100)))
 }
 
@@ -95,6 +102,7 @@ function enrichOpportunity<T extends { skills: string[]; savedOpportunities: Arr
     ...opportunity,
     saved: opportunity.savedOpportunities.some((saved) => saved.userId === userId),
     matchScore: calculateMatchScore(profileSkills, opportunity.skills),
+    matchedSkills: matchedSkills(profileSkills, opportunity.skills),
   }
 }
 
@@ -188,7 +196,7 @@ opportunitiesRouter.get('/', authenticate, async (req, res, next) => {
       ORDER BY ${listOrder[query.sort]}
       LIMIT ${query.pageSize} OFFSET ${(page - 1) * query.pageSize}`
 
-    const rows = await prisma.opportunity.findMany({ where: { id: { in: ranked.map((row) => row.id) } }, include: opportunityInclude })
+    const rows = await prisma.opportunity.findMany({ where: { id: { in: ranked.map((row) => row.id) } }, include: opportunityInclude(authUser.id) })
     const byId = new Map(rows.map((row) => [row.id, row]))
     res.status(200).json({
       opportunities: ranked.flatMap(({ id, score }) => {
@@ -199,6 +207,8 @@ opportunitiesRouter.get('/', authenticate, async (req, res, next) => {
       pageSize: query.pageSize,
       total: Number(total),
       totalPages,
+      /** Without profile skills every score is the same floor value, so the client should not call it a match. */
+      profileSkillCount: profileSkills.length,
     })
   } catch (error) {
     next(error)
@@ -220,7 +230,7 @@ opportunitiesRouter.post(
           ...buildOpportunityData(input),
           createdBy: authUser.id,
         },
-        include: opportunityInclude,
+        include: opportunityInclude(authUser.id),
       })
 
       res.status(201).json({
@@ -241,7 +251,7 @@ opportunitiesRouter.get('/:id', authenticate, async (req, res, next) => {
     })
     const opportunity = await prisma.opportunity.findUnique({
       where: { id: String(req.params.id) },
-      include: opportunityInclude,
+      include: opportunityInclude(authUser.id),
     })
 
     if (!opportunity) {
@@ -471,7 +481,7 @@ opportunitiesRouter.patch(
       const opportunity = await prisma.opportunity.update({
         where: { id: opportunityId },
         data: buildOpportunityUpdateData(input),
-        include: opportunityInclude,
+        include: opportunityInclude(authUser.id),
       })
 
       res.status(200).json({

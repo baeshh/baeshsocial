@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { CalendarDays, FolderKanban, GraduationCap, Plus, Users } from 'lucide-react'
+import { CalendarDays, FolderKanban, GraduationCap, Megaphone, Plus, Users } from 'lucide-react'
 import { PROGRAM_STATUS_META, PROGRAM_VISIBILITY_META, RECRUITMENT_MODE_META, RECRUITMENT_STATE_META, formatPeriod } from '../../lib/programs'
 import { getOrganizationPrograms } from '../../services/programService'
+import { canPostOpportunities } from '../../lib/opportunityPermissions'
 import { useAuthStore } from '../../stores/authStore'
 import type { Organization } from '../../types/organization'
 import { Badge } from '../common/Badge'
@@ -15,6 +16,7 @@ type Props = { organization: Organization }
 
 export function OrgProgramsPanel({ organization }: Props) {
   const token = useAuthStore((state) => state.token)
+  const role = useAuthStore((state) => state.user?.role)
 
   const programsQuery = useQuery({
     queryKey: ['programs', 'org', organization.id],
@@ -39,11 +41,18 @@ export function OrgProgramsPanel({ organization }: Props) {
               ? '조직 인증이 승인되면 프로그램을 개설할 수 있습니다.'
               : '참여 중인 프로그램과 조직에 공개된 프로그램이 표시됩니다.'}
         </p>
-        {canCreate ? (
-          <Button to={`/org/${organization.id}/programs/new`}>
-            <Plus className="mr-1" size={16} /> 프로그램 만들기
-          </Button>
-        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {canPostOpportunities(role) ? (
+            <Button to="/opportunities/manage" variant="secondary">
+              <Megaphone aria-hidden className="mr-1" size={16} /> 일반 공고 관리
+            </Button>
+          ) : null}
+          {canCreate ? (
+            <Button to={`/org/${organization.id}/programs/new`}>
+              <Plus className="mr-1" size={16} /> 프로그램 만들기
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {programs.length === 0 ? (

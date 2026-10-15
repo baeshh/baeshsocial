@@ -17,3 +17,8 @@ export function canManageOpportunity(
   }
   return false
 }
+
+/** Institution and admin accounts may post opportunities; the API enforces the same rule. */
+export function canPostOpportunities(role: UserRole | undefined) {
+  return role === 'admin' || role === 'institution'
+}

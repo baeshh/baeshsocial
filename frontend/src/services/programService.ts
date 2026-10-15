@@ -100,6 +100,8 @@ export type DiscoverProgramsParams = {
   state?: 'all' | 'open' | 'upcoming'
   /** `deadline`: open programs closing soonest first, then upcoming, then the rest. */
   sort?: 'deadline' | 'recent'
+  audience?: ProgramAudience
+  deliveryMode?: DeliveryMode
 }
 
 export function discoverPrograms(
@@ -111,6 +113,8 @@ export function discoverPrograms(
   if (params.category) search.set('category', params.category)
   if (params.state && params.state !== 'all') search.set('state', params.state)
   if (params.sort) search.set('sort', params.sort)
+  if (params.audience) search.set('audience', params.audience)
+  if (params.deliveryMode) search.set('deliveryMode', params.deliveryMode)
   return apiRequest<DiscoverProgramsPage>(`/programs/discover?${search}`, { token })
 }
 

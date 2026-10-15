@@ -203,7 +203,7 @@ export function HomePage() {
           <ul className="flex flex-wrap gap-2">
             {[
               { label: '진행 프로젝트', value: activeProjects, to: '/projects' },
-              { label: '응답 필요', value: applicationsQuery.isSuccess ? offers.length : null, to: '/opportunities?tab=my' },
+              { label: '응답 필요', value: applicationsQuery.isSuccess ? offers.length : null, to: '/opportunities?tab=my&status=offer' },
               { label: '인증 기록', value: overview ? overview.stats.verifiedCount : null, to: '/profile' },
             ].map((stat) => (
               <li key={stat.label}>
@@ -322,7 +322,7 @@ export function HomePage() {
                     const matched = opportunity.skills.filter((skill) => mySkills.has(skill.toLowerCase()))
                     return (
                       <li className="py-3" key={`opportunity-${opportunity.id}`}>
-                        <Link className="group flex items-center gap-3" to={`/opportunities?q=${encodeURIComponent(opportunity.title)}`}>
+                        <Link className="group flex items-center gap-3" to={`/opportunities/${opportunity.id}`}>
                           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
                             <BriefcaseBusiness aria-hidden size={18} />
                           </span>

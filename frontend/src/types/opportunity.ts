@@ -22,14 +22,12 @@ export type Opportunity = {
   createdBy: string | null
   createdAt: string
   updatedAt: string
-  creator: Pick<AuthUser, 'id' | 'name' | 'email' | 'role'> | null
-  savedOpportunities: Array<{
-    id: string
-    userId: string
-    createdAt: string
-  }>
+  /** Who posted it; contact details are not shared. */
+  creator: Pick<AuthUser, 'id' | 'name' | 'role'> | null
   saved: boolean
   matchScore: number
+  /** The opportunity's skills that are also on the viewer's profile. */
+  matchedSkills?: string[]
 }
 
 export type OpportunityEnrollmentStatus =
