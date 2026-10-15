@@ -203,7 +203,7 @@ export function HomePage() {
           <ul className="flex flex-wrap gap-2">
             {[
               { label: '진행 프로젝트', value: activeProjects, to: '/projects' },
-              { label: '응답 필요', value: applicationsQuery.isSuccess ? offers.length : null, to: '/opportunities?tab=my' },
+              { label: '응답 필요', value: applicationsQuery.isSuccess ? offers.length : null, to: '/opportunities?tab=my&status=offer' },
               { label: '인증 기록', value: overview ? overview.stats.verifiedCount : null, to: '/profile' },
             ].map((stat) => (
               <li key={stat.label}>

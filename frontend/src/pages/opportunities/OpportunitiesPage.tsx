@@ -10,9 +10,8 @@ import { JobsFilterButton, JobsFilterSidebar } from '../../components/jobs/JobsF
 import { JobsPageHeader, type JobsView } from '../../components/jobs/JobsPageHeader'
 import { JobsResultsSection } from '../../components/jobs/JobsResultsSection'
 import { JobsSearchBar } from '../../components/jobs/JobsSearchBar'
-import { MyEnrollmentsPanel } from '../../components/opportunities/MyEnrollmentsPanel'
-import { MyProgramApplications } from '../../components/programs/MyProgramApplications'
-import { MyParticipatingPrograms } from '../../components/programs/MyParticipatingPrograms'
+import { MyApplicationsDashboard } from '../../components/jobs/MyApplicationsDashboard'
+import { myApplicationTabFromParam, type MyApplicationTab } from '../../lib/myApplications'
 import { createOpportunity } from '../../services/opportunityService'
 import { EMPTY_JOBS_SEARCH, isJobsSearchNarrowed, jobsSearchFromParams, writeJobsSearchParams, type JobsSearch } from '../../lib/jobsSearch'
 import { useAuthStore } from '../../stores/authStore'
@@ -59,7 +58,17 @@ export function OpportunitiesPage() {
   const setView = (next: JobsView) => {
     const params = currentParams()
     if (next === 'my') params.set('tab', 'my')
-    else params.delete('tab')
+    else {
+      params.delete('tab')
+      params.delete('status')
+    }
+    setSearchParams(params)
+  }
+  const myTab = myApplicationTabFromParam(searchParams.get('status'))
+  const setMyTab = (next: MyApplicationTab) => {
+    const params = currentParams()
+    if (next === 'all') params.delete('status')
+    else params.set('status', next)
     setSearchParams(params)
   }
   const [filterOpen, setFilterOpen] = useState(false)
@@ -142,22 +151,7 @@ export function OpportunitiesPage() {
       <div className="space-y-4 sm:space-y-5">
         <JobsPageHeader onViewChange={setView} showViews={Boolean(token)} view={view} />
 
-        {view === 'my' && token ? (
-          <>
-            <MyParticipatingPrograms token={token} />
-            <MyProgramApplications token={token} />
-            <section>
-              <h2 className="text-lg font-bold text-ink-strong">내 프로그램 신청</h2>
-              <p className="mt-1 text-sm text-ink-muted">
-                신청·대기·미선정 상태는 여기서만 확인할 수 있으며, 다른 사람의 프로필에는
-                보이지 않습니다.
-              </p>
-              <div className="mt-4">
-                <MyEnrollmentsPanel token={token} />
-              </div>
-            </section>
-          </>
-        ) : null}
+        {view === 'my' && token ? <MyApplicationsDashboard onTabChange={setMyTab} tab={myTab} token={token} /> : null}
 
         {user?.role === 'institution' || user?.role === 'admin' ? (
           <EnrollmentManagePanel token={token ?? ''} />
