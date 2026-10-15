@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Building2, Link2 } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { BaeshLogo } from '../../components/common/BaeshLogo'
@@ -10,32 +10,13 @@ import { LoadingState } from '../../components/common/LoadingState'
 import { AppLayout } from '../../components/layout/AppLayout'
 import { useViewerKey } from '../../hooks/useViewerKey'
 import { ProgramApplicationForm } from '../../components/programs/ProgramApplicationForm'
+import { ProgramPublicView } from '../../components/programs/ProgramPublicView'
 import { OfferResponse } from '../../components/programs/OfferResponse'
-import {
-  APPLICATION_STATUS_META,
-  DELIVERY_MODE_LABEL,
-  PROGRAM_BENEFIT_LABEL,
-  PROGRAM_CATEGORY_LABEL,
-  RECRUITMENT_STATE_META,
-  formatAudiences,
-  formatDateTime,
-  formatGrades,
-  formatPeriod,
-  recruitmentDeadlineHint,
-} from '../../lib/programs'
+import { APPLICATION_STATUS_META, formatDateTime } from '../../lib/programs'
 import { getDiscoverableProgram, withdrawProgramApplication } from '../../services/programService'
 import { useAuthStore } from '../../stores/authStore'
 import { showToast } from '../../stores/toastStore'
 import type { DiscoverableProgram } from '../../types/program'
-
-function InfoRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="grid grid-cols-[96px_1fr] gap-3 py-2.5 text-sm">
-      <dt className="font-medium text-ink-muted">{label}</dt>
-      <dd className="whitespace-pre-wrap text-ink-strong">{children}</dd>
-    </div>
-  )
-}
 
 function Shell({ signedIn, children }: { signedIn: boolean; children: ReactNode }) {
   if (signedIn) return <AppLayout>{children}</AppLayout>
@@ -250,13 +231,6 @@ export function ProgramPublicPage() {
     )
   }
 
-  const { recruitment } = program
-  const state = RECRUITMENT_STATE_META[recruitment.state]
-  const hint = recruitmentDeadlineHint(recruitment)
-  const takesApplications = recruitment.mode === 'open' || recruitment.mode === 'mixed'
-  const audience = formatAudiences(recruitment)
-  const eligibility = recruitment.eligibility
-  const grades = formatGrades(eligibility?.grades)
   const showForm = signedIn && canEditApplication(program)
 
   return (
@@ -267,93 +241,15 @@ export function ProgramPublicPage() {
             <ArrowLeft size={16} /> 프로그램 목록
           </Link>
         ) : null}
-        {recruitment.coverImageUrl ? (
-          <img alt="" className="aspect-[16/5] w-full rounded-2xl border border-surface-border object-cover" src={recruitment.coverImageUrl} />
-        ) : null}
-        <div>
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-ink-muted">
-            <Building2 size={15} /> {program.organization.name}
-          </p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-ink-strong">{program.title}</h1>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge tone={state.tone}>{state.label}</Badge>
-            {hint ? <span className="text-sm font-semibold text-accent-600">{hint}</span> : null}
-            {recruitment.category ? <Badge tone="gray">{PROGRAM_CATEGORY_LABEL[recruitment.category]}</Badge> : null}
-            {program.visibility === 'organization' ? <Badge>조직 내부 공개</Badge> : null}
-            {program.visibility === 'unlisted' ? (
-              <Badge>
-                <Link2 className="mr-1 inline" size={12} />
-                링크 공개
-              </Badge>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          <div className="space-y-6">
-            <Card className="rounded-2xl p-5">
-              <dl className="divide-y divide-surface-border">
-                <InfoRow label="지원 대상">{audience ?? '제한 없음'}</InfoRow>
-                {eligibility?.schools ? <InfoRow label="소속">{eligibility.schools}</InfoRow> : null}
-                {grades ? <InfoRow label="학년">{grades}</InfoRow> : null}
-                {eligibility?.majors ? <InfoRow label="전공·직무">{eligibility.majors}</InfoRow> : null}
-                {eligibility?.regions ? <InfoRow label="지역">{eligibility.regions}</InfoRow> : null}
-                {eligibility?.requirements ? <InfoRow label="자격 요건">{eligibility.requirements}</InfoRow> : null}
-                <InfoRow label="모집 인원">
-                  {recruitment.capacity ? `${recruitment.capacity}명` : '미정'}
-                  {recruitment.mode === 'mixed' && recruitment.openSeats !== null ? ` (추가 모집 ${recruitment.openSeats}명)` : ''}
-                </InfoRow>
-                {takesApplications ? (
-                  <>
-                    <InfoRow label="모집 기간">
-                      {recruitment.applyStartAt ? formatDateTime(recruitment.applyStartAt) : '게시 즉시'} ~ {formatDateTime(recruitment.applyEndAt)}
-                      {recruitment.closedEarlyAt ? ' (조기 마감)' : ''}
-                    </InfoRow>
-                    {recruitment.announceAt ? <InfoRow label="발표">{formatDateTime(recruitment.announceAt)}</InfoRow> : null}
-                    {recruitment.selectionProcess ? <InfoRow label="선발 절차">{recruitment.selectionProcess}</InfoRow> : null}
-                  </>
-                ) : null}
-                <InfoRow label="운영 기간">
-                  {program.term ? `${program.term} · ` : ''}
-                  {formatPeriod(program.startDate, program.endDate)}
-                </InfoRow>
-                {recruitment.deliveryMode || recruitment.location ? (
-                  <InfoRow label="진행 방식">
-                    {[recruitment.deliveryMode ? DELIVERY_MODE_LABEL[recruitment.deliveryMode] : null, recruitment.location].filter(Boolean).join(' · ')}
-                  </InfoRow>
-                ) : null}
-                {recruitment.benefits.length || recruitment.benefitsNote ? (
-                  <InfoRow label="참여 혜택">
-                    {[recruitment.benefits.map((benefit) => PROGRAM_BENEFIT_LABEL[benefit]).join(', '), recruitment.benefitsNote]
-                      .filter(Boolean)
-                      .join('\n')}
-                  </InfoRow>
-                ) : null}
-              </dl>
-            </Card>
-            {program.description ? (
-              <Card className="rounded-2xl p-5">
-                <p className="text-sm font-bold text-ink-strong">프로그램 소개</p>
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink-body">{program.description}</p>
-              </Card>
-            ) : null}
-            {showForm && token ? (
-              <Card className="scroll-mt-24 rounded-2xl p-5" id="apply">
-                <p className="text-sm font-bold text-ink-strong">지원서</p>
-                <div className="mt-4">
-                  <ProgramApplicationForm
-                    key={program.id}
-                    onChanged={refresh}
-                    program={program}
-                    shareToken={shareToken}
-                    token={token}
-                  />
-                </div>
-              </Card>
-            ) : null}
-          </div>
-          <StatusCard onChanged={refresh} program={program} signedIn={signedIn} />
-        </div>
+        <ProgramPublicView
+          apply={
+            showForm && token ? (
+              <ProgramApplicationForm key={program.id} onChanged={refresh} program={program} shareToken={shareToken} token={token} />
+            ) : null
+          }
+          aside={<StatusCard onChanged={refresh} program={program} signedIn={signedIn} />}
+          program={program}
+        />
       </div>
     </Shell>
   )
