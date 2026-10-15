@@ -51,6 +51,7 @@ import { HttpError } from '../../utils/httpError.js'
 import { audit } from '../../services/audit/audit.js'
 import { assertProgramInvitee, isLeaderSlug } from '../../services/programs/programProjects.js'
 import { deletePersonalProject, projectDeletionCheck } from '../../services/projects/projectDeletion.js'
+import { canSetProfileDisplay, isHiddenFromProfile, setHiddenFromProfile } from '../../services/projects/profileDisplay.js'
 import { registerProjectRoleRoutes } from './projectRoles.routes.js'
 import { ProjectInviteStatus } from '@prisma/client'
 
@@ -420,6 +421,13 @@ projectsRouter.get('/', authenticate, async (req, res, next) => {
         })
       : []
     const doneByProject = new Map(doneCounts.map((row) => [row.projectId, row._count._all]))
+    const hiddenRows = page.items.length
+      ? await prisma.projectDisplayPreference.findMany({
+          where: { userId: authUser.id, projectId: { in: page.items.map((row) => row.id) } },
+          select: { projectId: true },
+        })
+      : []
+    const hiddenFromProfile = new Set(hiddenRows.map((row) => row.projectId))
     // Totals across every page, so a "N active projects" summary does not depend on the page size.
     let statusCounts: Record<ProjectStatus, number> | undefined
     // Counts ignore the status filter so every status tab can show how many projects it holds.
@@ -441,6 +449,7 @@ projectsRouter.get('/', authenticate, async (req, res, next) => {
           },
           restricted: Boolean(viewer?.restricted),
           nextTask: nextTaskByProject.get(row.id) ?? null,
+          hiddenFromProfile: hiddenFromProfile.has(row.id),
         }
       }),
       nextCursor: page.nextCursor,
@@ -819,7 +828,9 @@ projectsRouter.get('/:id', authenticate, async (req, res, next) => {
     const isGuestViewer = !isOwner && permissions.length === 0
     const canInvite = permissions.includes('members.invite')
 
-    const [pendingInvites, registration] = await Promise.all([
+    const [canSetDisplay, hiddenFromProfile, pendingInvites, registration] = await Promise.all([
+      canSetProfileDisplay(authUser.id, projectId),
+      isHiddenFromProfile(authUser.id, projectId),
       canInvite
         ? prisma.projectInvite.findMany({
             where: { projectId, status: ProjectInviteStatus.PENDING },
@@ -865,6 +876,8 @@ projectsRouter.get('/:id', authenticate, async (req, res, next) => {
       isProgramStaff,
       isGuestViewer,
       restricted,
+      /** The viewer's own profile setting; independent of team access and institution records. */
+      profileDisplay: { canSet: canSetDisplay, hidden: hiddenFromProfile },
       registration: registration
         ? {
             id: registration.id,
@@ -965,6 +978,19 @@ projectsRouter.patch('/:id/members/:memberId/private-access', authenticate, asyn
     res.status(200).json({ id: member.id, privateAccess: allowed })
   } catch (error) {
     if (handleProjectError(error, res)) return
+    next(error)
+  }
+})
+
+const profileDisplaySchema = z.object({ hidden: z.boolean() })
+
+/** Hides the project from (or shows it again on) the caller's own profile, portfolio and shared records. */
+projectsRouter.put('/:id/profile-display', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const { hidden } = profileDisplaySchema.parse(req.body)
+    res.status(200).json(await setHiddenFromProfile(authUser.id, String(req.params.id), hidden))
+  } catch (error) {
     next(error)
   }
 })
