@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, ShieldCheck } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { cn } from '../../lib/cn'
+import { seoulToday } from '../../lib/serviceDate'
 import {
   checkEvidenceFile,
   EVIDENCE_ACCEPT,
@@ -33,8 +34,7 @@ import { EvidenceReviewActions } from './EvidenceReviewActions'
 import { EvidenceRevokeAction } from './EvidenceRevokeAction'
 import { ErrorState } from '../common/ErrorState'
 
-const today = () => new Date().toISOString().slice(0, 10)
-const emptyForm = (): EvidenceFields => ({ title: '', description: '', category: 'development', activityDate: today() })
+const emptyForm = (): EvidenceFields => ({ title: '', description: '', category: 'development', activityDate: seoulToday() })
 
 type FormState = { mode: 'create' } | { mode: 'edit'; evidence: Evidence }
 
