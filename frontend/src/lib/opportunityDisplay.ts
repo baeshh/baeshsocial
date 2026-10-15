@@ -14,18 +14,17 @@ export const ENROLLMENT_STATUS_META: Record<OpportunityEnrollmentStatus, { label
 
 export const opportunityKindLabel = (opportunity: Pick<Opportunity, 'type'>) => `${OPPORTUNITY_TYPE_LABEL[opportunity.type]} 공고`
 
-const localDay = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const seoulDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' })
 
 /**
- * Deadlines are calendar dates (stored as midnight UTC). The list's "open" filter keeps a posting through its
- * deadline day, so it is closed only once that day has passed.
+ * Deadlines are calendar dates (stored as midnight UTC), open through the whole deadline day in Korea time
+ * wherever the viewer is. The server's sign-up check and "open" filter use the same rule.
  */
 export function opportunityDeadline(deadline: string | null, now = new Date()) {
   if (!deadline) return { closed: false, label: '상시 모집', dateLabel: '상시' }
   const day = deadline.slice(0, 10)
   const [year, month, date] = day.split('-').map(Number)
-  const days = Math.round((Date.UTC(year, month - 1, date) - Date.parse(`${localDay(now)}T00:00:00Z`)) / 86_400_000)
+  const days = Math.round((Date.UTC(year, month - 1, date) - Date.parse(`${seoulDay.format(now)}T00:00:00Z`)) / 86_400_000)
   const dateLabel = `${month}월 ${date}일`
   if (days < 0) return { closed: true, label: '마감', dateLabel }
   return { closed: false, label: days === 0 ? '오늘 마감' : `마감 D-${days}`, dateLabel }

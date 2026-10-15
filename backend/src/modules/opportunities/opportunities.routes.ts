@@ -1,4 +1,4 @@
-import { OpportunityEnrollmentStatus, OpportunityType, Prisma, UserRole } from '@prisma/client'
+import { OpportunityType, Prisma, UserRole } from '@prisma/client'
 import { Router, type Response } from 'express'
 import { prisma } from '../../config/prisma.js'
 import { authenticate, requireRoles } from '../../middlewares/auth.middleware.js'
@@ -9,10 +9,13 @@ import {
   opportunitySchema,
   updateOpportunitySchema,
 } from '../../validators/opportunity.validator.js'
+import { SERVICE_TIME_ZONE } from '../../utils/serviceDate.js'
 import {
+  applyForProgram,
   assertCanManageEnrollment,
-  isProgramOpportunity,
   issueProgramCertificate,
+  updateEnrollmentByManager,
+  withdrawFromProgram,
 } from './enrollment.service.js'
 
 export const opportunitiesRouter = Router()
@@ -176,7 +179,9 @@ opportunitiesRouter.get('/', authenticate, async (req, res, next) => {
     if (query.saved) {
       conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM "SavedOpportunity" s WHERE s."opportunityId" = o.id AND s."userId" = ${authUser.id})`)
     }
-    if (query.openOnly) conditions.push(Prisma.sql`(o.deadline IS NULL OR o.deadline >= date_trunc('day', now()))`)
+    if (query.openOnly) {
+      conditions.push(Prisma.sql`(o.deadline IS NULL OR o.deadline::date >= (now() AT TIME ZONE ${SERVICE_TIME_ZONE})::date)`)
+    }
     const where = Prisma.join(conditions, ' AND ')
 
     const [{ total }] = await prisma.$queryRaw<{ total: bigint }[]>`SELECT count(*) AS total FROM "Opportunity" o WHERE ${where}`
@@ -325,38 +330,14 @@ opportunitiesRouter.patch('/enrollments/:enrollmentId', authenticate, async (req
     const enrollmentId = String(req.params.enrollmentId)
     const input = updateEnrollmentStatusSchema.parse(req.body)
 
-    const enrollment = await assertCanManageEnrollment(enrollmentId, authUser.id, authUser.role)
+    await assertCanManageEnrollment(enrollmentId, authUser.id, authUser.role)
 
-    if (input.status === 'completed') {
-      const completed = await issueProgramCertificate(enrollmentId, authUser.id)
-      res.status(200).json({ enrollment: completed })
-      return
-    }
+    const enrollment =
+      input.status === 'completed'
+        ? await issueProgramCertificate(enrollmentId, authUser.id)
+        : await updateEnrollmentByManager(enrollmentId, input.status, authUser.id)
 
-    const statusMap = {
-      enrolled: OpportunityEnrollmentStatus.ENROLLED,
-      rejected: OpportunityEnrollmentStatus.REJECTED,
-      withdrawn: OpportunityEnrollmentStatus.WITHDRAWN,
-    } as const
-
-    const updated = await prisma.opportunityEnrollment.update({
-      where: { id: enrollmentId },
-      data: {
-        status: statusMap[input.status],
-        ...(input.status === 'enrolled' ? { enrolledAt: new Date(), approvedById: authUser.id } : {}),
-      },
-      include: {
-        opportunity: {
-          select: { id: true, title: true, organization: true, type: true },
-        },
-        user: {
-          select: { id: true, name: true, email: true, avatarUrl: true },
-        },
-        certificate: true,
-      },
-    })
-
-    res.status(200).json({ enrollment: updated })
+    res.status(200).json({ enrollment })
   } catch (error) {
     if (error instanceof Error) {
       if (error.message === 'ENROLLMENT_NOT_FOUND') {
@@ -377,37 +358,9 @@ opportunitiesRouter.post('/:id/enroll', authenticate, async (req, res, next) => 
     const authUser = res.locals.user as AuthTokenPayload
     const opportunityId = String(req.params.id)
     const opportunity = await requireOpportunity(opportunityId)
+    const { enrollment, changed } = await applyForProgram(authUser.id, opportunity)
 
-    if (!isProgramOpportunity(opportunity.type)) {
-      res.status(400).json({ message: 'This opportunity does not support program enrollment' })
-      return
-    }
-
-    const enrollment = await prisma.opportunityEnrollment.upsert({
-      where: {
-        userId_opportunityId: { userId: authUser.id, opportunityId },
-      },
-      create: {
-        userId: authUser.id,
-        opportunityId,
-        status: OpportunityEnrollmentStatus.APPLIED,
-      },
-      update: {
-        status: OpportunityEnrollmentStatus.APPLIED,
-        appliedAt: new Date(),
-        enrolledAt: null,
-        completedAt: null,
-        approvedById: null,
-        certificateId: null,
-      },
-      include: {
-        opportunity: {
-          select: { id: true, title: true, organization: true, type: true },
-        },
-      },
-    })
-
-    res.status(201).json({ enrollment })
+    res.status(changed ? 201 : 200).json({ enrollment })
   } catch (error) {
     if (handleOpportunityError(error, res)) {
       return
@@ -419,47 +372,9 @@ opportunitiesRouter.post('/:id/enroll', authenticate, async (req, res, next) => 
 opportunitiesRouter.delete('/:id/enroll', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
-    const opportunityId = String(req.params.id)
+    const enrollment = await withdrawFromProgram(authUser.id, String(req.params.id))
 
-    const enrollment = await prisma.opportunityEnrollment.findUnique({
-      where: {
-        userId_opportunityId: { userId: authUser.id, opportunityId },
-      },
-    })
-
-    if (!enrollment) {
-      res.status(404).json({ message: 'Enrollment not found' })
-      return
-    }
-
-    if (enrollment.status === OpportunityEnrollmentStatus.COMPLETED) {
-      res.status(400).json({ message: 'Completed programs cannot be cancelled' })
-      return
-    }
-
-    if (enrollment.status === OpportunityEnrollmentStatus.WITHDRAWN) {
-      res.status(200).json({ enrollment })
-      return
-    }
-
-    const updated = await prisma.opportunityEnrollment.update({
-      where: { id: enrollment.id },
-      data: {
-        status: OpportunityEnrollmentStatus.WITHDRAWN,
-        enrolledAt: null,
-        approvedById: null,
-      },
-      include: {
-        opportunity: {
-          select: { id: true, title: true, organization: true, type: true },
-        },
-        certificate: {
-          select: { id: true, verified: true, issuedAt: true },
-        },
-      },
-    })
-
-    res.status(200).json({ enrollment: updated })
+    res.status(200).json({ enrollment })
   } catch (error) {
     if (handleOpportunityError(error, res)) {
       return
