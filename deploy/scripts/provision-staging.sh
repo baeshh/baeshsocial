@@ -349,9 +349,12 @@ if none "$INSTANCE_ID"; then
   sed -e "s|__BAESH_ENV__|${BAESH_ENV}|" -e "s|__AWS_REGION__|${REGION}|" \
     -e "s|__DEPLOY_PUBLIC_KEY__|${DEPLOY_PUBLIC_KEY}|" \
     -e "s|__PLAYWRIGHT_VERSION__|${PLAYWRIGHT_VERSION}|" \
-    -e "s|__LIB_SH_B64__|$(base64 <"$DIR/lib.sh" | tr -d '\n')|" \
-    -e "s|__RENDER_ENV_SH_B64__|$(base64 <"$DIR/render-env.sh" | tr -d '\n')|" \
+    -e "s|__LIB_SH_GZ_B64__|$(gzip -9c "$DIR/lib.sh" | base64 | tr -d '\n')|" \
+    -e "s|__RENDER_ENV_SH_GZ_B64__|$(gzip -9c "$DIR/render-env.sh" | base64 | tr -d '\n')|" \
+    -e "s|__CHECK_CLAMAV_SH_GZ_B64__|$(gzip -9c "$DIR/check-clamav.sh" | base64 | tr -d '\n')|" \
     "$DIR/staging-user-data.sh" >"$WORK/user-data.sh"
+  # EC2 rejects user data above 16KB.
+  [ "$(wc -c <"$WORK/user-data.sh")" -le 16384 ] || die "user data is $(wc -c <"$WORK/user-data.sh") bytes; EC2 allows 16384"
   INSTANCE_ID="$(aws ec2 run-instances --image-id "$AMI" --instance-type "$INSTANCE_TYPE" --key-name "$KEY_NAME" \
     --security-group-ids "$WEB_SG" --iam-instance-profile "Name=${ROLE}" \
     --metadata-options HttpTokens=required,HttpEndpoint=enabled \

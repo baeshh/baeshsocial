@@ -2,8 +2,10 @@
 # EC2 user data for a BAESH server; provision-staging.sh fills in the __PLACEHOLDERS__.
 # Installs the runtime, creates the `baesh` deploy user and /srv/baesh/<env>, and renders
 # shared/backend.env from SSM so the first GitHub Actions deploy can run.
-set -euxo pipefail
+set -Eeuxo pipefail
 exec > >(tee -a /var/log/baesh-bootstrap.log) 2>&1
+# "BAESH bootstrap finished" is printed only when every step, including the ClamAV check, succeeded.
+trap 'echo "BAESH bootstrap FAILED at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
 BAESH_ENV="__BAESH_ENV__"
 AWS_REGION="__AWS_REGION__"
@@ -31,10 +33,19 @@ npx -y "playwright@${PLAYWRIGHT_VERSION}" install-deps chromium
 
 sed -i -E 's/^MaxFileSize .*/MaxFileSize 110M/; s/^MaxScanSize .*/MaxScanSize 220M/' /etc/clamav/clamd.conf
 systemctl stop clamav-freshclam || true
-freshclam --quiet || echo "freshclam failed; clamav-freshclam will retry and clamd starts once signatures exist"
+for attempt in 1 2 3; do
+  freshclam --quiet && break
+  echo "freshclam attempt ${attempt} failed"
+  sleep 30
+done
+# clamav-daemon.service does not start without signatures, and MALWARE_SCAN_REQUIRED=true then refuses every upload.
+if ! ls /var/lib/clamav/main.c[vl]d /var/lib/clamav/daily.c[vl]d >/dev/null 2>&1; then
+  echo "ERROR: ClamAV signatures were not downloaded (freshclam failed 3 times); uploads would be refused" >&2
+  false
+fi
 systemctl enable --now clamav-freshclam
 systemctl enable clamav-daemon
-systemctl restart clamav-daemon || true
+systemctl restart clamav-daemon
 
 install -d /usr/share/postgresql-common/pgdg
 curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
@@ -62,18 +73,17 @@ fi
 chown baesh:baesh /home/baesh/.ssh/authorized_keys
 chmod 600 /home/baesh/.ssh/authorized_keys
 
-# The first release does not exist yet, so render-env.sh and lib.sh ship inside the user data.
+# The first release does not exist yet, so these scripts ship inside the user data (gzipped: EC2 caps it at 16KB).
 install -d /usr/local/lib/baesh
-echo "__LIB_SH_B64__" | base64 -d >/usr/local/lib/baesh/lib.sh
-echo "__RENDER_ENV_SH_B64__" | base64 -d >/usr/local/lib/baesh/render-env.sh
-chmod 755 /usr/local/lib/baesh/lib.sh /usr/local/lib/baesh/render-env.sh
+echo "__LIB_SH_GZ_B64__" | base64 -d | gunzip >/usr/local/lib/baesh/lib.sh
+echo "__RENDER_ENV_SH_GZ_B64__" | base64 -d | gunzip >/usr/local/lib/baesh/render-env.sh
+echo "__CHECK_CLAMAV_SH_GZ_B64__" | base64 -d | gunzip >/usr/local/lib/baesh/check-clamav.sh
+chmod 755 /usr/local/lib/baesh/lib.sh /usr/local/lib/baesh/render-env.sh /usr/local/lib/baesh/check-clamav.sh
 sudo -u baesh env BAESH_ENV="$BAESH_ENV" AWS_REGION="$AWS_REGION" /usr/local/lib/baesh/render-env.sh
 
 env PATH="$PATH:/usr/bin" pm2 startup systemd -u baesh --hp /home/baesh
 systemctl enable nginx
 
-# clamd needs ~1 minute to load signatures. With MALWARE_SCAN_REQUIRED=true uploads are refused until it answers.
-clamd_ping() { timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/3310; printf "zPING\0" >&3; IFS= read -r -d "" reply <&3; [ "$reply" = PONG ]'; }
-for _ in $(seq 1 36); do clamd_ping && break; sleep 5; done
-clamd_ping && echo "clamd answering on 127.0.0.1:3310" || echo "WARNING: clamd not answering yet; check systemctl status clamav-daemon"
+# Final clamd.conf values, PING, EICAR detection and a clean 60MB scan; clamd needs ~1 minute to load signatures.
+/usr/local/lib/baesh/check-clamav.sh --wait 300
 echo "BAESH bootstrap finished for ${BAESH_ENV}"

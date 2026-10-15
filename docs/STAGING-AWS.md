@@ -47,13 +47,15 @@ deploy/scripts/provision-staging.sh --apply
 
 ```bash
 ssh ubuntu@<탄력적 IP> 'sudo tail -n 20 /var/log/baesh-bootstrap.log'
-# "BAESH bootstrap finished for staging" 이 보여야 함
+# "BAESH bootstrap finished for staging" 이 보여야 함. ClamAV 점검까지 모두 통과해야만 출력됩니다.
+# "BAESH bootstrap FAILED at line N" 이면 그 줄의 원인을 고친 뒤, ClamAV 문제라면
+# sudo /usr/local/lib/baesh/check-clamav.sh --wait 300 이 통과할 때까지 다시 확인합니다.
 ssh ubuntu@<탄력적 IP> 'sudo ls -l /srv/baesh/staging/shared/backend.env'   # -rw------- baesh
 ```
 
 - [ ] Node 22, PM2, nginx, certbot, `postgresql-client-16`, aws-cli 설치
 - [ ] Chromium 시스템 라이브러리(`playwright install-deps chromium`) 설치 — PDF 리포트용
-- [ ] ClamAV: 부팅 로그에 `clamd answering on 127.0.0.1:3310`. 아니면 `sudo systemctl status clamav-daemon clamav-freshclam` (`MALWARE_SCAN_REQUIRED=true`라 clamd가 응답하기 전까지 업로드는 거부됩니다)
+- [ ] ClamAV: 부팅 로그에 `check-clamav.sh`의 `ok` 네 줄 — 최종 `clamd.conf`의 `TCPAddr 127.0.0.1`·`TCPSocket 3310`·`StreamMaxLength 110M`, PING 응답, EICAR 탐지, 정상 60MB 파일 OK(30초 이내). 실패하면 `sudo systemctl status clamav-daemon clamav-freshclam` (`MALWARE_SCAN_REQUIRED=true`라 clamd가 준비되기 전까지 업로드는 거부됩니다)
 - [ ] `/etc/ssl/certs/rds-global-bundle.pem` 존재 (RDS는 TLS를 강제하고, Node가 이 CA로 인증서를 검증)
 - [ ] `backend.env` 생성됨 (SSM 값 반영). 실패했다면 `sudo -u baesh BAESH_ENV=staging /usr/local/lib/baesh/render-env.sh`
 
