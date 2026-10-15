@@ -1,5 +1,4 @@
 import { useMutation } from '@tanstack/react-query'
-import { Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '../../../lib/cn'
 import { VISIBILITY_META } from '../../../lib/programs'
@@ -12,6 +11,7 @@ import { Button } from '../../common/Button'
 import { Input, Select, Textarea } from '../../common/Input'
 import { ProjectRolesPanel } from '../ProjectRolesPanel'
 import type { ProjectDetailContext } from './projectDetailContext'
+import { ProjectRetentionSection } from './ProjectRetentionSection'
 import { ProjectSection } from './ProjectSection'
 
 type Visibility = keyof typeof VISIBILITY_META
@@ -166,7 +166,7 @@ function VisibilitySection({ ctx }: { ctx: ProjectDetailContext }) {
   )
 }
 
-export function ProjectSettingsTab({ ctx, onDelete }: { ctx: ProjectDetailContext; onDelete: () => void }) {
+export function ProjectSettingsTab({ ctx }: { ctx: ProjectDetailContext }) {
   const { project, can } = ctx
   return (
     <div className="space-y-4">
@@ -174,14 +174,7 @@ export function ProjectSettingsTab({ ctx, onDelete }: { ctx: ProjectDetailContex
       {can('project.settings') ? <ProgressForm ctx={ctx} key={`progress-${project.updatedAt}`} /> : null}
       {can('project.settings') ? <VisibilitySection ctx={ctx} /> : null}
       {can('roles.manage') ? <ProjectRolesPanel onUpdated={ctx.invalidate} projectId={project.id} roles={project.roles ?? []} token={ctx.token} /> : null}
-      {can('project.delete') ? (
-        <ProjectSection className="border-danger-100 bg-danger-50/40" description="프로젝트와 프로젝트에 남긴 모든 기록을 영구 삭제합니다. 복구할 수 없습니다." title="프로젝트 삭제">
-          <Button onClick={onDelete} type="button" variant="danger">
-            <Trash2 aria-hidden size={16} />
-            프로젝트 삭제
-          </Button>
-        </ProjectSection>
-      ) : null}
+      <ProjectRetentionSection ctx={ctx} />
     </div>
   )
 }

@@ -1,9 +1,12 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import {
+  API,
   MOVE_TARGET,
+  PASSWORD,
   PROJECTS,
   UNIVERSITY,
   apiGet,
+  apiToken,
   expectNoA11yViolations,
   expectNoHorizontalOverflow,
   expectToast,
@@ -130,11 +133,23 @@ test('생성: 새 프로젝트를 만들면 상세로 이동하고, 기본 정�
   await expect(page.getByText('개인 프로젝트에서는 활동 증빙 제출과 기관 검증을 사용할 수 없습니다.', { exact: false })).toBeVisible()
   await expect(page.getByRole('button', { name: '증빙 작성' })).toHaveCount(0)
 
+  const url = page.url().split('?')[0]
   await page.goto('/projects')
   const created = card(page, title)
   await expect(created).toContainText('작업 완료 0/1')
   await expect(created).toContainText('다음 작업E2E 첫 작업')
   await expect(created.getByRole('progressbar', { name: '팀이 입력한 진행률' })).toHaveAttribute('aria-valuenow', '60')
+
+  await page.goto(`${url}?tab=settings`)
+  const removal = page.getByRole('region', { name: '프로젝트 삭제' })
+  await expect(removal).toContainText(/작업 1개, 활동 \d+개, 파일 0개, 외부 링크 0개가 함께 삭제됩니다\./)
+  await removal.getByRole('button', { name: '프로젝트 삭제' }).click()
+  const confirm = page.getByRole('dialog', { name: '프로젝트 삭제' })
+  await expect(confirm.getByRole('checkbox')).toHaveCount(0)
+  await confirm.getByLabel('비밀번호').fill(PASSWORD)
+  await confirm.getByRole('button', { name: '삭제 확인' }).click()
+  await expect(page).toHaveURL(/\/projects$/)
+  await expect(card(page, title)).toHaveCount(0)
 })
 
 test('권한: 비공개 열람이 없는 팀원은 내용을 못 보고, 팀장이 허용하면 바뀐 역할의 권한만큼 본다', async ({ browser }) => {
@@ -214,6 +229,41 @@ test('증빙: 팀장이 제출하면 검토 대기로, 기관 담당자가 승�
   await expect(approved).toContainText('검증 기록 발급')
   await expect(leader.getByRole('link', { name: '내 검증된 성과 보기' })).toHaveAttribute('href', '/profile?tab=experience&type=verified')
   await leader.context().close()
+})
+
+test('보존: 프로그램 프로젝트는 팀장도 기관 담당자도 삭제할 수 없고, 팀원이 있는 개인 프로젝트는 영향을 확인해야 삭제된다', async ({ browser }) => {
+  const leader = await pageAs(browser, 'member')
+  const programProject = await projectId(leader, 'member', PROJECTS.program)
+  await leader.goto(`/projects/${programProject}?tab=settings`)
+  const kept = leader.getByRole('region', { name: '기록 보존' })
+  await expect(kept).toContainText('팀원도 기관 담당자도 영구 삭제할 수 없습니다.')
+  await expect(leader.getByRole('button', { name: '프로젝트 삭제' })).toHaveCount(0)
+
+  for (const role of ['member', 'operator'] as const) {
+    const response = await leader.request.delete(`${API}/projects/${programProject}`, {
+      headers: { Authorization: `Bearer ${await apiToken(leader.request, role)}` },
+      data: { password: PASSWORD, confirmTeamImpact: true },
+    })
+    expect(response.status(), role).toBe(403)
+  }
+  const evidence = await apiGet<{ evidence: { title: string; status: string }[] }>(leader.request, 'operator', `/projects/${programProject}/evidence`)
+  expect(evidence.evidence.find((item) => item.title === 'E2E 중간 발표')?.status).toBe('approved')
+  await leader.context().close()
+
+  const owner = await pageAs(browser, 'applicant')
+  const shared = await projectId(owner, 'applicant', PROJECTS.private)
+  await owner.goto(`/projects/${shared}?tab=settings`)
+  const removal = owner.getByRole('region', { name: '프로젝트 삭제' })
+  await expect(removal).toContainText('다른 팀원 1명도 이 프로젝트를 잃습니다.')
+  await removal.getByRole('button', { name: '프로젝트 삭제' }).click()
+  const confirm = owner.getByRole('dialog', { name: '프로젝트 삭제' })
+  await confirm.getByLabel('비밀번호').fill(PASSWORD)
+  await expect(confirm.getByRole('button', { name: '삭제 확인' })).toBeDisabled()
+  await confirm.getByRole('checkbox', { name: /다른 팀원 1명도/ }).check()
+  await expect(confirm.getByRole('button', { name: '삭제 확인' })).toBeEnabled()
+  await confirm.getByRole('button', { name: '취소' }).click()
+  await expect(owner.getByRole('heading', { level: 1, name: PROJECTS.private })).toBeVisible()
+  await owner.context().close()
 })
 
 test('모바일: 빠른 작업이 하단 메뉴 위에 있고, 작업 추가를 누르면 입력란으로 바로 이동한다', async ({ page }) => {

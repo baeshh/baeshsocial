@@ -50,6 +50,7 @@ import { getProjectRoleById } from '../../utils/projectRoles.js'
 import { HttpError } from '../../utils/httpError.js'
 import { audit } from '../../services/audit/audit.js'
 import { assertProgramInvitee, isLeaderSlug } from '../../services/programs/programProjects.js'
+import { deletePersonalProject, projectDeletionCheck } from '../../services/projects/projectDeletion.js'
 import { registerProjectRoleRoutes } from './projectRoles.routes.js'
 import { ProjectInviteStatus } from '@prisma/client'
 
@@ -59,6 +60,8 @@ registerProjectRoleRoutes(projectsRouter)
 
 const deleteProjectSchema = z.object({
   password: z.string().min(1),
+  /** Required once other members are on the team: they lose the project too. */
+  confirmTeamImpact: z.boolean().default(false),
 })
 
 const projectInclude = {
@@ -966,6 +969,27 @@ projectsRouter.patch('/:id/members/:memberId/private-access', authenticate, asyn
   }
 })
 
+/** What deleting would remove or why it is refused, so the settings screen can offer archiving instead. */
+projectsRouter.get('/:id/deletion', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const projectId = String(req.params.id)
+    const { permissions } = await resolveUserProjectPermissions(projectId, authUser.id)
+    if (!permissions.includes('project.view')) throw new HttpError(404, 'Project not found')
+    const { blockers, impact } = await projectDeletionCheck(prisma, projectId)
+    const hasPermission = permissions.includes('project.delete')
+    res.status(200).json({
+      canDelete: hasPermission && blockers.length === 0,
+      hasPermission,
+      canArchive: permissions.includes('project.settings'),
+      blockers,
+      impact,
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
 projectsRouter.delete('/:id', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
@@ -985,7 +1009,29 @@ projectsRouter.delete('/:id', authenticate, async (req, res, next) => {
       return
     }
 
-    await prisma.project.delete({ where: { id: projectId } })
+    const title = (await prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { title: true } })).title
+    try {
+      const check = await deletePersonalProject(projectId, { confirmTeamImpact: input.confirmTeamImpact })
+      await audit(req, res, {
+        action: 'project.delete',
+        targetType: 'project',
+        targetId: projectId,
+        metadata: { title, impact: check.impact },
+      })
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 409) {
+        const check = await projectDeletionCheck(prisma, projectId).catch(() => null)
+        await audit(req, res, {
+          action: 'project.delete',
+          outcome: 'denied',
+          organizationId: check?.organizationId ?? null,
+          targetType: 'project',
+          targetId: projectId,
+          metadata: { title, reason: (error.details as { code?: string } | undefined)?.code, blockers: check?.blockers.map((b) => b.code) },
+        })
+      }
+      throw error
+    }
 
     res.status(204).send()
   } catch (error) {
