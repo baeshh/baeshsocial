@@ -22,6 +22,7 @@ import {
   seedProjectRoles,
   uniqueProjectSlug,
 } from '../../services/programs/programProjects.js'
+import { captureProgramProjectRecord } from '../../services/records/programProjectRecords.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { requireProgramAccess, type ProgramAccess } from '../../utils/programAccess.js'
@@ -74,14 +75,16 @@ function serializeRegistration(row: RegistrationRow) {
     requester: row.requester,
     reviewedBy: row.reviewedBy,
     snapshot: row.snapshot as RegistrationSnapshot | null,
-    project: {
-      id: row.project.id,
-      title: row.project.title,
-      teamName: row.project.teamName,
-      visibility: row.project.visibility.toLowerCase(),
-      inProgram: row.project.programId === row.programId,
-      counts: row.project._count,
-    },
+    project: row.project
+      ? {
+          id: row.project.id,
+          title: row.project.title,
+          teamName: row.project.teamName,
+          visibility: row.project.visibility.toLowerCase(),
+          inProgram: row.project.programId === row.programId,
+          counts: row.project._count,
+        }
+      : null,
   }
 }
 
@@ -158,6 +161,7 @@ async function approveInTx(
   input: { reviewerId: string | null; note: string | null; teamName: string | null },
 ) {
   const registration = await tx.programProjectRegistration.findUniqueOrThrow({ where: { id: registrationId } })
+  if (!registration.projectId) throw new HttpError(409, '프로젝트가 삭제된 요청입니다.')
   const project = await assertEligible(tx, access, registration.projectId)
   await assertParticipantSeats(access.organization.id, project.members.map((member) => member.userId))
   const updated = await tx.programProjectRegistration.updateMany({
@@ -202,6 +206,13 @@ async function approveInTx(
         ? `${access.program.title} 프로그램 프로젝트로 등록이 승인되었습니다. (성과 인증과는 별개입니다)`
         : `${access.program.title} 프로그램 정책에 따라 바로 등록되었습니다. (성과 인증과는 별개입니다)`,
     },
+  })
+  await captureProgramProjectRecord(tx, {
+    programId: access.program.id,
+    projectId: project.id,
+    trigger: 'registration.approved',
+    actorId: input.reviewerId,
+    link: true,
   })
   return project
 }
@@ -323,7 +334,7 @@ export function registerProjectRegistrationRoutes(router: ExpressRouter) {
           await programStaffIds(prisma, access.program.id),
           authUser.id,
           '프로젝트 등록 요청이 도착했습니다',
-          `${access.program.title} · ${registration.project.title}`,
+          `${access.program.title} · ${registration.project?.title ?? ''}`,
           `/org/${access.organization.id}/programs/${access.program.id}?tab=requests`,
         )
       }
@@ -369,12 +380,14 @@ export function registerProjectRegistrationRoutes(router: ExpressRouter) {
       })
       if (!existing) throw new HttpError(404, '등록 요청을 찾을 수 없습니다.')
       if (existing.status !== ProgramProjectRegistrationStatus.PENDING) throw new HttpError(409, '이미 처리된 요청입니다.')
+      const project = existing.project
+      if (!project) throw new HttpError(409, '프로젝트가 삭제된 요청입니다.')
 
       if (input.decision === 'withdraw') {
         if (existing.requesterId !== authUser.id) throw new HttpError(403, '요청한 본인만 철회할 수 있습니다.')
       } else {
         if (!access.isStaff) throw new HttpError(403, '프로그램 담당자만 승인하거나 반려할 수 있습니다.')
-        if (existing.project.ownerId === authUser.id) throw new HttpError(403, '본인이 소유한 프로젝트는 승인할 수 없습니다.')
+        if (project.ownerId === authUser.id) throw new HttpError(403, '본인이 소유한 프로젝트는 승인할 수 없습니다.')
         assertProgramOpenForStudents(access.program.status)
       }
 
@@ -401,20 +414,20 @@ export function registerProjectRegistrationRoutes(router: ExpressRouter) {
         action: `program.project_request_${input.decision}`,
         organizationId: access.organization.id,
         targetType: 'project',
-        targetId: existing.project.id,
+        targetId: project.id,
         metadata: { programId: access.program.id, registrationId: existing.id, note: input.note ?? null },
       })
 
       if (input.decision !== 'withdraw') {
-        const team = await prisma.projectMember.findMany({ where: { projectId: existing.project.id }, select: { userId: true } })
+        const team = await prisma.projectMember.findMany({ where: { projectId: project.id }, select: { userId: true } })
         await notifyUsers(
           team.map((m) => m.userId),
           authUser.id,
           input.decision === 'approve' ? '프로젝트 등록이 승인되었습니다' : '프로젝트 등록이 반려되었습니다',
           input.decision === 'approve'
-            ? `${access.program.title} · ${existing.project.title} — 이제 프로그램에서 관리됩니다. 성과 인증은 별도로 진행됩니다.`
-            : `${access.program.title} · ${existing.project.title} — 사유: ${input.note}`,
-          `/projects/${existing.project.id}`,
+            ? `${access.program.title} · ${project.title} — 이제 프로그램에서 관리됩니다. 성과 인증은 별도로 진행됩니다.`
+            : `${access.program.title} · ${project.title} — 사유: ${input.note}`,
+          `/projects/${project.id}`,
         )
       }
 

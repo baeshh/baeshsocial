@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
-import { MOVE_TARGET, USERS, deadlineInput, expectToast, orgIds, signIn, type Role } from './support'
+import { API, MOVE_TARGET, USERS, apiGet, apiToken, deadlineInput, expectToast, orgIds, signIn, type Role } from './support'
 
 /**
  * One cohort end to end: an operator publishes a program, a person applies, gets an offer and confirms it,
@@ -136,6 +136,28 @@ test('운영자가 팀 프로젝트를 만들고 참여자를 배정한 뒤 다�
   await move.getByRole('button', { name: '이동', exact: true }).click()
   await expectToast(operator, '프로젝트를 이동했습니다')
   await expect(operator.getByText(projectTitle, { exact: true })).toHaveCount(0)
+})
+
+test('기관 공식 기록: 이전 프로그램 기록은 확정되고 이동한 프로그램에 새 기록이 생기며, 참여자는 열람할 수 없다', async ({ request }) => {
+  type RecordRow = { id: string; programTitle: string; projectTitle: string; status: string; participants: number }
+  const { records } = await apiGet<{ records: RecordRow[] }>(request, 'operator', `/organizations/${universityId}/project-records?limit=50`)
+  const mine = records.filter((record) => record.projectTitle === projectTitle)
+  expect(mine.map((record) => [record.programTitle, record.status]).sort()).toEqual([[MOVE_TARGET, 'active'], [title, 'final']].sort())
+
+  const source = mine.find((record) => record.programTitle === title)!
+  const { record } = await apiGet<{ record: { events: { action: string; trigger: string }[]; snapshot: { participants: { name: string }[] } } }>(
+    request,
+    'operator',
+    `/organizations/${universityId}/project-records/${source.id}`,
+  )
+  expect(record.events.map((event) => event.trigger)).toEqual(['project.created', 'team.assigned', 'project.moved_out'])
+  expect(record.events.at(-1)?.action).toBe('finalized')
+  expect(record.snapshot.participants.map((participant) => participant.name)).toContain(USERS.applicant.name)
+
+  const denied = await request.get(`${API}/organizations/${universityId}/project-records/${source.id}`, {
+    headers: { Authorization: `Bearer ${await apiToken(request, 'applicant')}` },
+  })
+  expect(denied.status()).toBe(403)
 })
 
 test('참여자가 이동된 프로젝트를 열 수 있다', async () => {

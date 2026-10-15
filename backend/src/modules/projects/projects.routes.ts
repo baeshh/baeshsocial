@@ -52,6 +52,7 @@ import { audit } from '../../services/audit/audit.js'
 import { assertProgramInvitee, isLeaderSlug } from '../../services/programs/programProjects.js'
 import { deletePersonalProject, projectDeletionCheck } from '../../services/projects/projectDeletion.js'
 import { canSetProfileDisplay, isHiddenFromProfile, setHiddenFromProfile } from '../../services/projects/profileDisplay.js'
+import { refreshCandidateResultsSafely } from '../matching/resultPrivacy.js'
 import { registerProjectRoleRoutes } from './projectRoles.routes.js'
 import { ProjectInviteStatus } from '@prisma/client'
 
@@ -943,8 +944,19 @@ projectsRouter.patch('/:id/visibility', authenticate, async (req, res, next) => 
     const project = await prisma.project.update({
       where: { id: projectId },
       data: { visibility: visibilityMap[visibility] },
-      select: { id: true, visibility: true, programId: true, program: { select: { organizationId: true } } },
+      select: {
+        id: true,
+        visibility: true,
+        programId: true,
+        ownerId: true,
+        program: { select: { organizationId: true } },
+        members: { select: { userId: true } },
+        verifiedRecords: { select: { userId: true } },
+      },
     })
+    if (project.visibility !== ProjectVisibility.PUBLIC) {
+      await refreshCandidateResultsSafely([project.ownerId, ...project.members.map((m) => m.userId), ...project.verifiedRecords.map((r) => r.userId)])
+    }
     await audit(req, res, {
       action: 'project.visibility_change',
       organizationId: project.program?.organizationId ?? null,
@@ -989,7 +1001,9 @@ projectsRouter.put('/:id/profile-display', authenticate, async (req, res, next) 
   try {
     const authUser = res.locals.user as AuthTokenPayload
     const { hidden } = profileDisplaySchema.parse(req.body)
-    res.status(200).json(await setHiddenFromProfile(authUser.id, String(req.params.id), hidden))
+    const result = await setHiddenFromProfile(authUser.id, String(req.params.id), hidden)
+    if (hidden) await refreshCandidateResultsSafely([authUser.id])
+    res.status(200).json(result)
   } catch (error) {
     next(error)
   }
@@ -1035,9 +1049,13 @@ projectsRouter.delete('/:id', authenticate, async (req, res, next) => {
       return
     }
 
-    const title = (await prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { title: true } })).title
+    const { title, members } = await prisma.project.findUniqueOrThrow({
+      where: { id: projectId },
+      select: { title: true, members: { select: { userId: true } } },
+    })
     try {
       const check = await deletePersonalProject(projectId, { confirmTeamImpact: input.confirmTeamImpact })
+      await refreshCandidateResultsSafely([authUser.id, ...members.map((member) => member.userId)])
       await audit(req, res, {
         action: 'project.delete',
         targetType: 'project',
@@ -1096,6 +1114,7 @@ projectsRouter.delete('/:id/members/me', authenticate, async (req, res, next) =>
     await prisma.projectMember.deleteMany({
       where: { projectId, userId: authUser.id },
     })
+    await refreshCandidateResultsSafely([authUser.id])
 
     res.status(204).send()
   } catch (error) {

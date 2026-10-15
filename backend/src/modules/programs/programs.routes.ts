@@ -28,6 +28,7 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization.middleware.js'
 import { audit } from '../../services/audit/audit.js'
+import { refreshCandidateResultsSafely } from '../matching/resultPrivacy.js'
 import { assertOrgCapacity, assertParticipantSeats } from '../../services/billing/entitlements.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
@@ -48,6 +49,13 @@ import {
   updateProgramSchema,
 } from '../../validators/program.validator.js'
 import { activeParticipantIds, findTeamConflicts, isStudentLed, loadStudentLed } from '../../services/programs/programProjects.js'
+import {
+  captureProgramProjectRecord,
+  captureSafely,
+  ENDED_PROGRAM_STATUSES,
+  finalizeProgramRecords,
+  reopenProgramRecords,
+} from '../../services/records/programProjectRecords.js'
 import {
   evidenceInclude,
   serializeApplicationField,
@@ -556,6 +564,9 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
       !takesApplications(access.program) &&
       (await prisma.programApplicationField.count({ where: { programId: access.program.id, archivedAt: null } })) === 0
     const closingPublic = policy.allowPublicProjects === false && access.program.allowPublicProjects
+    const wasEnded = ENDED_PROGRAM_STATUSES.includes(access.program.status)
+    const ending = nextStatus !== undefined && !wasEnded && ENDED_PROGRAM_STATUSES.includes(nextStatus)
+    const resuming = nextStatus !== undefined && wasEnded && !ENDED_PROGRAM_STATUSES.includes(nextStatus)
     const program = await prisma.$transaction(async (tx) => {
       if (managerIds) {
         await tx.programManager.deleteMany({ where: { programId: access.program.id, userId: { notIn: managerIds } } })
@@ -571,7 +582,7 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
         })
       }
       if (needsDefaultForm) await replaceApplicationFields(tx, access.program.id, DEFAULT_APPLICATION_FIELDS)
-      return tx.program.update({
+      const updated = await tx.program.update({
         where: { id: access.program.id },
         data: {
           ...(input.title !== undefined ? { title: input.title } : {}),
@@ -586,7 +597,17 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
         },
         include: programInclude,
       })
-    })
+      if (ending) await finalizeProgramRecords(tx, access.program.id, 'program.completed', authUser.id)
+      if (resuming) await reopenProgramRecords(tx, access.program.id, 'program.reopened', authUser.id)
+      return updated
+    }, ending || resuming ? { timeout: 60_000 } : undefined)
+    if (closingPublic || (input.recordDisclosure !== undefined && input.recordDisclosure !== access.program.recordDisclosure.toLowerCase())) {
+      const [members, holders] = await Promise.all([
+        prisma.projectMember.findMany({ where: { project: { programId: access.program.id } }, select: { userId: true } }),
+        prisma.verifiedRecord.findMany({ where: { programId: access.program.id }, select: { userId: true } }),
+      ])
+      await refreshCandidateResultsSafely([...new Set([...members, ...holders].map((row) => row.userId))])
+    }
 
     await audit(req, res, {
       action: 'program.update',
@@ -710,18 +731,19 @@ programsRouter.delete('/:programId', authenticate, async (req, res, next) => {
       throw new HttpError(409, '프로젝트가 남아 있는 프로그램은 삭제할 수 없습니다. 보관 상태로 변경해 주세요.')
     }
     // Deleting the program cascades to these; they are the institution's record of who took part and what it signed.
-    const [participants, applications, registrations, reviews, verifications, records] = await Promise.all([
+    const [participants, applications, registrations, reviews, verifications, records, officialRecords] = await Promise.all([
       prisma.programParticipant.count({ where: { programId } }),
       prisma.programApplication.count({ where: { programId } }),
       prisma.programProjectRegistration.count({ where: { programId } }),
       prisma.projectReview.count({ where: { programId } }),
       prisma.projectVerification.count({ where: { programId } }),
       prisma.verifiedRecord.count({ where: { programId } }),
+      prisma.programProjectRecord.count({ where: { programId } }),
     ])
-    if (participants + applications + registrations + reviews + verifications + records > 0) {
+    if (participants + applications + registrations + reviews + verifications + records + officialRecords > 0) {
       throw new HttpError(409, '참여·지원·검증 기록이 있는 프로그램은 삭제할 수 없습니다. 보관 상태로 변경해 주세요.', {
         code: 'PROGRAM_RETAINED',
-        counts: { participants, applications, registrations, reviews, verifications, records },
+        counts: { participants, applications, registrations, reviews, verifications, records, officialRecords },
       })
     }
     await prisma.program.delete({ where: { id: access.program.id } })
@@ -837,6 +859,13 @@ programsRouter.post('/:programId/projects', authenticate, async (req, res, next)
           description: `${access.program.title} 프로그램 프로젝트로 생성되었습니다.`,
         },
       })
+      await captureProgramProjectRecord(tx, {
+        programId: access.program.id,
+        projectId: created.id,
+        trigger: 'project.created',
+        actorId: authUser.id,
+        link: true,
+      })
       return tx.project.findUniqueOrThrow({ where: { id: created.id }, select: programProjectSelect })
     })
 
@@ -914,17 +943,24 @@ programsRouter.post('/:programId/projects/:projectId/move', authenticate, async 
       )
     }
 
-    await prisma.$transaction([
-      prisma.project.update({ where: { id: target.id }, data: { programId: destination.program.id } }),
-      prisma.programParticipant.createMany({
+    await prisma.$transaction(async (tx) => {
+      await captureProgramProjectRecord(tx, {
+        programId: source.program.id,
+        projectId: target.id,
+        trigger: 'project.moved_out',
+        actorId: authUser.id,
+        finalize: true,
+      })
+      await tx.project.update({ where: { id: target.id }, data: { programId: destination.program.id } })
+      await tx.programParticipant.createMany({
         data: teamMembers.map((member) => ({
           programId: destination.program.id,
           userId: member.userId,
           addedById: authUser.id,
         })),
         skipDuplicates: true,
-      }),
-      prisma.projectActivity.create({
+      })
+      await tx.projectActivity.create({
         data: {
           projectId: target.id,
           userId: authUser.id,
@@ -932,8 +968,16 @@ programsRouter.post('/:programId/projects/:projectId/move', authenticate, async 
           title: 'Program changed',
           description: `${source.program.title} → ${destination.program.title} 프로그램으로 이동했습니다.`,
         },
-      }),
-    ])
+      })
+      await captureProgramProjectRecord(tx, {
+        programId: destination.program.id,
+        projectId: target.id,
+        trigger: 'project.moved_in',
+        actorId: authUser.id,
+        link: true,
+      })
+    })
+    await refreshCandidateResultsSafely(teamMembers.map((member) => member.userId))
 
     res.status(200).json({ ok: true, programId: destination.program.id })
   } catch (error) {
@@ -984,6 +1028,9 @@ programsRouter.post('/:programId/projects/:projectId/members', authenticate, asy
       })
       added.push(userId)
     }
+    if (added.length > 0) {
+      await captureSafely({ programId: access.program.id, projectId: project.id, trigger: 'team.assigned', actorId: authUser.id })
+    }
 
     await notify(
       added,
@@ -1012,6 +1059,8 @@ programsRouter.delete('/:programId/projects/:projectId/members/:userId', authent
     }
     const { count } = await prisma.projectMember.deleteMany({ where: { projectId: project.id, userId } })
     if (count > 0) {
+      await captureSafely({ programId: access.program.id, projectId: project.id, trigger: 'team.member_removed', actorId: authUser.id })
+      await refreshCandidateResultsSafely([userId])
       await audit(req, res, {
         action: 'program.team_member_remove',
         organizationId: access.organization.id,
@@ -1189,10 +1238,22 @@ programsRouter.delete('/:programId/participants/:userId', authenticate, async (r
     const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'staff')
     assertProgramWritable(access.program.status)
     const userId = String(req.params.userId)
-    await prisma.$transaction([
-      prisma.projectMember.deleteMany({ where: { userId, project: { programId: access.program.id } } }),
-      prisma.programParticipant.deleteMany({ where: { programId: access.program.id, userId } }),
-    ])
+    await prisma.$transaction(async (tx) => {
+      const teams = await tx.projectMember.findMany({
+        where: { userId, project: { programId: access.program.id } },
+        select: { projectId: true },
+      })
+      const capture = async (trigger: string) => {
+        for (const team of teams) {
+          await captureProgramProjectRecord(tx, { programId: access.program.id, projectId: team.projectId, trigger, actorId: authUser.id })
+        }
+      }
+      await capture('participant.removing')
+      await tx.projectMember.deleteMany({ where: { userId, project: { programId: access.program.id } } })
+      await tx.programParticipant.deleteMany({ where: { programId: access.program.id, userId } })
+      await capture('participant.removed')
+    })
+    await refreshCandidateResultsSafely([userId])
     await audit(req, res, {
       action: 'program.participant_remove',
       organizationId: access.organization.id,

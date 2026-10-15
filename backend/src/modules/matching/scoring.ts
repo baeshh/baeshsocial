@@ -1,4 +1,4 @@
-import { ProjectVisibility, RecordDisclosure } from '@prisma/client'
+import { ProjectVisibility, RecordDisclosure, type Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { hiddenProjectsByUser } from '../../services/projects/profileDisplay.js'
@@ -71,13 +71,42 @@ export type ScoredCandidate = {
 
 const round = (value: number, digits = 3) => Math.round(value * 10 ** digits) / 10 ** digits
 
+/** Same rule as the profile: PUBLIC counts for program projects only while the program allows public projects. */
+const publicProjectWhere = {
+  visibility: ProjectVisibility.PUBLIC,
+  OR: [{ programId: null }, { program: { allowPublicProjects: true } }],
+} satisfies Prisma.ProjectWhereInput
+
+const projectFields = { id: true, slug: true, title: true, objective: true, description: true, skills: true, status: true, updatedAt: true } as const
+
 /**
- * Loads only consented, shareable data: candidates who opted in to talent search, their PUBLIC
- * projects, and their trusted (intact, non-revoked) verified records. Nothing else is read.
- * Projects a candidate hid from their profile are dropped together with the records on them.
+ * Only consented, shareable data: the profile skills of candidates who opted in to talent search, the PUBLIC
+ * projects they worked on (program projects owned by staff are not the staff's own work), and their trusted
+ * (intact, non-revoked) verified records the student and program disclose. Nothing else is read.
  */
-async function loadCandidates(criteria: SearchCriteria, excludeUserIds: string[]) {
-  const candidates = await loadCandidateRows(criteria, excludeUserIds)
+const candidateSelect = {
+  id: true,
+  profile: { select: { skills: true } },
+  ownedProjects: { where: { AND: [publicProjectWhere, { programId: null }] }, select: projectFields },
+  projectMemberships: { where: { project: publicProjectWhere }, select: { project: { select: projectFields } } },
+  verifiedRecords: {
+    where: { AND: [trustedRecordWhere, disclosedRecordWhere] },
+    orderBy: { verifiedAt: 'desc' },
+    take: 30,
+    select: {
+      id: true,
+      snapshot: true,
+      verifiedAt: true,
+      disclosure: true,
+      program: { select: { recordDisclosure: true } },
+      project: { select: { id: true, skills: true, visibility: true, slug: true } },
+    },
+  },
+} satisfies Prisma.UserSelect
+
+/** Projects a candidate hid from their profile are dropped together with the records on them. */
+async function loadShareable(where: Prisma.UserWhereInput) {
+  const candidates = await prisma.user.findMany({ where: { AND: [where, { profile: { talentSearchOptIn: true } }] }, take: MAX_CANDIDATES, select: candidateSelect })
   const hidden = await hiddenProjectsByUser(candidates.map((candidate) => candidate.id))
   return candidates.map((candidate) => {
     const hiddenIds = hidden.get(candidate.id)
@@ -91,54 +120,30 @@ async function loadCandidates(criteria: SearchCriteria, excludeUserIds: string[]
   })
 }
 
-async function loadCandidateRows(criteria: SearchCriteria, excludeUserIds: string[]) {
+function loadCandidates(criteria: SearchCriteria, excludeUserIds: string[]) {
   const skillVariants = [...new Set(criteria.skills.flatMap(variants))]
-  const publicWithSkills = { visibility: ProjectVisibility.PUBLIC, skills: { hasSome: skillVariants } }
-  return prisma.user.findMany({
-    where: {
-      id: { notIn: excludeUserIds },
-      profile: { talentSearchOptIn: true },
-      OR: [
-        { profile: { skills: { hasSome: skillVariants } } },
-        { ownedProjects: { some: publicWithSkills } },
-        { projectMemberships: { some: { project: publicWithSkills } } },
-        {
-          verifiedRecords: {
-            some: { AND: [trustedRecordWhere, disclosedRecordWhere, { project: { skills: { hasSome: skillVariants } } }] },
-          },
-        },
-      ],
-    },
-    take: MAX_CANDIDATES,
-    select: {
-      id: true,
-      profile: { select: { skills: true } },
-      ownedProjects: {
-        where: { visibility: ProjectVisibility.PUBLIC },
-        select: { id: true, slug: true, title: true, objective: true, description: true, skills: true, status: true, updatedAt: true },
-      },
-      projectMemberships: {
-        where: { project: { visibility: ProjectVisibility.PUBLIC } },
-        select: { project: { select: { id: true, slug: true, title: true, objective: true, description: true, skills: true, status: true, updatedAt: true } } },
-      },
-      verifiedRecords: {
-        where: { AND: [trustedRecordWhere, disclosedRecordWhere] },
-        orderBy: { verifiedAt: 'desc' },
-        take: 30,
-        select: {
-          id: true,
-          snapshot: true,
-          verifiedAt: true,
-          disclosure: true,
-          program: { select: { recordDisclosure: true } },
-          project: { select: { id: true, skills: true, visibility: true, slug: true } },
+  const publicWithSkills = { AND: [publicProjectWhere, { skills: { hasSome: skillVariants } }] }
+  return loadShareable({
+    id: { notIn: excludeUserIds },
+    OR: [
+      { profile: { skills: { hasSome: skillVariants } } },
+      { ownedProjects: { some: { AND: [publicWithSkills, { programId: null }] } } },
+      { projectMemberships: { some: { project: publicWithSkills } } },
+      {
+        verifiedRecords: {
+          some: { AND: [trustedRecordWhere, disclosedRecordWhere, { project: { skills: { hasSome: skillVariants } } }] },
         },
       },
-    },
+    ],
   })
 }
 
-type LoadedCandidate = Awaited<ReturnType<typeof loadCandidates>>[number]
+/** The current shareable data of specific candidates, for re-checking stored results. Opted-out users are absent. */
+export function loadShareableCandidates(userIds: string[]) {
+  return userIds.length ? loadShareable({ id: { in: userIds } }) : Promise.resolve([])
+}
+
+export type LoadedCandidate = Awaited<ReturnType<typeof loadShareable>>[number]
 
 type SharedRecordView = {
   evidence: { title: string; description: string | null }
@@ -180,7 +185,22 @@ function sharedRecordView(record: LoadedCandidate['verifiedRecords'][number]): S
   }
 }
 
-function scoreCandidate(candidate: LoadedCandidate, criteria: SearchCriteria, now: Date): ScoredCandidate {
+/** Everything a stored result may still mention about this candidate today. */
+export function shareableNow(candidate: LoadedCandidate) {
+  const publicProjects = [...candidate.ownedProjects, ...candidate.projectMemberships.map((membership) => membership.project)]
+  const records = candidate.verifiedRecords
+    .map((record) => ({ record, view: sharedRecordView(record) }))
+    .filter((row): row is { record: (typeof candidate.verifiedRecords)[number]; view: SharedRecordView } => Boolean(row.view))
+  return {
+    publicProjectIds: new Set(publicProjects.map((project) => project.id)),
+    projectIds: new Set([...publicProjects.map((project) => project.id), ...records.map(({ record }) => record.project.id)]),
+    recordIds: new Set(records.map(({ record }) => record.id)),
+    titles: new Set([...publicProjects.map((project) => project.title), ...records.map(({ view }) => view.project.title)]),
+    profileSkills: new Set((candidate.profile?.skills ?? []).map(normalize)),
+  }
+}
+
+export function scoreCandidate(candidate: LoadedCandidate, criteria: SearchCriteria, now: Date): ScoredCandidate {
   const required = criteria.skills.map((skill) => ({ skill, key: normalize(skill) }))
   const keywords = criteria.keywords.map((k) => k.toLowerCase())
   const profileSkills = new Set((candidate.profile?.skills ?? []).map(normalize))

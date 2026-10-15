@@ -54,7 +54,7 @@ function DecisionModal({
       }
       onClose={onClose}
       open
-      title={`${request.project.title} ${decision === 'approve' ? '등록 승인' : '반려'}`}
+      title={`${request.project?.title ?? request.snapshot?.title ?? ''} ${decision === 'approve' ? '등록 승인' : '반려'}`}
     >
       <form
         className="space-y-4"
@@ -101,7 +101,8 @@ export function RegistrationCard({
           </p>
           <p className="mt-1 truncate font-bold text-ink-strong">
             {snapshot?.teamName ? <span className="mr-1 text-brand-600">{snapshot.teamName}</span> : null}
-            {request.project.title}
+            {request.project?.title ?? snapshot?.title ?? '삭제된 프로젝트'}
+            {request.project ? null : <span className="ml-1 text-xs font-medium text-ink-muted">(프로젝트 삭제됨)</span>}
           </p>
         </div>
         <Badge tone={status.tone}>{status.label}</Badge>
@@ -112,7 +113,8 @@ export function RegistrationCard({
       {snapshot ? (
         <p className="mt-2 text-xs text-ink-muted">
           팀원 {snapshot.members.map((m) => m.name).join(', ') || '없음'} · 태스크 {snapshot.counts.tasks} · 활동 {snapshot.counts.activities} · 링크{' '}
-          {snapshot.counts.links} · {VISIBILITY_META[request.project.visibility]?.label ?? request.project.visibility}
+          {snapshot.counts.links}
+          {request.project ? ` · ${VISIBILITY_META[request.project.visibility]?.label ?? request.project.visibility}` : ''}
         </p>
       ) : null}
       {request.message ? <p className="mt-2 rounded-xl bg-surface-muted/60 px-3 py-2 text-sm text-ink-body">“{request.message}”</p> : null}

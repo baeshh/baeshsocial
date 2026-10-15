@@ -21,11 +21,13 @@ import {
   storage,
   verifyLocalFileToken,
 } from '../../services/storage/storage.js'
+import { captureProgramProjectRecord } from '../../services/records/programProjectRecords.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { getProgramAccess } from '../../utils/programAccess.js'
 import { isLeaderSlug } from '../../utils/projectPermissions.js'
 import { issueVerifiedRecord, revokeVerifiedRecord } from '../../services/verification/verifiedRecords.js'
+import { refreshCandidateResultsSafely } from '../matching/resultPrivacy.js'
 import {
   createEvidenceSchema,
   reviewEvidenceSchema,
@@ -455,6 +457,12 @@ evidenceRouter.post('/:evidenceId/review', authenticate, async (req, res, next) 
           },
         })
       }
+      await captureProgramProjectRecord(tx, {
+        programId: program.id,
+        projectId: project.id,
+        trigger: approve ? 'evidence.approved' : 'evidence.rejected',
+        actorId: authUser.id,
+      })
     })
 
     await audit(req, res, {
@@ -510,7 +518,9 @@ evidenceRouter.post('/:evidenceId/revoke', authenticate, async (req, res, next) 
         data: { evidenceId: evidence.id, actorId: authUser.id, action: EvidenceReviewAction.REVOKED, note: reason },
       })
       await revokeVerifiedRecord(tx, { evidenceId: evidence.id, actorId: authUser.id, reason })
+      await captureProgramProjectRecord(tx, { programId: program.id, projectId: project.id, trigger: 'evidence.revoked', actorId: authUser.id, reason })
     })
+    await refreshCandidateResultsSafely([evidence.authorId])
 
     await audit(req, res, {
       action: 'evidence.revoke',
