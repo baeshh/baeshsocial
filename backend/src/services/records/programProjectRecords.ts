@@ -90,24 +90,76 @@ export function hashSnapshot(snapshot: RecordSnapshot) {
   return createHash('sha256').update(JSON.stringify(stable(snapshot))).digest('hex')
 }
 
-/** Blanks the name (and role) of the given people wherever they appear in a snapshot. */
-export function redactSnapshot(snapshot: RecordSnapshot, userIds: string[]): RecordSnapshot {
+/** Stable per record: the n-th person redacted from a record is `redacted:n` in every version of it. */
+export const pseudonymOf = (userIds: string[], userId: string) => `redacted:${userIds.indexOf(userId) + 1}`
+
+/** Free-text fields a name can be typed into; enums, dates and hashes are never rewritten. */
+const TEXT_KEYS = new Set(['title', 'name', 'teamName', 'outcomeSummary', 'revokeReason', 'reason', 'note'])
+
+function replaceNames(text: string, names: string[]) {
+  return names.reduce((value, name) => (name.length >= 2 ? value.split(name).join(REDACTED_NAME) : value), text)
+}
+
+/**
+ * Removes the given people from a snapshot: their user ids become the record's pseudonyms, their name and team
+ * role are blanked, and their names are replaced inside free text (titles, file names, summaries, reasons).
+ * `userIds` is the record's full ordered list so pseudonyms match across versions. The raw ids stay only in
+ * `redactedUserIds`, which later captures need and which is never returned by the API.
+ */
+export function redactSnapshot(snapshot: RecordSnapshot, userIds: string[], names: string[] = []): RecordSnapshot {
   if (userIds.length === 0) return snapshot
   const hidden = new Set(userIds)
-  const walk = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(walk)
+  const walk = (value: unknown, key?: string): unknown => {
+    if (typeof value === 'string') {
+      if (hidden.has(value)) return pseudonymOf(userIds, value)
+      return key && TEXT_KEYS.has(key) ? replaceNames(value, names) : value
+    }
+    if (Array.isArray(value)) return value.map((item) => walk(item, key))
     if (!value || typeof value !== 'object') return value
-    const entries = Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, walk(child)] as const)
-    const object = Object.fromEntries(entries) as Record<string, unknown>
-    const owner = typeof object.userId === 'string' ? object.userId : typeof object.id === 'string' ? object.id : null
+    const original = value as Record<string, unknown>
+    const object = Object.fromEntries(Object.entries(original).map(([childKey, child]) => [childKey, walk(child, childKey)])) as Record<string, unknown>
+    const owner = typeof original.userId === 'string' ? original.userId : typeof original.id === 'string' ? original.id : null
     if (owner && hidden.has(owner) && 'name' in object) {
       object.name = REDACTED_NAME
       if ('role' in object && 'userId' in object) object.role = null
     }
     return object
   }
-  const redacted = walk(snapshot) as RecordSnapshot
-  return { ...redacted, redactedUserIds: [...new Set([...snapshot.redactedUserIds, ...userIds])].sort() }
+  const { redactedUserIds: _previous, ...rest } = snapshot
+  return { ...(walk(rest) as Omit<RecordSnapshot, 'redactedUserIds'>), redactedUserIds: userIds }
+}
+
+/** Names to replace in free text: the person's current account name and the names earlier versions recorded. */
+async function namesOf(db: Db, userIds: string[], snapshots: RecordSnapshot[] = []) {
+  if (userIds.length === 0) return []
+  const users = await db.user.findMany({ where: { id: { in: userIds } }, select: { name: true } })
+  const recorded = snapshots.flatMap((snapshot) =>
+    snapshot.participants.filter((participant) => userIds.includes(participant.userId)).map((participant) => participant.name),
+  )
+  return [...new Set([...users.map((user) => user.name), ...recorded].filter((name): name is string => Boolean(name && name.length >= 2)))].sort(
+    (a, b) => b.length - a.length,
+  )
+}
+
+/**
+ * What the API may return. Redacted people appear only as pseudonyms: the internal list of their ids is dropped,
+ * and so are the ids of their evidence and records, which would lead back to them through the live tables.
+ */
+export function publicSnapshot(snapshot: RecordSnapshot) {
+  const { redactedUserIds = [], ...rest } = snapshot
+  const pseudonyms = new Set(redactedUserIds.map((userId) => pseudonymOf(redactedUserIds, userId)))
+  return {
+    ...rest,
+    evidence: rest.evidence.map((item) => (pseudonyms.has(item.authorId) ? { ...item, id: null } : item)),
+    records: rest.records.map((record) => (pseudonyms.has(record.userId) ? { ...record, id: null, contentHash: null } : record)),
+    redactedCount: redactedUserIds.length,
+  }
+}
+
+/** Event actor as the API shows it: a redacted person is never named or identified. */
+export function publicActor(actor: { id: string; name: string } | null, redactedUserIds: string[] = []) {
+  if (!actor || !redactedUserIds.includes(actor.id)) return actor
+  return { id: pseudonymOf(redactedUserIds, actor.id), name: REDACTED_NAME }
 }
 
 /**
@@ -291,7 +343,7 @@ async function buildSnapshot(
     corrections: input.previous?.corrections ?? [],
     redactedUserIds: input.previous?.redactedUserIds ?? [],
   }
-  return redactSnapshot(snapshot, snapshot.redactedUserIds)
+  return redactSnapshot(snapshot, snapshot.redactedUserIds, await namesOf(db, snapshot.redactedUserIds))
 }
 
 async function retentionFor(db: Db, organizationId: string, finalizedAt: Date) {
@@ -514,8 +566,9 @@ export async function correctRecord(
 }
 
 /**
- * Removes a person's name and role from the record and from every earlier version, on a deletion request.
- * The only change ever made to past versions; the event keeps who did it and why.
+ * Removes a person from the record and from every earlier version, on a deletion request: ids become a pseudonym,
+ * name and role are blanked, and their name is replaced in free text. The only change ever made to past versions;
+ * hashes and the previous-hash chain are recomputed and the REDACTED event keeps who did it and why.
  */
 export async function redactParticipant(recordId: string, input: { userId: string; actorId: string; reason: string }) {
   return prisma.$transaction(async (tx) => {
@@ -523,20 +576,30 @@ export async function redactParticipant(recordId: string, input: { userId: strin
     if (locked.length === 0) throw new HttpError(404, '기록을 찾을 수 없습니다.')
     const record = await tx.programProjectRecord.findUniqueOrThrow({ where: { id: recordId }, include: { events: true } })
     const current = record.snapshot as unknown as RecordSnapshot
-    if (!current.participants.some((participant) => participant.userId === input.userId)) {
-      throw new HttpError(404, '이 기록의 참여자가 아닙니다.')
-    }
+    const already = current.redactedUserIds ?? []
+    if (already.includes(input.userId)) throw new HttpError(409, '이미 비식별 처리된 참여자입니다.')
+    const { redactedUserIds: _ids, ...visible } = current
+    if (!JSON.stringify(visible).includes(JSON.stringify(input.userId))) throw new HttpError(404, '이 기록의 참여자가 아닙니다.')
+
+    const userIds = [...already, input.userId]
+    const events = [...record.events].sort((a, b) => a.version - b.version)
+    const names = await namesOf(tx, [input.userId], [current, ...events.map((event) => event.snapshot as unknown as RecordSnapshot)])
     let previousHash: string | null = null
-    for (const event of [...record.events].sort((a, b) => a.version - b.version)) {
-      const redacted = redactSnapshot(event.snapshot as unknown as RecordSnapshot, [input.userId])
+    for (const event of events) {
+      const redacted = redactSnapshot(event.snapshot as unknown as RecordSnapshot, userIds, names)
       const eventHash = hashSnapshot(redacted)
       await tx.programProjectRecordEvent.update({
         where: { id: event.id },
-        data: { snapshot: redacted as unknown as Prisma.InputJsonValue, contentHash: eventHash, previousHash },
+        data: {
+          snapshot: redacted as unknown as Prisma.InputJsonValue,
+          contentHash: eventHash,
+          previousHash,
+          reason: event.reason ? replaceNames(event.reason, names) : event.reason,
+        },
       })
       previousHash = eventHash
     }
-    const snapshot = redactSnapshot(current, [input.userId])
+    const snapshot = redactSnapshot(current, userIds, names)
     const contentHash = hashSnapshot(snapshot)
     const version = record.version + 1
     await tx.programProjectRecordEvent.create({
@@ -546,7 +609,7 @@ export async function redactParticipant(recordId: string, input: { userId: strin
         action: ProgramProjectRecordEventAction.REDACTED,
         trigger: 'redaction',
         actorId: input.actorId,
-        reason: input.reason,
+        reason: replaceNames(input.reason, names),
         snapshot: snapshot as unknown as Prisma.InputJsonValue,
         contentHash,
         previousHash,
@@ -554,7 +617,12 @@ export async function redactParticipant(recordId: string, input: { userId: strin
     })
     return tx.programProjectRecord.update({
       where: { id: recordId },
-      data: { snapshot: snapshot as unknown as Prisma.InputJsonValue, contentHash, version },
+      data: {
+        snapshot: snapshot as unknown as Prisma.InputJsonValue,
+        contentHash,
+        version,
+        projectTitle: replaceNames(record.projectTitle, names),
+      },
     })
   })
 }

@@ -4,7 +4,14 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization.middleware.js'
 import { audit } from '../../services/audit/audit.js'
-import { correctRecord, redactParticipant, type RecordSnapshot } from '../../services/records/programProjectRecords.js'
+import {
+  correctRecord,
+  pseudonymOf,
+  publicActor,
+  publicSnapshot,
+  redactParticipant,
+  type RecordSnapshot,
+} from '../../services/records/programProjectRecords.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { hasOrgRole } from '../../utils/organizations.js'
@@ -174,11 +181,16 @@ organizationProjectRecordsRouter.get('/:recordId', authenticate, staffOnly, asyn
         },
       },
     })
+    const snapshot = record.snapshot as unknown as RecordSnapshot
     res.status(200).json({
       record: {
         ...serializeSummary(record),
-        snapshot: record.snapshot,
-        events: record.events.map((event) => ({ ...event, action: event.action.toLowerCase() })),
+        snapshot: publicSnapshot(snapshot),
+        events: record.events.map((event) => ({
+          ...event,
+          action: event.action.toLowerCase(),
+          actor: publicActor(event.actor, snapshot.redactedUserIds),
+        })),
       },
     })
   } catch (error) {
@@ -194,10 +206,29 @@ organizationProjectRecordsRouter.get('/:recordId/versions/:version', authenticat
     if (!Number.isInteger(version) || version < 1) throw new HttpError(400, '버전이 올바르지 않습니다.')
     const event = await prisma.programProjectRecordEvent.findUnique({
       where: { recordId_version: { recordId: record.id, version } },
-      include: { actor: { select: { id: true, name: true } } },
+      select: {
+        version: true,
+        action: true,
+        trigger: true,
+        reason: true,
+        snapshot: true,
+        contentHash: true,
+        previousHash: true,
+        createdAt: true,
+        actor: { select: { id: true, name: true } },
+      },
     })
     if (!event) throw new HttpError(404, '해당 버전이 없습니다.')
-    res.status(200).json({ version: { ...event, action: event.action.toLowerCase() } })
+    const redactedUserIds = (record.snapshot as unknown as RecordSnapshot).redactedUserIds
+    const snapshot = event.snapshot as unknown as RecordSnapshot
+    res.status(200).json({
+      version: {
+        ...event,
+        action: event.action.toLowerCase(),
+        snapshot: publicSnapshot({ ...snapshot, redactedUserIds }),
+        actor: publicActor(event.actor, redactedUserIds),
+      },
+    })
   } catch (error) {
     next(error)
   }
@@ -237,7 +268,11 @@ organizationProjectRecordsRouter.post('/:recordId/redactions', authenticate, adm
       organizationId: organization.id,
       targetType: 'program_project_record',
       targetId: record.id,
-      metadata: { version: updated.version, userId: input.userId, reason: input.reason },
+      // The audit log is readable by organization admins: only the record's pseudonym, never the person's id or name.
+      metadata: {
+        version: updated.version,
+        pseudonym: pseudonymOf((updated.snapshot as unknown as RecordSnapshot).redactedUserIds, input.userId),
+      },
     })
     res.status(200).json({ record: { id: updated.id, version: updated.version, contentHash: updated.contentHash } })
   } catch (error) {
