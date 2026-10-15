@@ -47,7 +47,10 @@ function ResultCard({ result, orgId, searchId }: { result: TalentResult; orgId: 
   if (result.withdrawn) {
     return (
       <Card className="rounded-2xl p-5 text-sm text-ink-muted">
-        #{result.rank} · 이 후보는 인재 검색 동의를 철회해 더 이상 표시되지 않습니다.
+        #{result.rank} ·{' '}
+        {result.reason === 'not_shareable'
+          ? '후보가 공개 범위를 바꿔 이 검색 조건에 맞는 공개 정보가 남아 있지 않아 더 이상 표시되지 않습니다.'
+          : '이 후보는 인재 검색 동의를 철회해 더 이상 표시되지 않습니다.'}
       </Card>
     )
   }
@@ -88,6 +91,12 @@ function ResultCard({ result, orgId, searchId }: { result: TalentResult; orgId: 
           </p>
         </div>
       </div>
+
+      {result.recalculated ? (
+        <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800" role="note">
+          후보가 검색 이후 일부 프로젝트·기록의 공개를 거둬, 지금 공개된 정보만으로 점수와 추천 이유를 다시 계산했습니다.
+        </p>
+      ) : null}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div className="space-y-3">
@@ -268,7 +277,8 @@ export function TalentDBPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-ink-strong">인재 검색</h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink-body">
-              인재 검색에 동의한 사용자의 공개 프로젝트와 기관 검증 기록만으로 후보를 찾습니다. 점수는 규칙으로 계산하고, AI는 추천 이유만 근거와 함께 설명합니다.
+              인재 검색에 동의한 사용자의 전체 공개 프로젝트와 공개를 허용한 기관 검증 기록만으로 후보를 찾습니다. 후보가 프로필에서 숨기거나 공개를 거둔 정보는 저장된 검색에서도 빠집니다.
+              점수는 규칙으로 계산하고, AI는 추천 이유만 근거와 함께 설명합니다.
             </p>
           </div>
           {companies.length > 1 ? (

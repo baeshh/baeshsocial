@@ -203,10 +203,10 @@ describe('hiding a program project from the personal profile', () => {
 
     const past = await api().get(`/api/organizations/${companyId}/talent/searches/${searchId}`).set(bearer(recruiter.token))
     expect(past.status).toBe(200)
-    const rows = past.body.results as { candidate?: { id: string }; evidence?: { verified: unknown[]; projects: { id: string }[] } }[]
-    const leaderPast = rows.find((row) => row.candidate?.id === leader.user.id)
-    expect(leaderPast?.evidence?.verified).toHaveLength(0)
-    expect(leaderPast?.evidence?.projects.map((row) => row.id)).not.toContain(projectId)
+    const rows = past.body.results as { withdrawn: boolean; reason?: string; candidate?: { id: string }; evidence?: { verified: unknown[] } }[]
+    // The hidden project was the leader's only shareable evidence, so the past result is withdrawn and emptied.
+    expect(rows.find((row) => row.candidate?.id === leader.user.id)).toBeUndefined()
+    expect(rows.filter((row) => row.withdrawn)).toEqual([expect.objectContaining({ reason: 'not_shareable' })])
     expect(rows.find((row) => row.candidate?.id === mate.user.id)?.evidence?.verified).toHaveLength(1)
   })
 

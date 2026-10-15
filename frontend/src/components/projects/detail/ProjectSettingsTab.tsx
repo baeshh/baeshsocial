@@ -139,7 +139,10 @@ function VisibilitySection({ ctx }: { ctx: ProjectDetailContext }) {
   })
 
   return (
-    <ProjectSection description="프로젝트 내용의 공개 범위입니다. 인증 기록의 프로필 공개 범위는 프로필의 기록별 설정에서 따로 정합니다." title="공개 범위">
+    <ProjectSection
+      description="팀 전체에 적용되는 프로젝트 내용의 공개 범위입니다. 전체 공개일 때만 기업 인재 검색에 프로젝트 내용이 쓰입니다. 내 프로필에 보일지는 위 ‘내 프로필 표시’에서, 인증 기록의 공개 범위는 프로필의 기록별 설정에서 각자 정합니다."
+      title="공개 범위"
+    >
       <div aria-label="공개 범위" className="grid gap-2 sm:grid-cols-3" role="group">
         {(Object.keys(VISIBILITY_META) as Visibility[]).map((option) => {
           const active = project.visibility === option.toUpperCase()

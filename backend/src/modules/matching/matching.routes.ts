@@ -7,7 +7,6 @@ import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization
 import { runAiTask } from '../../services/ai/runner.js'
 import { audit } from '../../services/audit/audit.js'
 import { assertOrgCapacity } from '../../services/billing/entitlements.js'
-import { hiddenProjectsByUser } from '../../services/projects/profileDisplay.js'
 import {
   buildTalentExplanationInput,
   fallbackExplanation,
@@ -16,7 +15,8 @@ import {
 } from '../../services/ai/tasks/talentExplanation.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
-import { rankCandidates, SCORING_BASIS, SCORING_VERSION, searchCriteriaSchema, WEIGHTS, type MatchEvidence } from './scoring.js'
+import { checkSearchResults, type ResultState } from './resultPrivacy.js'
+import { rankCandidates, SCORING_BASIS, SCORING_VERSION, searchCriteriaSchema, WEIGHTS } from './scoring.js'
 
 export const talentRouter = Router({ mergeParams: true })
 
@@ -36,74 +36,65 @@ const access = [authenticate, requireOrgAccess({ requireApproved: true }), compa
 
 const feedbackSchema = z.object({ feedback: z.enum(['shortlisted', 'contacted', 'not_a_fit']).nullable() })
 
-type StoredEvidence = MatchEvidence & { explanation?: CandidateExplanation | null }
-
-async function loadResults(searchId: string) {
+/**
+ * Consent, profile hiding, project visibility and record disclosure are re-checked on every read (see
+ * resultPrivacy): stale results are re-scored from what is shareable now, and ordered by the current score.
+ */
+async function loadResults(search: { id: string; criteria: Prisma.JsonValue; createdAt: Date }) {
   const rows = await prisma.matchResult.findMany({
-    where: { searchId },
+    where: { searchId: search.id },
     orderBy: { rank: 'asc' },
     select: {
       id: true,
+      candidateId: true,
       rank: true,
       score: true,
       breakdown: true,
       evidence: true,
-      explanation: true,
       explanationSource: true,
       explanationModel: true,
       feedback: true,
       feedbackAt: true,
-      candidate: {
-        select: { id: true, name: true, avatarUrl: true, profile: { select: { headline: true, school: true, talentSearchOptIn: true } } },
-      },
+      candidate: { select: { id: true, name: true, avatarUrl: true, profile: { select: { headline: true, school: true } } } },
     },
   })
-  // Projects hidden from the profile since the search are dropped from its evidence on every read too.
-  const hidden = await hiddenProjectsByUser(rows.map((row) => row.candidate.id))
-  const recordIds = rows.flatMap((row) => (hidden.has(row.candidate.id) ? (row.evidence as unknown as StoredEvidence).verified.map((item) => item.id) : []))
-  const recordProjects = new Map(
-    recordIds.length
-      ? (await prisma.verifiedRecord.findMany({ where: { id: { in: recordIds } }, select: { id: true, projectId: true } })).map((record) => [
-          record.id,
-          record.projectId,
-        ])
-      : [],
-  )
-  // Consent is re-checked on every read: withdrawn candidates are hidden from past searches too.
-  return rows.map((row) => {
-    if (!row.candidate.profile?.talentSearchOptIn) {
-      return { id: row.id, rank: row.rank, withdrawn: true as const }
-    }
-    const stored = row.evidence as unknown as StoredEvidence
-    const hiddenIds = hidden.get(row.candidate.id)
-    const evidence: StoredEvidence = hiddenIds
-      ? {
-          ...stored,
-          projects: stored.projects.filter((project) => !hiddenIds.has(project.id)),
-          verified: stored.verified.filter((item) => !hiddenIds.has(recordProjects.get(item.id) ?? '')),
-        }
-      : stored
-    return {
-      id: row.id,
-      rank: row.rank,
-      withdrawn: false as const,
-      score: row.score,
-      breakdown: row.breakdown,
-      evidence: { ...evidence, explanation: undefined },
-      explanation: evidence.explanation ?? null,
-      explanationSource: row.explanationSource,
-      explanationModel: row.explanationModel,
-      feedback: row.feedback?.toLowerCase() ?? null,
-      feedbackAt: row.feedbackAt,
-      candidate: {
-        id: row.candidate.id,
-        name: row.candidate.name,
-        avatarUrl: row.candidate.avatarUrl,
-        headline: row.candidate.profile.headline,
-        school: row.candidate.profile.school,
-      },
-    }
+  const states = await checkSearchResults(search, rows)
+  const shown = rows
+    .map((row) => ({ row, state: states.get(row.id)! }))
+    .filter((entry): entry is { row: (typeof rows)[number]; state: Exclude<ResultState, { kind: 'withdrawn' }> } => entry.state.kind !== 'withdrawn')
+    .sort((a, b) => b.state.score - a.state.score || a.row.rank - b.row.rank)
+  const withdrawn = rows.flatMap((row) => {
+    const state = states.get(row.id)!
+    return state.kind === 'withdrawn' ? [{ row, reason: state.reason }] : []
   })
+  return [
+    ...shown.map(({ row, state }, index) => {
+      const { explanation, recalculatedAt, purged: _purged, ...evidence } = state.evidence
+      return {
+        id: row.id,
+        rank: index + 1,
+        withdrawn: false as const,
+        recalculated: Boolean(recalculatedAt),
+        recalculatedAt: recalculatedAt ?? null,
+        score: state.score,
+        breakdown: state.breakdown,
+        evidence,
+        explanation: explanation ?? null,
+        explanationSource: state.explanationSource,
+        explanationModel: state.explanationModel,
+        feedback: row.feedback?.toLowerCase() ?? null,
+        feedbackAt: row.feedbackAt,
+        candidate: {
+          id: row.candidate.id,
+          name: row.candidate.name,
+          avatarUrl: row.candidate.avatarUrl,
+          headline: row.candidate.profile?.headline ?? null,
+          school: row.candidate.profile?.school ?? null,
+        },
+      }
+    }),
+    ...withdrawn.map(({ row, reason }, index) => ({ id: row.id, rank: shown.length + index + 1, withdrawn: true as const, reason })),
+  ]
 }
 
 talentRouter.get('/meta', ...access, (_req, res) => {
@@ -181,7 +172,7 @@ talentRouter.post('/searches', ...access, async (req, res, next) => {
     })
     res.status(201).json({
       search: { id: search.id, title: search.title, criteria, scoringVersion: SCORING_VERSION, candidateCount: ranked.length, createdAt: search.createdAt },
-      results: await loadResults(search.id),
+      results: await loadResults(search),
     })
   } catch (error) {
     next(error)
@@ -211,7 +202,7 @@ talentRouter.get('/searches/:searchId', ...access, async (req, res, next) => {
       select: { id: true, title: true, criteria: true, scoringVersion: true, candidateCount: true, createdAt: true },
     })
     if (!search) throw new HttpError(404, '검색 기록을 찾을 수 없습니다.')
-    res.status(200).json({ search, results: await loadResults(search.id) })
+    res.status(200).json({ search, results: await loadResults(search) })
   } catch (error) {
     next(error)
   }

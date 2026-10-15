@@ -26,6 +26,7 @@ import { HttpError } from '../../utils/httpError.js'
 import { getProgramAccess } from '../../utils/programAccess.js'
 import { isLeaderSlug } from '../../utils/projectPermissions.js'
 import { issueVerifiedRecord, revokeVerifiedRecord } from '../../services/verification/verifiedRecords.js'
+import { refreshCandidateResultsSafely } from '../matching/resultPrivacy.js'
 import {
   createEvidenceSchema,
   reviewEvidenceSchema,
@@ -511,6 +512,7 @@ evidenceRouter.post('/:evidenceId/revoke', authenticate, async (req, res, next) 
       })
       await revokeVerifiedRecord(tx, { evidenceId: evidence.id, actorId: authUser.id, reason })
     })
+    await refreshCandidateResultsSafely([evidence.authorId])
 
     await audit(req, res, {
       action: 'evidence.revoke',

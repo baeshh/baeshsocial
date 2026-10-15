@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { Router, type Response } from 'express'
 import { prisma } from '../../config/prisma.js'
 import { authenticate, optionalAuthenticate } from '../../middlewares/auth.middleware.js'
+import { refreshCandidateResultsSafely } from '../matching/resultPrivacy.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { decodeCursor } from '../../utils/pagination.js'
@@ -71,6 +72,7 @@ profilesRouter.patch('/me', authenticate, async (req, res, next) => {
       create: { userId: authUser.id, ...data },
       update: data,
     })
+    if (input.talentSearchOptIn === false || input.skills !== undefined) await refreshCandidateResultsSafely([authUser.id])
     res.status(200).json(await buildProfileOverview(await resolveProfileViewer(authUser.id, authUser.id)))
   } catch (error) {
     next(error)
