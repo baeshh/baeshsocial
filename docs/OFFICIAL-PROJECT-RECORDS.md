@@ -112,7 +112,7 @@ erDiagram
 
 ### 3.4 권한
 
-- 조회: 기록 소유 기관의 OWNER·ADMIN은 기관 기록 전부, 그 외 구성원은 **자신이 담당하는 프로그램의 기록만**. 원본 프로그램이 지워진 기록은 OWNER·ADMIN만 본다. 다른 기관·기업은 404.
+- 조회: 기록 소유 기관의 OWNER·ADMIN은 기관 기록 전부, MANAGER는 **자신이 담당하는 프로그램의 기록만**. MEMBER와 참여 학생은 볼 수 없다(403). 원본 프로그램이 지워진 기록은 OWNER·ADMIN만 본다. 다른 기관 구성원이 이 기관 경로로 들어오면 소속 검증 단계에서 403이 나고 감사 로그(`org.access_denied`)에 남는다. 자기 기관 경로로 남의 기록 ID를 넣으면 404다.
 - 정정: 담당 프로그램 스태프와 OWNER·ADMIN. 비식별화와 보존 정책 변경: OWNER·ADMIN.
 - 승인되지 않은 기관에는 권한이 없다(`requireApproved`).
 - **기관의 보존 권한은 기업의 인재 검색 권한이 아니다.** 인재 검색은 학생 동의, 프로필 숨김, 프로젝트 공개 범위, 인증 기록 공개 범위만 따른다. 공식 기록 테이블은 읽지 않으며, 기업이 운영한 프로그램이어도 같다.
@@ -167,7 +167,24 @@ erDiagram
 - 원본 삭제 API가 보호되고, DB Restrict가 직접 삭제도 막는다. 반려된 신청은 프로젝트 삭제 후에도 남는다.
 - 마이그레이션은 CI 업그레이드 경로 검사로, 백필은 멱등성과 FINAL 판정으로 검증한다.
 
-## 7. 후속 PR
+## 7. 구현 메모
+
+- 서비스: `backend/src/services/records/programProjectRecords.ts`. 기록 생성은 호출한 트랜잭션 안에서 프로젝트 행을 잠근 뒤 수행해, 기관 행위와 기록 판이 함께 커밋되거나 함께 롤백된다.
+- 연결 지점: 연결 신청 승인(`registration.approved`), 담당자 프로젝트 생성(`project.created`), 프로그램 간 이동(`project.moved_out` 확정 → `project.moved_in`), 팀원 배정·제외(`team.assigned`, `team.member_removed`), 참여자 제외(`participant.removing` → `participant.removed`), 성과 인증·팀원 인증·인증 취소, 증빙 승인·반려·승인 취소, 프로그램에서 제외(`project.removing` → `project.removed` 확정), 프로그램 종료(`program.completed`)와 재개(`program.reopened`).
+- API: `/api/organizations/:orgId/project-records` (목록, 상세와 이벤트, `versions/:version`, `corrections`, `redactions`, `retention-policy` GET/PUT). 정정·비식별화·보존 정책 변경은 감사 로그에 남는다.
+- 비식별화는 과거 판의 스냅샷을 고치는 유일한 경우라, 고친 판들의 해시와 `previousHash` 연결을 다시 계산하고 REDACTED 이벤트에 수행자와 사유를 남긴다. 이후 생성되는 판에도 `redactedUserIds`가 적용된다.
+- 프로그램 삭제 API는 공식 기록이 있으면 409(`counts.officialRecords`)로 막는다. DB에서도 기록이 남아 있는 기관은 지울 수 없다.
+- 백필로 만든 판은 팀 구성과 증빙을 백필 시점 원본에서 읽는다(`trigger: backfill`, 사유 기록). 이미 프로그램을 떠난 프로젝트는 당시 팀을 알 수 없어 현재 팀원을 `onTeam: false`로 남긴다.
+- 연결 신청 목록 API는 원본 프로젝트가 지워진 신청을 `project: null`과 신청 시점 스냅샷으로 돌려주고, 화면은 "삭제된 프로젝트"로 표시한다.
+- 로컬 시드 정리(`prisma/fixtureCleanup.ts`)는 Restrict 순서에 맞춰 자식 행부터 지운다. 로컬 픽스처 전용이다.
+
+## 8. 검증 결과 (로컬)
+
+- 백엔드 171개 통과. 신규 `tests/officialRecords.test.ts` 21개: 숨김 후 기록 유지, 팀원 제외 후 이력 유지, 종료 후 조회와 확정 판 고정, 철회·정정 이력과 해시 연결, 담당 외 구성원·일반 구성원·참여자·다른 기관·기업·미승인 기관 차단, 비식별화, 삭제 API 차단과 DB Restrict, 반려 신청 보존, 재연결 REOPENED, 기업 인재 검색 미반영, 마이그레이션 FK 규칙, 백필 멱등성과 FINAL 판정.
+- Playwright 83개 통과(공식 기록 API 흐름 1개 추가).
+- 파괴적 마이그레이션 가드 통과. 업그레이드 경로 검사(기준 브랜치 시드 → 마이그레이션 → 행 손실 없음, 스키마 일치, 백필 2회 실행 시 두 번째는 변경 없음) 통과. 기준 시드에는 프로그램 프로젝트가 없어 실제 백필 건수 검증은 단위 테스트가 맡는다.
+
+## 9. 후속 PR
 
 - 기관 공식 기록 화면(기관 콘솔)
 - `ProgramParticipant` 소프트 삭제
