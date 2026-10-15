@@ -13,7 +13,7 @@ export function ProfileDisplaySection({ ctx }: { ctx: ProjectDetailContext }) {
 
   return (
     <ProjectSection
-      description="이 프로젝트가 내 프로필, 공개 포트폴리오, 대표 프로젝트, 기업 인재 검색에 보이는지 정합니다. 나에게만 적용됩니다."
+      description="이 프로젝트가 내 프로필, 공개 포트폴리오, 대표 프로젝트, 기업 인재 검색에 보이는지 정합니다. 나에게만 적용되며, 프로젝트 자체의 공개 범위는 팀이 정하는 별도 설정입니다."
       title="내 프로필 표시"
     >
       <p className="flex items-center gap-2 text-sm font-semibold text-ink-strong" role="status">
@@ -21,7 +21,7 @@ export function ProfileDisplaySection({ ctx }: { ctx: ProjectDetailContext }) {
         {hidden ? '내 프로필에서 숨김' : '내 프로필에 표시 중'}
       </p>
       <p className="mt-2 text-sm leading-6 text-ink-body">
-        숨겨도 팀 작업 접근, 다른 팀원의 프로필은 바뀌지 않습니다.
+        숨기면 다른 사람이 보는 내 프로필과 기업 인재 검색(이미 저장된 검색 결과 포함)에서 빠집니다. 프로젝트의 공개 범위, 팀 작업 접근, 다른 팀원의 프로필은 바뀌지 않습니다.
         {project.program ? ' 기관의 운영·검증 기록도 공식 기록으로 그대로 보존됩니다.' : ' 기관 검증 기록이 있다면 그대로 보존됩니다.'}
         {hidden ? ' 다시 표시하면 대표 프로젝트 고정도 복구됩니다.' : ''}
       </p>
