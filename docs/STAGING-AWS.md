@@ -54,7 +54,7 @@ ssh ubuntu@<탄력적 IP> 'sudo ls -l /srv/baesh/staging/shared/backend.env'   #
 ```
 
 - [ ] Node 22, PM2, nginx, certbot, `postgresql-client-16`, aws-cli 설치
-- [ ] Chromium 시스템 라이브러리(`playwright install-deps chromium`) 설치 — PDF 리포트용
+- [ ] Chromium 시스템 라이브러리(`playwright install-deps chromium`)와 `fonts-noto-cjk` 설치 — PDF 리포트용. 빠져 있으면 `deploy.sh`가 PDF 스모크 테스트에서 배포를 멈춥니다(마이그레이션·전환 전)
 - [ ] ClamAV: 부팅 로그에 `check-clamav.sh`의 `ok` 네 줄 — 최종 `clamd.conf`의 `TCPAddr 127.0.0.1`·`TCPSocket 3310`·`StreamMaxLength 110M`, PING 응답, EICAR 탐지, 정상 60MB 파일 OK(30초 이내). 실패하면 `sudo systemctl status clamav-daemon clamav-freshclam` (`MALWARE_SCAN_REQUIRED=true`라 clamd가 준비되기 전까지 업로드는 거부됩니다)
 - [ ] `/etc/ssl/certs/rds-global-bundle.pem` 존재 (RDS는 TLS를 강제하고, Node가 이 CA로 인증서를 검증)
 - [ ] `backend.env` 생성됨 (SSM 값 반영). 실패했다면 `sudo -u baesh BAESH_ENV=staging /usr/local/lib/baesh/render-env.sh`
@@ -145,7 +145,20 @@ sudo systemctl enable --now baesh-backup@staging.timer baesh-restore-drill@stagi
 
 - [ ] 검사기 장애 시 업로드 거부(fail-closed): `sudo systemctl stop clamav-daemon` → 아무 정상 PDF 업로드 → "악성코드 검사기를 사용할 수 없어 업로드를 거부했습니다" → `sudo systemctl start clamav-daemon` 후 `check-clamav.sh --wait 300` 재통과
 - 참고: EICAR 원본 파일은 앱에서 직접 올릴 수 없습니다. 업로드 검증이 ClamAV보다 먼저 확장자·파일 서명(JPG/PNG/WEBP/PDF/MP4/MOV/WEBM)을 확인하고, ClamAV의 EICAR 시그니처는 원본 파일 그대로일 때만 일치합니다. 그래서 EICAR 탐지는 위 `check-clamav.sh`로 clamd에서 확인하고, 앱→clamd 연결은 `scanStatus=clean`과 fail-closed로 확인합니다.
-- [ ] 포트폴리오 PDF 다운로드 → 한글이 깨지지 않고 "규칙 기반" 표시
+- [ ] PDF 스모크 테스트(서버): `sudo -u baesh BAESH_ENV=staging /srv/baesh/staging/current/deploy/scripts/check-pdf.sh` → `PDF ok: … Korean font NotoSansCJK…`. 배포 때 `deploy.sh`가 전환 전에 같은 점검을 하므로, 이것은 전환 후 실서비스 릴리스에 대한 재확인입니다
+- [ ] PDF 스모크 테스트(API, 실제 기능 경로): 테스트 계정으로 아래를 실행합니다. 포트폴리오는 프로젝트가 1개 이상 있어야 만들어지고(없으면 400), PDF는 유료 기능이라 관리자가 먼저 `/admin/billing`에서 테스트 계정에 개인 Pro 플랜을 부여합니다
+
+  ```bash
+  API=https://staging-api.baesh.cloud/api
+  TOKEN=$(curl -fsS -X POST "$API/auth/login" -H 'Content-Type: application/json' \
+    -d '{"email":"<테스트 계정>","password":"<비밀번호>"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+  ID=$(curl -fsS -X POST "$API/ai/portfolio" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{}' \
+    | node -pe 'JSON.parse(require("fs").readFileSync(0)).analysisId')
+  curl -fsS -o portfolio.pdf -w '%{http_code} %{content_type}\n' -H "Authorization: Bearer $TOKEN" "$API/ai/portfolio/$ID/pdf"
+  head -c 5 portfolio.pdf   # %PDF-
+  ```
+
+  → `200 application/pdf`, 파일을 열어 한글이 네모(□)로 깨지지 않고, 하단에 "근거 기반 자동 생성", 본문에 규칙 기반(mock) 표시가 있는지 확인합니다. 무료 플랜 계정은 402/403이 정상입니다
 - [ ] `sudo systemctl start baesh-backup@staging.service` → S3 `baesh-staging-backups/db/staging/`에 덤프·매니페스트
 - [ ] `sudo systemctl start baesh-restore-drill@staging.service` → 임시 DB 복원 성공, `/admin/ops` 운영 기록에 표시
 - [ ] 롤백 연습: 서버에서 `sudo -u baesh BAESH_ENV=staging /srv/baesh/staging/current/deploy/scripts/rollback.sh` → 이전 릴리스로 돌아간 뒤 다시 배포. 마이그레이션 `20261018000100_confirm_existing_selections` 이후에는 그 이전 릴리스가 새 지원 상태 값을 읽지 못하므로, 그보다 오래된 릴리스로는 코드만 롤백하지 말고 백업 복원을 사용합니다 (RUNBOOK "프로그램 선발 흐름").

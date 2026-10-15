@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Usage: BAESH_ENV=staging|production deploy.sh <release.tgz> <version>
 #
-# 1. unpack into releases/<version>   2. install prod deps, prisma generate
+# 1. unpack into releases/<version>   2. install prod deps, prisma generate, Chromium + PDF smoke test
 # 3. (production) backup the DB        4. block destructive migrations unless approved
 # 5. prisma migrate deploy             6. switch `current` atomically, reload PM2
 # 7. health + version check → on failure switch back to the previous release and alert
@@ -57,7 +57,11 @@ ln -sfn "$SHARED_DIR/storage" storage
 log "installing dependencies"
 npm ci --omit=dev --no-audit --no-fund >/dev/null || fail "npm ci failed"
 npx prisma generate >/dev/null || fail "prisma generate failed"
-npx playwright install chromium >/dev/null 2>&1 || log "warning: playwright chromium install failed (PDF reports need it)"
+log "installing Chromium for PDF reports"
+npx playwright install chromium >/dev/null || fail "playwright chromium install failed (PDF reports need it)"
+log "PDF smoke test"
+"$DIR/check-pdf.sh" "$RELEASE_DIR/backend" ||
+  fail "PDF smoke test failed: Chromium, its system libraries or Korean fonts are missing (docs/STAGING-AWS.md step 3)"
 
 if [ "$BAESH_ENV" = "production" ]; then
   log "pre-deploy database backup"

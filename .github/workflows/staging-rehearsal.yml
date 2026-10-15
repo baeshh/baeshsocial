@@ -64,11 +64,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Server tooling (PM2, PostgreSQL 16 client)
+      - name: Server tooling (PM2, PostgreSQL 16 client, Korean fonts, Chromium libraries)
         run: |
           npm install -g pm2@5 --no-audit --no-fund --loglevel=error
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-16 >/dev/null
-          pg_dump --version && pm2 --version
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-16 fonts-noto-cjk >/dev/null
+          # Same as deploy/scripts/staging-user-data.sh, so deploy.sh's PDF smoke test sees a server-like host.
+          PLAYWRIGHT_VERSION="$(awk '/"node_modules\/playwright": \{/ { found = 1 } found && /"version"/ { gsub(/[",]/, "", $2); print $2; exit }' backend/package-lock.json)"
+          sudo env "PATH=$PATH" npx -y "playwright@${PLAYWRIGHT_VERSION}" install-deps chromium >/dev/null
+          pg_dump --version && pm2 --version && fc-list :lang=ko family | head -n 1
       - name: Rehearse deploy, auto-rollback, manual rollback and backup
         env:
           BASE_BRANCH: ${{ inputs.base || github.base_ref || github.event.repository.default_branch }}
