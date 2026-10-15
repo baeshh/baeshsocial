@@ -297,9 +297,12 @@ describe('access', () => {
     const after = await current()
     expect(after.events.at(-1)).toMatchObject({ action: 'REDACTED', reason: '본인 삭제 요청', actorId: owner.user.id })
     for (const row of [after, ...after.events]) {
-      const mateRow = snapshotOf(row).participants.find((p) => p.userId === mate.user.id)
-      if (mateRow) expect(mateRow).toMatchObject({ name: REDACTED_NAME, role: null })
-      expect(JSON.stringify(row.snapshot)).not.toContain('동료 학생')
+      const { redactedUserIds, ...visible } = snapshotOf(row)
+      expect(redactedUserIds).toEqual([mate.user.id])
+      expect(JSON.stringify(visible)).not.toContain(mate.user.id)
+      expect(JSON.stringify(visible)).not.toContain('동료 학생')
+      const mateRow = visible.participants.find((p) => p.userId === 'redacted:1')
+      if (row.version >= 2) expect(mateRow).toMatchObject({ name: REDACTED_NAME, role: null })
     }
     for (let i = 1; i < after.events.length; i += 1) expect(after.events[i].previousHash).toBe(after.events[i - 1].contentHash)
 
