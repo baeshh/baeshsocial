@@ -23,7 +23,7 @@ export async function computeOrgUsage(organizationId: string, subscription: Subs
   const now = Date.now()
   const periodStart = subscription?.startsAt ?? new Date(now - 365 * DAY)
   const programWhere = { program: { organizationId } }
-  const [members, participants, activePrograms, projects, evidenceBytes, reportBytes, reports, searches, aiCalls, applicationBytes] = await Promise.all([
+  const [members, participants, activePrograms, projects, evidenceBytes, reportBytes, reports, searches, aiCalls, applicationBytes, projectFileBytes] = await Promise.all([
     prisma.organizationMember.count({ where: { organizationId, status: OrganizationMemberStatus.ACTIVE } }),
     prisma.programParticipant.groupBy({ by: ['userId'], where: orgParticipantWhere(organizationId) }).then((rows) => rows.length),
     prisma.program.count({ where: { organizationId, status: ProgramStatus.ACTIVE } }),
@@ -38,9 +38,13 @@ export async function computeOrgUsage(organizationId: string, subscription: Subs
       where: { organizationId, createdAt: { gte: new Date(now - DAY) }, status: { notIn: ['RATE_LIMITED', 'BUDGET_EXCEEDED'] } },
     }),
     prisma.programApplicationFile.aggregate({ _sum: { sizeBytes: true }, where: { application: programWhere } }),
+    prisma.projectFile.aggregate({ _sum: { sizeBytes: true }, where: { project: programWhere } }),
   ])
   const storageBytes =
-    (evidenceBytes._sum.sizeBytes ?? 0) + (reportBytes._sum.sizeBytes ?? 0) + (applicationBytes._sum.sizeBytes ?? 0)
+    (evidenceBytes._sum.sizeBytes ?? 0) +
+    (reportBytes._sum.sizeBytes ?? 0) +
+    (applicationBytes._sum.sizeBytes ?? 0) +
+    (projectFileBytes._sum.sizeBytes ?? 0)
   return {
     members,
     participants,

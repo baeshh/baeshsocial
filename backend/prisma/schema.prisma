@@ -785,13 +785,20 @@ model ProjectActivity {
   @@index([userId, createdAt])
 }
 
+/// A shared link (`url`) or a file stored in BAESH storage (`storageKey`); exactly one is set.
 model ProjectFile {
   id         String   @id @default(cuid())
   projectId  String
   name       String
-  url        String
+  url        String?
   fileType   String
   uploadedBy String
+  /// Internal object key; files are served only through short-lived signed URLs.
+  storageKey String?  @unique
+  mimeType   String?
+  sizeBytes  Int?
+  sha256     String?
+  scanStatus String?
   createdAt  DateTime @default(now())
   project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   uploader   User     @relation("FileUploader", fields: [uploadedBy], references: [id])
