@@ -15,6 +15,7 @@ export const COMPANY = 'E2E 테크'
 export const MOVE_TARGET = 'E2E 이동 대상 프로그램'
 export const JOBS_PROGRAM = 'E2E 공개 모집 프로그램'
 export const POSTINGS = { internship: 'E2E 프론트엔드 인턴십', education: 'E2E 데이터 분석 교육', closed: 'E2E 마감된 채용' } as const
+export const PROJECTS = { program: 'E2E 증빙 팀 프로젝트', private: 'E2E 비공개 개인 프로젝트' } as const
 
 export type Role = keyof typeof USERS
 
