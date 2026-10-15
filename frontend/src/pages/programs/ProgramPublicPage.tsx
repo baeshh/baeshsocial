@@ -50,7 +50,8 @@ function canEditApplication(program: DiscoverableProgram) {
   return !status || status === 'draft' || status === 'withdrawn'
 }
 
-function StatusCard({ program, signedIn, onChanged }: { program: DiscoverableProgram; signedIn: boolean; onChanged: () => void }) {
+/** 참여 신청 card beside the recruitment page; the wizard preview renders it for a not-yet-applied student. */
+export function ProgramStatusCard({ program, signedIn, onChanged }: { program: DiscoverableProgram; signedIn: boolean; onChanged: () => void }) {
   const token = useAuthStore((s) => s.token)
   const location = useLocation()
   const { recruitment, myStatus } = program
@@ -247,7 +248,7 @@ export function ProgramPublicPage() {
               <ProgramApplicationForm key={program.id} onChanged={refresh} program={program} shareToken={shareToken} token={token} />
             ) : null
           }
-          aside={<StatusCard onChanged={refresh} program={program} signedIn={signedIn} />}
+          aside={<ProgramStatusCard onChanged={refresh} program={program} signedIn={signedIn} />}
           program={program}
         />
       </div>

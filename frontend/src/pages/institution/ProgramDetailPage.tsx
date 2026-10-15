@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Badge } from '../../components/common/Badge'
+import { Button } from '../../components/common/Button'
 import { Tabs, type TabItem } from '../../components/common/Tabs'
 import { ProgramKpiPanel } from '../../components/institution/KpiPanels'
 import { ProgramApplicationsPanel } from '../../components/institution/ProgramApplicationsPanel'
@@ -144,6 +145,11 @@ export function ProgramDetailPage() {
               >
                 {program.publishedAt ? '공개 페이지 보기' : '공고 미리보기'}
               </Link>
+            ) : null}
+            {myAccess.isStaff && !program.publishedAt ? (
+              <Button size="sm" to={`/org/${orgId}/programs/${program.id}/setup`}>
+                이어서 작성
+              </Button>
             ) : null}
           </div>
           <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">

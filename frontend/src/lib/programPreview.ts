@@ -5,6 +5,14 @@ import { fromDateTimeInput, takesApplications } from './programs'
 
 export type WizardStepId = 'basics' | 'recruitment' | 'form' | 'preview' | 'review'
 
+export const WIZARD_STEP_LABEL: Record<WizardStepId, string> = {
+  basics: '기본 정보',
+  recruitment: '모집 설정',
+  form: '지원서 설계',
+  preview: '미리보기',
+  review: '검토·게시',
+}
+
 export type ReviewItem = { step: WizardStepId; message: string }
 
 function previewState(form: ProgramFormValue): RecruitmentState {

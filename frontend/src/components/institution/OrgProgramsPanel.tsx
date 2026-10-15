@@ -1,25 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
 import { CalendarDays, FolderKanban, GraduationCap, Plus, Users } from 'lucide-react'
-import { useState } from 'react'
-import { hasOrgRole } from '../../lib/organizations'
 import { PROGRAM_STATUS_META, PROGRAM_VISIBILITY_META, RECRUITMENT_MODE_META, RECRUITMENT_STATE_META, formatPeriod } from '../../lib/programs'
 import { getOrganizationPrograms } from '../../services/programService'
 import { useAuthStore } from '../../stores/authStore'
-import type { Organization, OrganizationRole } from '../../types/organization'
+import type { Organization } from '../../types/organization'
 import { Badge } from '../common/Badge'
 import { Button } from '../common/Button'
 import { Card } from '../common/Card'
 import { EmptyState } from '../common/EmptyState'
 import { LoadingState } from '../common/LoadingState'
-import { ProgramCreateWizard } from './ProgramCreateWizard'
 import { ErrorState } from '../common/ErrorState'
 
-type Props = { organization: Organization; myRole: OrganizationRole }
+type Props = { organization: Organization }
 
-export function OrgProgramsPanel({ organization, myRole }: Props) {
+export function OrgProgramsPanel({ organization }: Props) {
   const token = useAuthStore((state) => state.token)
-  const [createOpen, setCreateOpen] = useState(false)
-  const isAdmin = organization.verificationStatus === 'approved' && hasOrgRole(myRole, 'admin')
 
   const programsQuery = useQuery({
     queryKey: ['programs', 'org', organization.id],
@@ -45,7 +40,7 @@ export function OrgProgramsPanel({ organization, myRole }: Props) {
               : '참여 중인 프로그램과 조직에 공개된 프로그램이 표시됩니다.'}
         </p>
         {canCreate ? (
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button to={`/org/${organization.id}/programs/new`}>
             <Plus className="mr-1" size={16} /> 프로그램 만들기
           </Button>
         ) : null}
@@ -106,7 +101,12 @@ export function OrgProgramsPanel({ organization, myRole }: Props) {
                 ) : program.description ? (
                   <p className="mt-3 line-clamp-2 text-sm text-ink-body">{program.description}</p>
                 ) : null}
-                <div className="mt-auto flex items-center gap-2 pt-4">
+                <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
+                  {unpublished ? (
+                    <Button aria-label={`${program.title} 이어서 작성`} className="min-h-9 px-4" to={`/org/${organization.id}/programs/${program.id}/setup`}>
+                      이어서 작성
+                    </Button>
+                  ) : null}
                   <Button
                     className="min-h-9 px-4"
                     to={member ? `/org/${organization.id}/programs/${program.id}` : `/programs/${program.id}`}
@@ -121,15 +121,6 @@ export function OrgProgramsPanel({ organization, myRole }: Props) {
           })}
         </div>
       )}
-
-      {canCreate ? (
-        <ProgramCreateWizard
-          canAssignManagers={isAdmin}
-          onClose={() => setCreateOpen(false)}
-          open={createOpen}
-          organization={organization}
-        />
-      ) : null}
     </div>
   )
 }
