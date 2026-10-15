@@ -126,6 +126,15 @@ export type Project = {
 }
 
 /** List rows from GET /projects: summary fields plus counts instead of nested collections. */
+/** GET /projects/:id/deletion — blockers are institution records that keep the project from being deleted. */
+export type ProjectDeletionCheck = {
+  canDelete: boolean
+  hasPermission: boolean
+  canArchive: boolean
+  blockers: Array<{ code: string; count: number; message: string }>
+  impact: { otherMembers: number; tasks: number; activities: number; files: number; links: number }
+}
+
 export type ProjectSummary = Pick<
   Project,
   | 'id'

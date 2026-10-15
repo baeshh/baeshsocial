@@ -4,14 +4,13 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError } from '../../../lib/api'
 import { hasProjectPermission, isGuestProjectViewer } from '../../../lib/projectPermissions'
-import { deleteProject, getProject, leaveProject } from '../../../services/projectService'
+import { getProject, leaveProject } from '../../../services/projectService'
 import { useAuthStore } from '../../../stores/authStore'
 import type { ProjectPermission } from '../../../types/projectRole'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
 import { ProjectInstitutionPanel } from '../ProjectInstitutionPanel'
-import { ProjectDeleteModal } from '../ProjectDeleteModal'
 import { ProjectLeaveModal } from '../ProjectLeaveModal'
 import { TeamInviteModal } from '../TeamInviteModal'
 import { ProjectActivityTab } from './ProjectActivityTab'
@@ -31,8 +30,6 @@ export function ProjectDetailView({ token, projectId }: { token: string; project
   const queryClient = useQueryClient()
   const currentUserId = useAuthStore((state) => state.user?.id)
   const [searchParams, setSearchParams] = useSearchParams()
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [leaveOpen, setLeaveOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [compose, setCompose] = useState<{ kind: 'task' | 'activity'; request: number } | null>(null)
@@ -46,16 +43,6 @@ export function ProjectDetailView({ token, projectId }: { token: string; project
     void queryClient.invalidateQueries({ queryKey: ['projects'] })
     void queryClient.invalidateQueries({ queryKey: ['profiles'] })
   }
-  const remove = useMutation({
-    mutationFn: (password: string) => deleteProject(token, projectId, password),
-    onSuccess: () => {
-      setDeleteOpen(false)
-      setDeleteError(null)
-      void queryClient.invalidateQueries({ queryKey: ['projects'] })
-      navigate('/projects')
-    },
-    onError: (error: Error) => setDeleteError(error.message),
-  })
   const leave = useMutation({
     mutationFn: () => leaveProject(token, projectId),
     onSuccess: () => {
@@ -146,7 +133,7 @@ export function ProjectDetailView({ token, projectId }: { token: string; project
               projectId={project.id}
             />
           ) : null}
-          {activeTab === 'settings' ? <ProjectSettingsTab ctx={ctx} onDelete={() => setDeleteOpen(true)} /> : null}
+          {activeTab === 'settings' ? <ProjectSettingsTab ctx={ctx} /> : null}
         </div>
         <ProjectSummaryAside ctx={ctx} onInvite={() => setInviteOpen(true)} onSelectTab={selectTab} />
       </div>
@@ -173,17 +160,6 @@ export function ProjectDetailView({ token, projectId }: { token: string; project
         </div>
       ) : null}
 
-      <ProjectDeleteModal
-        error={deleteError}
-        isPending={remove.isPending}
-        onClose={() => {
-          setDeleteOpen(false)
-          setDeleteError(null)
-        }}
-        onConfirm={(password) => remove.mutate(password)}
-        open={deleteOpen}
-        projectTitle={project.title}
-      />
       <ProjectLeaveModal isPending={leave.isPending} onClose={() => setLeaveOpen(false)} onConfirm={() => leave.mutate()} open={leaveOpen} projectTitle={project.title} />
       {can('members.invite') ? (
         <TeamInviteModal

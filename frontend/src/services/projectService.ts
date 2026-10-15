@@ -1,6 +1,6 @@
 import { apiRequest, withQuery } from '../lib/api'
 import type { ProjectLink, ProjectLinkType } from '../types/profile'
-import type { Project, ProjectInvite, ProjectRegistrationBrief, ProjectSummary, TeamCandidates } from '../types/project'
+import type { Project, ProjectDeletionCheck, ProjectInvite, ProjectRegistrationBrief, ProjectSummary, TeamCandidates } from '../types/project'
 import type { PermissionCatalogItem, ProjectPermission, ProjectRole } from '../types/projectRole'
 
 export type ProjectPayload = {
@@ -281,11 +281,16 @@ export function addProjectFile(token: string, projectId: string, payload: FilePa
   })
 }
 
-export function deleteProject(token: string, projectId: string, password: string) {
+export function getProjectDeletion(token: string, projectId: string) {
+  return apiRequest<ProjectDeletionCheck>(`/projects/${projectId}/deletion`, { token })
+}
+
+/** `confirmTeamImpact` is required by the server once other members are on the team. */
+export function deleteProject(token: string, projectId: string, password: string, confirmTeamImpact = false) {
   return apiRequest<void>(`/projects/${projectId}`, {
     method: 'DELETE',
     token,
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, confirmTeamImpact }),
   })
 }
 
