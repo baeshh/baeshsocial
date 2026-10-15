@@ -103,20 +103,31 @@ function isPubliclyVisible(row: { visibility: ProjectVisibility; programId: stri
   return row.visibility === ProjectVisibility.PUBLIC && (!row.programId || Boolean(row.program?.allowPublicProjects))
 }
 
-/** Records the subject has verified; for other viewers only the ones neither the student nor the program hid. */
+/** Projects the subject has not hidden from their own profile. */
+export function shownOnProfileWhere(userId: string): Prisma.ProjectWhereInput {
+  return { displayPreferences: { none: { userId } } }
+}
+
+/**
+ * Records the subject has verified; for other viewers only the ones neither the student nor the program hid,
+ * on projects the student has not hidden from their profile.
+ */
 function shownRecordWhere(viewer: ProfileViewer): Prisma.VerifiedRecordWhereInput {
   return viewer.isSelf
     ? { userId: viewer.userId, ...trustedRecordWhere }
-    : { AND: [{ userId: viewer.userId, ...trustedRecordWhere }, disclosedRecordWhere] }
+    : { AND: [{ userId: viewer.userId, ...trustedRecordWhere }, disclosedRecordWhere, { project: shownOnProfileWhere(viewer.userId) }] }
 }
 
 /**
  * Others see public projects, projects they are on themselves, and non-public projects only through
  * a verified record the student chose to disclose — the latter as a limited card that shows the
  * verified title, affiliation, role and verification, but no content, skills, progress or links.
+ * Projects the student hid from their profile are left out for others; the student still sees them, marked
+ * hidden, unless `includeHidden` is false.
  */
-export function visibleProjectsWhere(viewer: ProfileViewer, filter: ProfileProjectFilter = 'all') {
+export function visibleProjectsWhere(viewer: ProfileViewer, filter: ProfileProjectFilter = 'all', includeHidden = viewer.isSelf) {
   const and: Prisma.ProjectWhereInput[] = [involvementWhere(viewer.userId)]
+  if (!includeHidden) and.push(shownOnProfileWhere(viewer.userId))
   if (!viewer.isSelf) {
     and.push({
       OR: [
@@ -160,6 +171,7 @@ function projectCardSelect(viewer: ProfileViewer) {
       select: { userId: true, role: true, contribution: true, projectRole: { select: { name: true } } },
     },
     externalLinks: { select: projectLinkSelect, take: 12 },
+    displayPreferences: { where: { userId: viewer.userId }, select: { hiddenAt: true } },
     verifiedRecords: {
       where: verifiedWhere,
       orderBy: { issuedAt: 'desc' },
@@ -230,27 +242,34 @@ function serializeProjectCard(row: ProjectCardRow, viewer: ProfileViewer, featur
           }
         : null,
     featured: featuredIds.includes(row.id),
+    /** Only ever true on the student's own profile; others never receive hidden projects. */
+    hiddenFromProfile: viewer.isSelf && row.displayPreferences.length > 0,
   }
 }
 
 export type ProfileProjectCard = ReturnType<typeof serializeProjectCard>
 
+/** Pinned ids stay stored while a project is hidden, so showing it again restores the pin. */
 async function featuredIdsOf(viewer: ProfileViewer) {
-  const profile = await prisma.profile.findUnique({
-    where: { id: viewer.profileId },
-    select: { featuredProjectIds: true },
-  })
-  return profile?.featuredProjectIds ?? []
+  const [profile, hidden] = await Promise.all([
+    prisma.profile.findUnique({ where: { id: viewer.profileId }, select: { featuredProjectIds: true } }),
+    prisma.projectDisplayPreference.findMany({ where: { userId: viewer.userId }, select: { projectId: true } }),
+  ])
+  const hiddenIds = new Set(hidden.map((row) => row.projectId))
+  return (profile?.featuredProjectIds ?? []).filter((id) => !hiddenIds.has(id))
 }
 
 export async function listProfileProjects(
   viewer: ProfileViewer,
-  options: { limit: number; cursor: SortKey | null; filter: ProfileProjectFilter },
+  options: { limit: number; cursor: SortKey | null; filter: ProfileProjectFilter; includeHidden?: boolean },
 ) {
   const [rows, featuredIds] = await Promise.all([
     prisma.project.findMany({
       where: {
-        AND: [visibleProjectsWhere(viewer, options.filter), keysetAfter('updatedAt', options.cursor) as Prisma.ProjectWhereInput],
+        AND: [
+          visibleProjectsWhere(viewer, options.filter, options.includeHidden),
+          keysetAfter('updatedAt', options.cursor) as Prisma.ProjectWhereInput,
+        ],
       },
       orderBy: keysetOrder('updatedAt') as Prisma.ProjectOrderByWithRelationInput[],
       take: options.limit + 1,
@@ -265,11 +284,11 @@ export async function listProfileProjects(
 export async function getFeaturedProjects(viewer: ProfileViewer) {
   const featuredIds = await featuredIdsOf(viewer)
   if (featuredIds.length === 0) {
-    const recent = await listProfileProjects(viewer, { limit: 2, cursor: null, filter: 'all' })
+    const recent = await listProfileProjects(viewer, { limit: 2, cursor: null, filter: 'all', includeHidden: false })
     return { mode: 'recent' as const, projects: recent.items }
   }
   const rows = await prisma.project.findMany({
-    where: { AND: [visibleProjectsWhere(viewer), { id: { in: featuredIds } }] },
+    where: { AND: [visibleProjectsWhere(viewer, 'all', false), { id: { in: featuredIds } }] },
     select: projectCardSelect(viewer),
   })
   const byId = new Map(rows.map((row) => [row.id, row]))
@@ -322,7 +341,8 @@ export type HistoryItem = {
   status: string | null
   verification: Verification | null
   link: string | null
-  project: { id: string; title: string; accessible: boolean } | null
+  /** `hiddenFromProfile` is only set on the student's own profile. */
+  project: { id: string; title: string; accessible: boolean; hiddenFromProfile?: boolean } | null
   editable: boolean
   fields: Record<string, string | null> | null
   record?: HistoryRecordControl | null
@@ -489,6 +509,7 @@ async function projectRecordEntries(viewer: ProfileViewer, opts: SourceOptions):
           programId: true,
           program: { select: { allowPublicProjects: true } },
           members: viewer.viewerId ? { where: { userId: viewer.viewerId }, select: { userId: true } } : false,
+          displayPreferences: viewer.isSelf ? { where: { userId: viewer.userId }, select: { hiddenAt: true } } : false,
         },
       },
       evidence: {
@@ -577,6 +598,7 @@ async function projectRecordEntries(viewer: ProfileViewer, opts: SourceOptions):
           id: row.project.id,
           title: showDetails ? row.project.title : projectTitle,
           accessible: viewer.isSelf || isPubliclyVisible(row.project) || viewerOnTeam,
+          ...(viewer.isSelf ? { hiddenFromProfile: Array.isArray(row.project.displayPreferences) && row.project.displayPreferences.length > 0 } : {}),
         },
         editable: false,
         fields: null,

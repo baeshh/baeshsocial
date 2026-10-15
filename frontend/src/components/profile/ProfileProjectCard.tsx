@@ -4,6 +4,7 @@ import { cn } from '../../lib/cn'
 import { formatDay, formatMonth } from '../../lib/profileFormat'
 import type { ProfileProjectCard as ProjectCardData } from '../../types/profile'
 import { ProjectLinkChips } from '../projects/ProjectLinkChips'
+import { ProfileHiddenNotice } from './ProfileHiddenNotice'
 
 const STATUS_LABELS: Record<NonNullable<ProjectCardData['status']>, string> = {
   PLANNING: '기획 중',
@@ -83,6 +84,12 @@ export function ProfileProjectCard({ project, variant = 'list', pin, linkToProje
           ) : null}
         </div>
       </div>
+
+      {project.hiddenFromProfile ? (
+        <div className="mt-2">
+          <ProfileHiddenNotice projectId={project.id} title={project.title} />
+        </div>
+      ) : null}
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
         {project.status ? (

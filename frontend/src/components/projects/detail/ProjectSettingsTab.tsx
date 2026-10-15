@@ -10,6 +10,7 @@ import type { Project } from '../../../types/project'
 import { Button } from '../../common/Button'
 import { Input, Select, Textarea } from '../../common/Input'
 import { ProjectRolesPanel } from '../ProjectRolesPanel'
+import { ProfileDisplaySection } from './ProfileDisplaySection'
 import type { ProjectDetailContext } from './projectDetailContext'
 import { ProjectRetentionSection } from './ProjectRetentionSection'
 import { ProjectSection } from './ProjectSection'
@@ -170,6 +171,7 @@ export function ProjectSettingsTab({ ctx }: { ctx: ProjectDetailContext }) {
   const { project, can } = ctx
   return (
     <div className="space-y-4">
+      <ProfileDisplaySection ctx={ctx} />
       {can('project.edit') ? <BasicInfoForm ctx={ctx} key={`info-${project.updatedAt}`} /> : null}
       {can('project.settings') ? <ProgressForm ctx={ctx} key={`progress-${project.updatedAt}`} /> : null}
       {can('project.settings') ? <VisibilitySection ctx={ctx} /> : null}

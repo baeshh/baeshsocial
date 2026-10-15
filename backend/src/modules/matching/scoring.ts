@@ -1,6 +1,7 @@
 import { ProjectVisibility, RecordDisclosure } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
+import { hiddenProjectsByUser } from '../../services/projects/profileDisplay.js'
 import {
   disclosedRecordWhere,
   effectiveDisclosure,
@@ -73,8 +74,24 @@ const round = (value: number, digits = 3) => Math.round(value * 10 ** digits) / 
 /**
  * Loads only consented, shareable data: candidates who opted in to talent search, their PUBLIC
  * projects, and their trusted (intact, non-revoked) verified records. Nothing else is read.
+ * Projects a candidate hid from their profile are dropped together with the records on them.
  */
 async function loadCandidates(criteria: SearchCriteria, excludeUserIds: string[]) {
+  const candidates = await loadCandidateRows(criteria, excludeUserIds)
+  const hidden = await hiddenProjectsByUser(candidates.map((candidate) => candidate.id))
+  return candidates.map((candidate) => {
+    const hiddenIds = hidden.get(candidate.id)
+    if (!hiddenIds) return candidate
+    return {
+      ...candidate,
+      ownedProjects: candidate.ownedProjects.filter((project) => !hiddenIds.has(project.id)),
+      projectMemberships: candidate.projectMemberships.filter((membership) => !hiddenIds.has(membership.project.id)),
+      verifiedRecords: candidate.verifiedRecords.filter((record) => !hiddenIds.has(record.project.id)),
+    }
+  })
+}
+
+async function loadCandidateRows(criteria: SearchCriteria, excludeUserIds: string[]) {
   const skillVariants = [...new Set(criteria.skills.flatMap(variants))]
   const publicWithSkills = { visibility: ProjectVisibility.PUBLIC, skills: { hasSome: skillVariants } }
   return prisma.user.findMany({

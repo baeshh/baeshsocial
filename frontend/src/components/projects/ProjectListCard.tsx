@@ -1,4 +1,4 @@
-import { Lock, UsersRound } from 'lucide-react'
+import { EyeOff, Lock, UsersRound } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { PROJECT_STATUS_META, relativeUpdated, TASK_STATUS_META, taskDue } from '../../lib/projectDisplay'
 import { PROJECT_KIND_LABEL } from '../../lib/projectSearch'
@@ -37,6 +37,11 @@ export function ProjectListCard({ project }: { project: ProjectSummary }) {
         {project.restricted ? (
           <Badge icon={<Lock aria-hidden size={12} />} tone="amber">
             열람 제한
+          </Badge>
+        ) : null}
+        {project.hiddenFromProfile ? (
+          <Badge icon={<EyeOff aria-hidden size={12} />} tone="gray">
+            프로필 숨김
           </Badge>
         ) : null}
       </div>

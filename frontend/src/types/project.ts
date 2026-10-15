@@ -125,7 +125,6 @@ export type Project = {
   externalLinks?: ProjectLink[]
 }
 
-/** List rows from GET /projects: summary fields plus counts instead of nested collections. */
 /** GET /projects/:id/deletion — blockers are institution records that keep the project from being deleted. */
 export type ProjectDeletionCheck = {
   canDelete: boolean
@@ -135,6 +134,10 @@ export type ProjectDeletionCheck = {
   impact: { otherMembers: number; tasks: number; activities: number; files: number; links: number }
 }
 
+/** The viewer's own profile setting for a project: `canSet` when it can appear on their profile at all. */
+export type ProfileDisplay = { canSet: boolean; hidden: boolean }
+
+/** List rows from GET /projects: summary fields plus counts instead of nested collections. */
 export type ProjectSummary = Pick<
   Project,
   | 'id'
@@ -165,4 +168,6 @@ export type ProjectSummary = Pick<
   restricted?: boolean
   /** The open task due soonest; null when none is open or the viewer may not see tasks. */
   nextTask?: Pick<ProjectTask, 'id' | 'title' | 'status' | 'dueDate'> | null
+  /** Hidden from the viewer's own profile; the project itself is unchanged. */
+  hiddenFromProfile?: boolean
 }

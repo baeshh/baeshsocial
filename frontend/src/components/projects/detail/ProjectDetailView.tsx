@@ -78,6 +78,7 @@ export function ProjectDetailView({ token, projectId }: { token: string; project
     restricted: data.restricted ?? false,
     isMember: Boolean(currentUserId && project.members.some((member) => member.userId === currentUserId && member.userId !== project.ownerId)),
     registration: data.registration ?? null,
+    profileDisplay: data.profileDisplay ?? { canSet: false, hidden: false },
     pendingInvites: data.pendingInvites ?? [],
     invalidate,
   }
@@ -90,7 +91,9 @@ export function ProjectDetailView({ token, projectId }: { token: string; project
     ...(can('files.view') ? [{ id: 'files' as const, label: '파일', count: project.files.length }] : []),
     ...(!ctx.guestViewer ? [{ id: 'evidence' as const, label: '증빙' }] : []),
     ...(project.program && !ctx.guestViewer ? [{ id: 'reviews' as const, label: '기관 검증' }] : []),
-    ...(can('project.edit') || can('project.settings') || can('roles.manage') || can('project.delete') ? [{ id: 'settings' as const, label: '설정' }] : []),
+    ...(can('project.edit') || can('project.settings') || can('roles.manage') || can('project.delete') || ctx.profileDisplay.canSet
+      ? [{ id: 'settings' as const, label: '설정' }]
+      : []),
   ]
   const requested = searchParams.get('tab')
   const activeTab: ProjectTabId = tabs.find((tab) => tab.id === requested)?.id ?? 'overview'

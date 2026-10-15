@@ -1,4 +1,4 @@
-import type { Project, ProjectInvite, ProjectRegistrationBrief } from '../../../types/project'
+import type { ProfileDisplay, Project, ProjectInvite, ProjectRegistrationBrief } from '../../../types/project'
 import type { ProjectPermission } from '../../../types/projectRole'
 
 /** What every detail tab needs: the project as the server returned it and the viewer's server-resolved access. */
@@ -16,6 +16,7 @@ export type ProjectDetailContext = {
   /** A non-owner team member of a personal project (may leave it). */
   isMember: boolean
   registration: ProjectRegistrationBrief | null
+  profileDisplay: ProfileDisplay
   pendingInvites: ProjectInvite[]
   invalidate: () => void
 }
