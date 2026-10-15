@@ -977,6 +977,7 @@ programsRouter.post('/:programId/projects/:projectId/move', authenticate, async 
         link: true,
       })
     })
+    await refreshCandidateResultsSafely(teamMembers.map((member) => member.userId))
 
     res.status(200).json({ ok: true, programId: destination.program.id })
   } catch (error) {
@@ -1059,6 +1060,7 @@ programsRouter.delete('/:programId/projects/:projectId/members/:userId', authent
     const { count } = await prisma.projectMember.deleteMany({ where: { projectId: project.id, userId } })
     if (count > 0) {
       await captureSafely({ programId: access.program.id, projectId: project.id, trigger: 'team.member_removed', actorId: authUser.id })
+      await refreshCandidateResultsSafely([userId])
       await audit(req, res, {
         action: 'program.team_member_remove',
         organizationId: access.organization.id,
@@ -1251,6 +1253,7 @@ programsRouter.delete('/:programId/participants/:userId', authenticate, async (r
       await tx.programParticipant.deleteMany({ where: { programId: access.program.id, userId } })
       await capture('participant.removed')
     })
+    await refreshCandidateResultsSafely([userId])
     await audit(req, res, {
       action: 'program.participant_remove',
       organizationId: access.organization.id,

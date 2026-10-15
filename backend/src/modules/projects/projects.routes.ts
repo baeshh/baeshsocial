@@ -1049,9 +1049,13 @@ projectsRouter.delete('/:id', authenticate, async (req, res, next) => {
       return
     }
 
-    const title = (await prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { title: true } })).title
+    const { title, members } = await prisma.project.findUniqueOrThrow({
+      where: { id: projectId },
+      select: { title: true, members: { select: { userId: true } } },
+    })
     try {
       const check = await deletePersonalProject(projectId, { confirmTeamImpact: input.confirmTeamImpact })
+      await refreshCandidateResultsSafely([authUser.id, ...members.map((member) => member.userId)])
       await audit(req, res, {
         action: 'project.delete',
         targetType: 'project',
@@ -1110,6 +1114,7 @@ projectsRouter.delete('/:id/members/me', authenticate, async (req, res, next) =>
     await prisma.projectMember.deleteMany({
       where: { projectId, userId: authUser.id },
     })
+    await refreshCandidateResultsSafely([authUser.id])
 
     res.status(204).send()
   } catch (error) {
