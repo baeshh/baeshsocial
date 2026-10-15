@@ -131,17 +131,22 @@ function FileField({
   )
 }
 
-/** Application form for one program: draft save, file upload and final submit. */
+/**
+ * Application form for one program: draft save, file upload and final submit.
+ * `preview` renders the same form for staff designing it: inputs work, but nothing is saved, uploaded or submitted.
+ */
 export function ProgramApplicationForm({
   token,
   program,
   shareToken,
   onChanged,
+  preview = false,
 }: {
   token: string
   program: DiscoverableProgram
   shareToken: string | null
   onChanged: () => void
+  preview?: boolean
 }) {
   const queryClient = useQueryClient()
   const fields = program.applicationFields ?? []
@@ -166,11 +171,11 @@ export function ProgramApplicationForm({
 
   // Answers live only in this component until 임시저장, so closing the tab would lose them.
   useEffect(() => {
-    if (!dirty) return
+    if (!dirty || preview) return
     const warn = (event: BeforeUnloadEvent) => event.preventDefault()
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty])
+  }, [dirty, preview])
 
   const setAnswer = (fieldId: string, value: AnswerValue) => {
     setAnswers((prev) => ({ ...prev, [fieldId]: value }))
@@ -180,6 +185,7 @@ export function ProgramApplicationForm({
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
+    if (preview) return
     const unanswered = fields.filter((field) => field.required && !isAnswered(field, answers[field.id], filesFor(field.id).length))
     if (unanswered.length > 0) {
       setMissing(unanswered.map((field) => field.id))
@@ -320,7 +326,20 @@ export function ProgramApplicationForm({
                     })}
                   </div>
                 ) : null}
-                {field.type === 'file' ? (
+                {field.type === 'file' && preview ? (
+                  <div className="mt-2 space-y-2">
+                    <button
+                      aria-label={`${field.label} 파일 선택`}
+                      className="rounded-full border border-dashed border-surface-border px-4 py-2 text-sm font-medium text-ink-body opacity-60"
+                      disabled
+                      type="button"
+                    >
+                      파일 선택
+                    </button>
+                    <p className="text-xs text-ink-muted">PDF·이미지, 파일당 20MB 이하, 최대 {MAX_FILES_PER_FIELD}개. 담당자만 열람할 수 있습니다.</p>
+                  </div>
+                ) : null}
+                {field.type === 'file' && !preview ? (
                   <FileField
                     field={field}
                     files={filesFor(field.id)}
@@ -348,13 +367,14 @@ export function ProgramApplicationForm({
         프로그램 참여자로 자동 등록됩니다.
       </p>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Button className="sm:flex-1" disabled={save.isPending} onClick={() => save.mutate(false)} type="button" variant="secondary">
+        <Button className="sm:flex-1" disabled={preview || save.isPending} onClick={() => save.mutate(false)} type="button" variant="secondary">
           임시저장
         </Button>
-        <Button className="sm:flex-1" disabled={save.isPending || !canSubmit} type="submit">
+        <Button className="sm:flex-1" disabled={preview || save.isPending || !canSubmit} type="submit">
           {save.isPending ? '저장 중…' : canSubmit ? '제출하기' : '모집 시작 후 제출 가능'}
         </Button>
       </div>
+      {preview ? <p className="text-center text-xs text-ink-muted">미리보기에서는 지원서를 저장하거나 제출할 수 없습니다.</p> : null}
     </form>
   )
 }

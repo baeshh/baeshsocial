@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
-import { MOVE_TARGET, USERS, expectToast, orgIds, signIn, type Role } from './support'
+import { MOVE_TARGET, USERS, deadlineInput, expectToast, orgIds, signIn, type Role } from './support'
 
 /**
  * One cohort end to end: an operator publishes a program, a person applies, gets an offer and confirms it,
@@ -33,27 +33,25 @@ test.afterAll(async () => {
   await applicant?.context().close()
 })
 
-test('운영자가 공개 모집 프로그램을 만든다 (닫기 전 확인 포함)', async () => {
+test('운영자가 개설 위저드로 공개 모집 프로그램을 만든다', async () => {
   await operator.goto(`/org/${universityId}?tab=programs`)
-  await operator.getByRole('button', { name: '프로그램 만들기' }).click()
-  const wizard = operator.getByRole('dialog')
-  await wizard.getByRole('button', { name: /지금부터 지원자를 모집해요/ }).click()
+  await operator.getByRole('link', { name: '프로그램 만들기' }).click()
+  await expect(operator).toHaveURL(new RegExp(`/org/${universityId}/programs/new`))
+  await operator.getByRole('button', { name: /지금부터 지원자를 모집해요/ }).click()
 
-  await wizard.getByLabel('프로그램 이름').fill(title)
+  await operator.getByLabel('프로그램 이름').fill(title)
+  await expect(operator).toHaveURL(/\/programs\/[^/]+\/setup\?step=basics/)
 
-  // Closing with unsaved input asks first; dismissing keeps the input.
-  operator.once('dialog', (dialog) => void dialog.dismiss())
-  await wizard.getByRole('button', { name: '닫기' }).click()
-  await expect(wizard.getByLabel('프로그램 이름')).toHaveValue(title)
-
-  await wizard.getByRole('button', { name: '다음' }).click()
-  const deadline = new Date(Date.now() + 7 * 86_400_000)
-  const local = new Date(deadline.getTime() - deadline.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
-  await wizard.getByLabel('모집 마감 일시').fill(local)
-  await wizard.getByRole('button', { name: '다음' }).click()
-  await expect(wizard.getByRole('button', { name: /지원서/ })).toHaveAttribute('aria-current', 'step')
-  await wizard.getByRole('button', { name: '다음' }).click()
-  await wizard.getByRole('button', { name: '게시 및 프로그램 개설' }).click()
+  const steps = operator.getByRole('navigation', { name: '프로그램 개설 단계' })
+  const next = operator.getByRole('button', { name: '다음 단계' })
+  await next.click()
+  await operator.getByLabel('모집 마감 일시').fill(deadlineInput(7))
+  await next.click()
+  await expect(steps.getByRole('button', { name: /지원서 설계/ })).toHaveAttribute('aria-current', 'step')
+  await next.click()
+  await next.click()
+  await expect(steps.getByRole('button', { name: /검토·게시/ })).toHaveAttribute('aria-current', 'step')
+  await operator.getByRole('button', { name: '모집 공고 게시' }).click()
 
   await expect(operator).toHaveURL(new RegExp(`/org/${universityId}/programs/[^/?]+\\?tab=applications`))
   programId = new URL(operator.url()).pathname.split('/').pop()!

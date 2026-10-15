@@ -226,7 +226,7 @@ export function OrganizationDashboardPage() {
       />
     ),
     onboarding: () => <OrgOnboardingPanel onOpenTab={(tab) => openSection(tab as OrgSection)} orgId={organization.id} />,
-    programs: () => <OrgProgramsPanel myRole={myRole} organization={organization} />,
+    programs: () => <OrgProgramsPanel organization={organization} />,
     kpis: () => <OrgKpiPanel orgId={organization.id} />,
     reports: () => <OrgReportsPanel orgId={organization.id} />,
     members: () => <OrgMembersPanel myRole={myRole} organization={organization} />,

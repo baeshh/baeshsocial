@@ -7,6 +7,7 @@ export const USERS = {
   operator: { email: 'operator@e2e.baesh.dev', name: '이운영' },
   applicant: { email: 'applicant@e2e.baesh.dev', name: '박지원' },
   outsider: { email: 'outsider@e2e.baesh.dev', name: '최외부' },
+  member: { email: 'member@e2e.baesh.dev', name: '김구성' },
 } as const
 export const UNIVERSITY = 'E2E 대학교'
 export const COMPANY = 'E2E 테크'
@@ -55,6 +56,12 @@ export async function orgIds(request: APIRequestContext) {
     return found!.organization.id
   }
   return { university: id(UNIVERSITY), company: id(COMPANY) }
+}
+
+/** `datetime-local` value `days` from now, in the browser's local time. */
+export function deadlineInput(days: number) {
+  const at = new Date(Date.now() + days * 86_400_000)
+  return new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 }
 
 /** The page must never scroll sideways: every overflow is a layout bug at that width. */

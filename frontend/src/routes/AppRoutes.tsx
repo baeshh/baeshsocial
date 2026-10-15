@@ -23,6 +23,7 @@ import { SettingsPage } from '../pages/settings/SettingsPage'
 import { SupportPage } from '../pages/support/SupportPage'
 import { TalentDBPage } from '../pages/talent-db/TalentDBPage'
 import { ProgramDetailPage } from '../pages/institution/ProgramDetailPage'
+import { ProgramWizardPage } from '../pages/institution/ProgramWizardPage'
 import { ProgramPublicPage } from '../pages/programs/ProgramPublicPage'
 import { OrganizationDashboardPage } from '../pages/organizations/OrganizationDashboardPage'
 import { OrganizationRegisterPage } from '../pages/organizations/OrganizationRegisterPage'
@@ -79,6 +80,20 @@ export function AppRoutes() {
         }
         path="/org/:orgId"
       />
+      {/* Same element on both paths (keyed by org only) so a new draft keeps its state when the URL gains its id. */}
+      {['/org/:orgId/programs/new', '/org/:orgId/programs/:programId/setup'].map((path) => (
+        <Route
+          element={
+            <RemountOnParams params={['orgId']}>
+              <RequireOrgMembership>
+                <ProgramWizardPage />
+              </RequireOrgMembership>
+            </RemountOnParams>
+          }
+          key={path}
+          path={path}
+        />
+      ))}
       <Route
         element={
           <RemountOnParams params={['orgId', 'programId']}>

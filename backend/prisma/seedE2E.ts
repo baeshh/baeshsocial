@@ -4,6 +4,7 @@
  *   operator  — owner of an approved university and manager of an approved company (workspace switching)
  *   applicant — personal account that applies, gets an offer and confirms it
  *   outsider  — no membership anywhere (permission checks)
+ *   member    — plain MEMBER of the university: may browse, may not create or edit programs
  *
  * Every account uses the @e2e.baesh.dev domain. The script refuses to run unless the database name contains
  * "e2e" or "test", so it can never touch development, staging or production data.
@@ -42,6 +43,7 @@ async function main() {
   const operator = await user('operator', '이운영', UserRole.INSTITUTION)
   await user('applicant', '박지원')
   await user('outsider', '최외부')
+  const member = await user('member', '김구성')
 
   const joined = { status: OrganizationMemberStatus.ACTIVE, joinedAt: new Date() }
   const university = await prisma.organization.create({
@@ -51,7 +53,12 @@ async function main() {
       verificationStatus: OrganizationVerificationStatus.APPROVED,
       verifiedAt: new Date(),
       createdById: operator.id,
-      members: { create: [{ userId: operator.id, role: OrganizationRole.OWNER, ...joined }] },
+      members: {
+        create: [
+          { userId: operator.id, role: OrganizationRole.OWNER, ...joined },
+          { userId: member.id, role: OrganizationRole.MEMBER, ...joined },
+        ],
+      },
     },
   })
   const company = await prisma.organization.create({
