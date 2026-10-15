@@ -50,13 +50,19 @@ deploy_bundle() {
   tar -xzf "$1" -C "$stage" ./deploy
   ALLOW_DESTRUCTIVE_MIGRATION=false "$stage/deploy/scripts/deploy.sh" "$1" "$2"
 }
-# repack <src.tgz> <dst.tgz> [break]: same build under another version; "break" makes the API exit at startup
+# repack <src.tgz> <dst.tgz> [break|nopdf]: same build under another version; "break" makes the API exit at
+# startup, "nopdf" points the PDF renderer at a Chromium that does not exist
 repack() {
-  local dir
+  local dir pdf
   dir="$(mktemp -d)"
   tar -xzf "$1" -C "$dir"
   if [ "${3:-}" = "break" ]; then
     printf 'console.error("rehearsal: intentionally broken release");\nprocess.exit(1);\n' >"$dir/backend/dist/src/server.js"
+  fi
+  if [ "${3:-}" = "nopdf" ]; then
+    pdf="$dir/backend/dist/src/services/pdf/renderPdf.js"
+    sed "s#chromium.launch({#chromium.launch({ executablePath: '/nonexistent/chromium',#" "$pdf" >"$pdf.tmp" && mv "$pdf.tmp" "$pdf"
+    grep -q /nonexistent/chromium "$pdf" || fail_check "could not break the PDF renderer for the rehearsal"
   fi
   tar -czf "$2" -C "$dir" .
 }
@@ -83,9 +89,11 @@ DATABASE_URL=${DB_URL}
 JWT_SECRET=$(openssl rand -hex 32)
 OPS_INGEST_TOKEN=$(openssl rand -hex 24)
 FRONTEND_URL=https://staging.rehearsal.invalid
+FRONTEND_URLS=https://staging.rehearsal.invalid
 STORAGE_DRIVER=s3
 S3_BUCKET=baesh-rehearsal-no-such-bucket
 S3_REGION=ap-northeast-2
+MEDIA_S3_BUCKET=baesh-rehearsal-no-such-media
 MEDIA_PUBLIC_BASE_URL=https://media.rehearsal.invalid
 PORT=${PORT}
 TRUST_PROXY=1
@@ -127,6 +135,34 @@ done
 code="$(curl -s -o /dev/null -w '%{http_code}' "$API/auth/me")"
 [ "$code" = "401" ] || fail_check "/auth/me without token returned ${code}"
 pass "base-release account logs in; 8 endpoints 200, unauthenticated 401"
+
+step "4b. PDF smoke test on the live release (post-deploy procedure)"
+out="$("$CURRENT_LINK/deploy/scripts/check-pdf.sh" 2>&1)" || fail_check "check-pdf.sh failed on the live release: ${out}"
+pass "$(grep '^PDF ok' <<<"$out")"
+if [ "$(uname)" = Linux ]; then
+  # Without CJK fonts Chromium draws Korean as empty boxes; the smoke test must catch that.
+  mkdir -p "$WORK/latin-fonts"
+  cat >"$WORK/latin-fonts/fonts.conf" <<EOF
+<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig><dir>/usr/share/fonts/truetype/dejavu</dir><cachedir>${WORK}/latin-fonts/cache</cachedir></fontconfig>
+EOF
+  if out="$(FONTCONFIG_FILE="$WORK/latin-fonts/fonts.conf" "$CURRENT_LINK/deploy/scripts/check-pdf.sh" 2>&1)"; then
+    fail_check "check-pdf.sh passed without Korean fonts: ${out}"
+  fi
+  grep -q 'no Korean font embedded' <<<"$out" || fail_check "check-pdf.sh failed for another reason without CJK fonts: ${out}"
+  pass "without CJK fonts the smoke test fails: $(grep '^ERROR' <<<"$out" | cut -c1-120)"
+fi
+
+step "4c. Release whose Chromium cannot launch is refused before migrating or switching"
+repack "$WORK/release.tgz" "$WORK/nopdf.tgz" nopdf
+MIGRATIONS_BEFORE="$(psql "$PG_URL" -At -c 'SELECT count(*) FROM _prisma_migrations')"
+if out="$(deploy_bundle "$WORK/nopdf.tgz" "nopdf-${SHA:0:7}" 2>&1)"; then fail_check "release with a broken PDF renderer was deployed"; fi
+grep -q 'PDF smoke test failed' <<<"$out" || fail_check "deploy did not fail on the PDF smoke test: $(tail -n 3 <<<"$out")"
+if grep -q 'applying migrations' <<<"$out"; then fail_check "migrations ran before the PDF smoke test"; fi
+[ "$(psql "$PG_URL" -At -c 'SELECT count(*) FROM _prisma_migrations')" = "$MIGRATIONS_BEFORE" ] || fail_check "migration table changed"
+[ "$(current_release)" = "$SHA" ] || fail_check "current points to $(current_release) after the refused deploy"
+[ "$(live_version)" = "$SHA" ] || fail_check "API not serving ${SHA} after the refused deploy"
+pass "deploy refused at the PDF smoke test; DB untouched, ${SHA:0:12} still live"
 
 step "5. Broken release must roll back automatically"
 repack "$WORK/release.tgz" "$WORK/broken.tgz" break

@@ -22,9 +22,26 @@ aws ssm get-parameters-by-path --region "$REGION" --path "$PREFIX" --recursive -
     printf '%s=%s\n' "$key" "$value" >>"$TMP"
   done
 
+value_of() { sed -n "s/^$1=//p" "$TMP" | tail -n 1; }
+require() {
+  [[ "$(value_of "$1")" =~ [^[:space:]] ]] || die "SSM parameter ${PREFIX}$1 is missing or empty${2:+ ($2)}"
+}
+
 for required in DATABASE_URL JWT_SECRET FRONTEND_URL STORAGE_DRIVER S3_BUCKET OPS_INGEST_TOKEN; do
-  grep -q "^${required}=" "$TMP" || die "SSM parameter ${PREFIX}${required} is missing"
+  require "$required"
 done
+# The API refuses to boot with STORAGE_DRIVER=s3 and no public media URL (backend/src/config/env.ts).
+if [ "$(value_of STORAGE_DRIVER)" = s3 ]; then
+  require MEDIA_PUBLIC_BASE_URL "required with STORAGE_DRIVER=s3"
+fi
+if [ "$BAESH_ENV" = staging ]; then
+  # Without these the API silently falls back to the localhost CORS default and to S3_BUCKET for public media.
+  [ "$(value_of STORAGE_DRIVER)" = s3 ] || die "staging must use STORAGE_DRIVER=s3 (got '$(value_of STORAGE_DRIVER)')"
+  require FRONTEND_URLS "staging CORS origins"
+  require MEDIA_S3_BUCKET "staging public media bucket"
+  [ "$(value_of MEDIA_S3_BUCKET)" != "$(value_of S3_BUCKET)" ] ||
+    die "MEDIA_S3_BUCKET must differ from S3_BUCKET: public media must not be written to the private file bucket"
+fi
 grep -q '^TRUST_PROXY=' "$TMP" || echo 'TRUST_PROXY=1' >>"$TMP"
 grep -q '^JOBS_ENABLED=' "$TMP" || echo 'JOBS_ENABLED=true' >>"$TMP"
 
