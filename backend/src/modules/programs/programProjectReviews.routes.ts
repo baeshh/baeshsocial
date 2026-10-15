@@ -13,6 +13,7 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { audit } from '../../services/audit/audit.js'
 import { isStudentLed, notifyUsers, programStaffIds } from '../../services/programs/programProjects.js'
+import { captureProgramProjectRecord } from '../../services/records/programProjectRecords.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { assertProgramWritable, requireProgramAccess } from '../../utils/programAccess.js'
@@ -296,6 +297,8 @@ export function registerProjectReviewRoutes(router: Router) {
       const { reason } = removeProgramProjectSchema.parse(req.body)
 
       await prisma.$transaction(async (tx) => {
+        const recordKey = { programId: access.program.id, projectId: project.id, actorId: authUser.id }
+        await captureProgramProjectRecord(tx, { ...recordKey, trigger: 'project.removing' })
         await tx.project.update({ where: { id: project.id }, data: { programId: null } })
         const approved = await tx.programProjectRegistration.findFirst({
           where: { projectId: project.id, programId: access.program.id, status: ProgramProjectRegistrationStatus.APPROVED },
@@ -329,6 +332,7 @@ export function registerProjectReviewRoutes(router: Router) {
             description: `${access.program.title} 프로그램에서 제외되어 개인 프로젝트로 돌아갔습니다. 사유: ${reason}`,
           },
         })
+        await captureProgramProjectRecord(tx, { ...recordKey, trigger: 'project.removed', finalize: true, reason })
       })
 
       await audit(req, res, {

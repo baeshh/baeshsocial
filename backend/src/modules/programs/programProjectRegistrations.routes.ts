@@ -22,6 +22,7 @@ import {
   seedProjectRoles,
   uniqueProjectSlug,
 } from '../../services/programs/programProjects.js'
+import { captureProgramProjectRecord } from '../../services/records/programProjectRecords.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
 import { requireProgramAccess, type ProgramAccess } from '../../utils/programAccess.js'
@@ -205,6 +206,13 @@ async function approveInTx(
         ? `${access.program.title} 프로그램 프로젝트로 등록이 승인되었습니다. (성과 인증과는 별개입니다)`
         : `${access.program.title} 프로그램 정책에 따라 바로 등록되었습니다. (성과 인증과는 별개입니다)`,
     },
+  })
+  await captureProgramProjectRecord(tx, {
+    programId: access.program.id,
+    projectId: project.id,
+    trigger: 'registration.approved',
+    actorId: input.reviewerId,
+    link: true,
   })
   return project
 }
