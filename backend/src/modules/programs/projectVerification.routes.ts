@@ -26,6 +26,7 @@ import { HttpError } from '../../utils/httpError.js'
 import { requireProgramAccess } from '../../utils/programAccess.js'
 import { resolveUserProjectPermissions } from '../../utils/projectPermissions.js'
 import { revokeVerificationSchema, verifyMembersSchema, verifyProjectSchema } from '../../validators/program.validator.js'
+import { refreshCandidateResultsSafely } from '../matching/resultPrivacy.js'
 import { teamRoleOf, userBriefSelect } from './program.serializers.js'
 
 type MemberInput = { userId: string; role: string; contribution: string; startDate?: Date | null; endDate?: Date | null }
@@ -363,6 +364,7 @@ export function registerProjectVerificationRoutes(router: Router) {
           },
         })
       })
+      await refreshCandidateResultsSafely(targets.map((record) => record.userId))
 
       await audit(req, res, {
         action: userId ? 'project.revoke_member_verification' : 'project.revoke_verification',
