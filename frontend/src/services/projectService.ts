@@ -1,6 +1,6 @@
 import { apiRequest, withQuery } from '../lib/api'
 import type { ProjectLink, ProjectLinkType } from '../types/profile'
-import type { Project, ProjectDeletionCheck, ProjectInvite, ProjectRegistrationBrief, ProjectSummary, TeamCandidates } from '../types/project'
+import type { ProfileDisplay, Project, ProjectDeletionCheck, ProjectInvite, ProjectRegistrationBrief, ProjectSummary, TeamCandidates } from '../types/project'
 import type { PermissionCatalogItem, ProjectPermission, ProjectRole } from '../types/projectRole'
 
 export type ProjectPayload = {
@@ -127,8 +127,18 @@ export function getProject(token: string, projectId: string) {
     isProgramStaff?: boolean
     restricted?: boolean
     registration?: ProjectRegistrationBrief | null
+    profileDisplay?: ProfileDisplay
   }>(`/projects/${projectId}`, {
     token,
+  })
+}
+
+/** Hides or shows the project on the caller's own profile only; team access and institution records are unaffected. */
+export function setProfileDisplay(token: string, projectId: string, hidden: boolean) {
+  return apiRequest<{ hidden: boolean }>(`/projects/${projectId}/profile-display`, {
+    method: 'PUT',
+    token,
+    body: JSON.stringify({ hidden }),
   })
 }
 

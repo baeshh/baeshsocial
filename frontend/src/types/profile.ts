@@ -56,6 +56,8 @@ export type ProfileProjectCard = {
     officialRole?: string | null
   } | null
   featured: boolean
+  /** Owner's own view only: hidden from everyone else's view of the profile. */
+  hiddenFromProfile?: boolean
 }
 
 export type ProfileProjectFilter = 'all' | 'owned' | 'joined' | 'verified'
@@ -97,7 +99,7 @@ export type HistoryItem = {
   status: string | null
   verification: HistoryVerification | null
   link: string | null
-  project: { id: string; title: string; accessible: boolean } | null
+  project: { id: string; title: string; accessible: boolean; hiddenFromProfile?: boolean } | null
   editable: boolean
   fields: Record<string, string | null> | null
   /** Present for the record owner only: lets them choose how much others see. */

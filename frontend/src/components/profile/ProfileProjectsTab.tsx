@@ -106,7 +106,9 @@ export function ProfileProjectsTab({ token, userId, isOwnProfile, featuredProjec
                 isOwnProfile
                   ? {
                       pinned,
-                      disabled: pinMutation.isPending || (!pinned && featuredProjectIds.length >= MAX_FEATURED_PROJECTS),
+                      disabled:
+                        pinMutation.isPending ||
+                        (!pinned && (featuredProjectIds.length >= MAX_FEATURED_PROJECTS || Boolean(project.hiddenFromProfile))),
                       onToggle: () => togglePin(project.id),
                     }
                   : undefined

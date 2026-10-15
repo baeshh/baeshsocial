@@ -10,6 +10,7 @@ import { showToast } from '../../stores/toastStore'
 import type { HistoryItem, HistoryRecordControl } from '../../types/profile'
 import type { RecordDisclosure } from '../../types/program'
 import { Badge } from '../common/Badge'
+import { ProfileHiddenNotice } from './ProfileHiddenNotice'
 import { VerificationBadge } from './VerificationBadge'
 
 type HistoryItemCardProps = {
@@ -95,6 +96,11 @@ export function HistoryItemCard({ item, onEdit, onDelete, compact = false }: His
           {item.subtitle ? <p className="mt-0.5 text-sm text-ink-muted">{item.subtitle}</p> : null}
           {!compact && item.description ? (
             <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed text-ink-body">{item.description}</p>
+          ) : null}
+          {item.project?.hiddenFromProfile ? (
+            <div className="mt-2">
+              <ProfileHiddenNotice projectId={item.project.id} title={item.project.title} />
+            </div>
           ) : null}
           {!compact && (item.link || item.project?.accessible) ? (
             <div className="mt-2 flex flex-wrap gap-3 text-xs font-semibold">
