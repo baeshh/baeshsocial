@@ -1,6 +1,7 @@
 import { EvidenceStatus, ProgramProjectRegistrationStatus, type Prisma, type PrismaClient } from '@prisma/client'
 import { prisma } from '../../config/prisma.js'
 import { HttpError } from '../../utils/httpError.js'
+import { removeStoredObjects } from './projectFiles.js'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -106,7 +107,7 @@ export async function projectDeletionCheck(db: Db, projectId: string): Promise<D
  * them can slip in between the check and the delete.
  */
 export async function deletePersonalProject(projectId: string, options: { confirmTeamImpact: boolean }) {
-  return prisma.$transaction(async (tx) => {
+  const { check, storageKeys } = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${projectId} FOR UPDATE`
     const check = await projectDeletionCheck(tx, projectId)
     if (check.blockers.length > 0) {
@@ -119,7 +120,10 @@ export async function deletePersonalProject(projectId: string, options: { confir
         { code: 'TEAM_IMPACT', impact: check.impact },
       )
     }
+    const stored = await tx.projectFile.findMany({ where: { projectId, storageKey: { not: null } }, select: { storageKey: true } })
     await tx.project.delete({ where: { id: projectId } })
-    return check
+    return { check, storageKeys: stored.map((file) => file.storageKey) }
   })
+  await removeStoredObjects(storageKeys)
+  return check
 }

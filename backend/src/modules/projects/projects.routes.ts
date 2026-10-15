@@ -6,14 +6,17 @@ import {
   ProjectVisibility,
 } from '@prisma/client'
 import bcrypt from 'bcryptjs'
-import { Router, type Response } from 'express'
+import { Router, type RequestHandler, type Response } from 'express'
+import multer from 'multer'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
+import { limits } from '../../middlewares/rateLimit.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import {
   projectActivitySchema,
   projectFileSchema,
+  projectFileUploadSchema,
   projectInviteSchema,
   projectLinkSchema,
   projectListQuerySchema,
@@ -52,6 +55,10 @@ import { audit } from '../../services/audit/audit.js'
 import { assertProgramInvitee, isLeaderSlug } from '../../services/programs/programProjects.js'
 import { deletePersonalProject, projectDeletionCheck } from '../../services/projects/projectDeletion.js'
 import { canSetProfileDisplay, isHiddenFromProfile, setHiddenFromProfile } from '../../services/projects/profileDisplay.js'
+import { projectFileSelect, removeStoredObjects, storeProjectFiles } from '../../services/projects/projectFiles.js'
+import { UPLOAD_LIMITS } from '../../services/storage/fileValidation.js'
+import { opensInline, PROJECT_FILE_LIMITS } from '../../services/storage/projectFileValidation.js'
+import { storage } from '../../services/storage/storage.js'
 import { refreshCandidateResultsSafely } from '../matching/resultPrivacy.js'
 import { registerProjectRoleRoutes } from './projectRoles.routes.js'
 import { ProjectInviteStatus } from '@prisma/client'
@@ -153,16 +160,7 @@ const projectInclude = {
     take: 20,
   },
   files: {
-    include: {
-      uploader: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          avatarUrl: true,
-        },
-      },
-    },
+    select: projectFileSelect,
     orderBy: {
       createdAt: 'desc',
     },
@@ -1282,11 +1280,44 @@ projectsRouter.post('/:id/activities', authenticate, async (req, res, next) => {
   }
 })
 
-projectsRouter.post('/:id/files', authenticate, async (req, res, next) => {
+const fileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: UPLOAD_LIMITS.maxFileBytes, files: PROJECT_FILE_LIMITS.maxFilesPerRequest, fields: 5 },
+})
+
+/** JSON bodies add a link; multipart bodies carry files. Permission is checked before anything is buffered. */
+const acceptProjectFiles: RequestHandler = async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    await requireProjectPermission(String(req.params.id), authUser.id, 'files.upload')
+  } catch (error) {
+    if (!handleProjectError(error, res)) next(error)
+    return
+  }
+  if (!req.is('multipart/form-data')) {
+    next()
+    return
+  }
+  limits.upload(req, res, (error?: unknown) => {
+    if (error) {
+      next(error)
+      return
+    }
+    fileUpload.array('files', PROJECT_FILE_LIMITS.maxFilesPerRequest)(req, res, next)
+  })
+}
+
+projectsRouter.post('/:id/files', authenticate, acceptProjectFiles, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
     const projectId = String(req.params.id)
-    await requireProjectPermission(projectId, authUser.id, 'files.upload')
+    if (req.is('multipart/form-data')) {
+      const { fileType } = projectFileUploadSchema.parse(req.body)
+      const uploads = (Array.isArray(req.files) ? req.files : []) as Express.Multer.File[]
+      const files = await storeProjectFiles(projectId, authUser.id, uploads, fileType)
+      res.status(201).json({ files })
+      return
+    }
     const input = projectFileSchema.parse(req.body)
     const file = await prisma.projectFile.create({
       data: {
@@ -1296,12 +1327,62 @@ projectsRouter.post('/:id/files', authenticate, async (req, res, next) => {
         url: input.url,
         fileType: input.fileType,
       },
-      include: {
-        uploader: projectInclude.owner,
-      },
+      select: projectFileSelect,
     })
 
     res.status(201).json({ file })
+  } catch (error) {
+    if (handleProjectError(error, res)) {
+      return
+    }
+    next(error)
+  }
+})
+
+/** Uploaded files are only reachable through a short-lived URL issued after the viewer's access is re-checked. */
+projectsRouter.get('/:id/files/:fileId/url', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const projectId = String(req.params.id)
+    await requireProjectAccess(projectId, authUser.id)
+    await requireProjectPermission(projectId, authUser.id, 'files.view')
+    const file = await prisma.projectFile.findFirst({
+      where: { id: String(req.params.fileId), projectId },
+      select: { name: true, storageKey: true, mimeType: true },
+    })
+    if (!file?.storageKey || !file.mimeType) throw new HttpError(404, '파일을 찾을 수 없습니다.')
+    const signed = await storage.signedUrl(file.storageKey, {
+      contentType: file.mimeType,
+      fileName: file.name,
+      inline: req.query.download !== '1' && opensInline(file.mimeType),
+    })
+    res.setHeader('Cache-Control', 'no-store')
+    res.status(200).json(signed)
+  } catch (error) {
+    if (handleProjectError(error, res)) {
+      return
+    }
+    next(error)
+  }
+})
+
+/** `files.delete` removes anyone's file; uploaders who can still upload may remove their own. */
+projectsRouter.delete('/:id/files/:fileId', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const projectId = String(req.params.id)
+    const { permissions } = await resolveUserProjectPermissions(projectId, authUser.id)
+    if (!permissions.includes('files.view')) throw new Error('PROJECT_NOT_FOUND')
+    const file = await prisma.projectFile.findFirst({
+      where: { id: String(req.params.fileId), projectId },
+      select: { id: true, uploadedBy: true, storageKey: true },
+    })
+    if (!file) throw new HttpError(404, '파일을 찾을 수 없습니다.')
+    const ownFile = file.uploadedBy === authUser.id && permissions.includes('files.upload')
+    if (!permissions.includes('files.delete') && !ownFile) throw new Error('PROJECT_FORBIDDEN')
+    await prisma.projectFile.delete({ where: { id: file.id } })
+    await removeStoredObjects([file.storageKey])
+    res.status(204).send()
   } catch (error) {
     if (handleProjectError(error, res)) {
       return

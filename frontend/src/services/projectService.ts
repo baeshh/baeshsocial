@@ -1,6 +1,15 @@
-import { apiRequest, withQuery } from '../lib/api'
+import { apiRequest, apiUpload, withQuery } from '../lib/api'
 import type { ProjectLink, ProjectLinkType } from '../types/profile'
-import type { ProfileDisplay, Project, ProjectDeletionCheck, ProjectInvite, ProjectRegistrationBrief, ProjectSummary, TeamCandidates } from '../types/project'
+import type {
+  ProfileDisplay,
+  Project,
+  ProjectDeletionCheck,
+  ProjectFile,
+  ProjectInvite,
+  ProjectRegistrationBrief,
+  ProjectSummary,
+  TeamCandidates,
+} from '../types/project'
 import type { PermissionCatalogItem, ProjectPermission, ProjectRole } from '../types/projectRole'
 
 export type ProjectPayload = {
@@ -289,6 +298,23 @@ export function addProjectFile(token: string, projectId: string, payload: FilePa
     token,
     body: JSON.stringify(payload),
   })
+}
+
+export function uploadProjectFiles(token: string, projectId: string, files: File[], fileType?: string) {
+  const form = new FormData()
+  if (fileType) form.append('fileType', fileType)
+  for (const file of files) form.append('files', file)
+  return apiUpload<{ files: ProjectFile[] }>(`/projects/${projectId}/files`, form, { token })
+}
+
+export function getProjectFileUrl(token: string, projectId: string, fileId: string, download = false) {
+  return apiRequest<{ url: string; expiresAt: string }>(`/projects/${projectId}/files/${fileId}/url${download ? '?download=1' : ''}`, {
+    token,
+  })
+}
+
+export function deleteProjectFile(token: string, projectId: string, fileId: string) {
+  return apiRequest<void>(`/projects/${projectId}/files/${fileId}`, { method: 'DELETE', token })
 }
 
 export function getProjectDeletion(token: string, projectId: string) {

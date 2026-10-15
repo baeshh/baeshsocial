@@ -7,16 +7,30 @@ type Props = {
   onChange: (files: File[]) => void
   max: number
   onError: (message: string) => void
+  /** Defaults describe evidence uploads; project files pass their own formats. */
+  accept?: string
+  check?: (file: File) => string | null
+  label?: string
+  hint?: string
 }
 
-export function EvidenceFilePicker({ files, onChange, max, onError }: Props) {
+export function EvidenceFilePicker({
+  files,
+  onChange,
+  max,
+  onError,
+  accept = EVIDENCE_ACCEPT,
+  check = checkEvidenceFile,
+  label = '사진·영상·PDF 선택 또는 끌어다 놓기',
+  hint,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const add = (list: FileList | null) => {
     if (!list) return
     const next = [...files]
     for (const file of Array.from(list)) {
-      const problem = checkEvidenceFile(file)
+      const problem = check(file)
       if (problem) {
         onError(problem)
         continue
@@ -44,10 +58,10 @@ export function EvidenceFilePicker({ files, onChange, max, onError }: Props) {
         type="button"
       >
         <Upload size={20} />
-        <span className="font-semibold">사진·영상·PDF 선택 또는 끌어다 놓기</span>
-        <span className="text-xs">사진 15MB · PDF 25MB · 영상 100MB · 최대 {max}개</span>
+        <span className="font-semibold">{label}</span>
+        <span className="text-xs">{hint ?? `사진 15MB · PDF 25MB · 영상 100MB · 최대 ${max}개`}</span>
       </button>
-      <input accept={EVIDENCE_ACCEPT} className="hidden" multiple onChange={(event) => add(event.target.files)} ref={inputRef} type="file" />
+      <input accept={accept} className="hidden" multiple onChange={(event) => add(event.target.files)} ref={inputRef} type="file" />
       {files.length > 0 ? (
         <ul className="mt-3 space-y-1.5">
           {files.map((file, index) => (
