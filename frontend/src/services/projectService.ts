@@ -52,14 +52,30 @@ export type FilePayload = {
   fileType: string
 }
 
-export function getProjects(token: string, params: { cursor?: string | null; limit?: number } = {}) {
+export type ProjectListParams = {
+  cursor?: string | null
+  limit?: number
+  q?: string
+  status?: string
+  kind?: 'personal' | 'program'
+  sort?: 'updated' | 'created'
+}
+
+export function getProjects(token: string, params: ProjectListParams = {}) {
   return apiRequest<{
     projects: ProjectSummary[]
     nextCursor: string | null
-    /** Totals across every page; only sent with the first page (no cursor). */
+    /** Totals across every page for the search and kind filters (not status); only sent with the first page. */
     statusCounts?: Record<ProjectSummary['status'], number>
   }>(
-    withQuery('/projects', { limit: params.limit, cursor: params.cursor }),
+    withQuery('/projects', {
+      limit: params.limit,
+      cursor: params.cursor,
+      q: params.q,
+      status: params.status,
+      kind: params.kind,
+      sort: params.sort === 'updated' ? undefined : params.sort,
+    }),
     { token },
   )
 }
