@@ -403,6 +403,26 @@ enum ProjectReviewStatus {
   RESOLVED
 }
 
+enum ProgramProjectRecordStatus {
+  ACTIVE
+  FINAL
+}
+
+enum ProgramProjectRecordEventAction {
+  CAPTURED
+  UPDATED
+  FINALIZED
+  REOPENED
+  CORRECTED
+  REDACTED
+}
+
+enum RetentionBasis {
+  LAW
+  CONTRACT
+  SERVICE_POLICY
+}
+
 enum ProjectVerificationStatus {
   VERIFIED
   REVOKED
@@ -478,6 +498,8 @@ model User {
   recordsRevoked              VerifiedRecord[]             @relation("VerifiedRecordRevoker")
   verifiedRecordEvents        VerifiedRecordEvent[]
   projectDisplayPreferences   ProjectDisplayPreference[]
+  projectRecordEvents         ProgramProjectRecordEvent[]
+  retentionPoliciesCreated    RecordRetentionPolicy[]
   aiUsageLogs                 AIUsageLog[]
   reportTemplatesCreated      ReportTemplate[]
   reportsCreated              GeneratedReport[]
@@ -633,6 +655,7 @@ model Project {
   reviews            ProjectReview[]
   verifications      ProjectVerification[]
   displayPreferences ProjectDisplayPreference[]
+  officialRecords    ProgramProjectRecord[]
 
   @@index([programId])
   @@index([ownerId, updatedAt])
@@ -943,7 +966,7 @@ model VerifiedRecord {
   /// The student's own disclosure choice; capped by Program.recordDisclosure.
   disclosure            RecordDisclosure      @default(SUMMARY)
   user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project               Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project               Project               @relation(fields: [projectId], references: [id], onDelete: Restrict)
   projectVerification   ProjectVerification?  @relation(fields: [projectVerificationId], references: [id], onDelete: SetNull)
   evidence              ProjectEvidence?      @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
   organization          Organization?         @relation(fields: [organizationId], references: [id], onDelete: SetNull)
@@ -1146,6 +1169,8 @@ model Organization {
   supportTickets       SupportTicket[]
   announcements        Announcement[]
   projectVerifications ProjectVerification[]
+  projectRecords       ProgramProjectRecord[]
+  retentionPolicies    RecordRetentionPolicy[]
 
   @@index([verificationStatus])
 }
@@ -1235,7 +1260,7 @@ model Program {
   createdById            String?
   createdAt              DateTime                     @default(now())
   updatedAt              DateTime                     @updatedAt
-  organization           Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization           Organization                 @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   createdBy              User?                        @relation("ProgramCreator", fields: [createdById], references: [id], onDelete: SetNull)
   managers               ProgramManager[]
   participants           ProgramParticipant[]
@@ -1247,6 +1272,7 @@ model Program {
   projectVerifications   ProjectVerification[]
   applications           ProgramApplication[]
   applicationFields      ProgramApplicationField[]
+  officialRecords        ProgramProjectRecord[]
 
   @@index([organizationId])
   @@index([visibility, status])
@@ -1338,7 +1364,8 @@ model ProgramApplicationFile {
 model ProgramProjectRegistration {
   id           String                           @id @default(cuid())
   programId    String
-  projectId    String
+  /// Null once the student deleted a project whose request was rejected or withdrawn: the review log stays.
+  projectId    String?
   requesterId  String?
   source       ProgramProjectRegistrationSource
   status       ProgramProjectRegistrationStatus @default(PENDING)
@@ -1350,8 +1377,8 @@ model ProgramProjectRegistration {
   snapshot     Json?
   createdAt    DateTime                         @default(now())
   updatedAt    DateTime                         @updatedAt
-  program      Program                          @relation(fields: [programId], references: [id], onDelete: Cascade)
-  project      Project                          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  program      Program                          @relation(fields: [programId], references: [id], onDelete: Restrict)
+  project      Project?                         @relation(fields: [projectId], references: [id], onDelete: SetNull)
   requester    User?                            @relation("RegistrationRequester", fields: [requesterId], references: [id], onDelete: SetNull)
   reviewedBy   User?                            @relation("RegistrationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
 
@@ -1375,8 +1402,8 @@ model ProjectReview {
   resolvedById String?
   resolvedAt   DateTime?
   createdAt    DateTime             @default(now())
-  project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  program      Program              @relation(fields: [programId], references: [id], onDelete: Cascade)
+  project      Project              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  program      Program              @relation(fields: [programId], references: [id], onDelete: Restrict)
   author       User?                @relation("ProjectReviewAuthor", fields: [authorId], references: [id], onDelete: SetNull)
   resolvedBy   User?                @relation("ProjectReviewResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
   targetUser   User?                @relation("ProjectReviewTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
@@ -1404,9 +1431,9 @@ model ProjectVerification {
   snapshot       Json
   contentHash    String
   createdAt      DateTime                  @default(now())
-  project        Project                   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  program        Program                   @relation(fields: [programId], references: [id], onDelete: Cascade)
-  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Project                   @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  program        Program                   @relation(fields: [programId], references: [id], onDelete: Restrict)
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   verifiedBy     User?                     @relation("ProjectVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
   revokedBy      User?                     @relation("ProjectVerificationRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
   records        VerifiedRecord[]
@@ -1437,7 +1464,7 @@ model ProgramParticipant {
   department String?
   addedById  String?
   createdAt  DateTime @default(now())
-  program    Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program    Program  @relation(fields: [programId], references: [id], onDelete: Restrict)
   user       User     @relation("ProgramParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
   addedBy    User?    @relation("ProgramParticipantAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
 
@@ -1497,7 +1524,7 @@ model EvidenceReview {
   action     EvidenceReviewAction
   note       String?
   createdAt  DateTime             @default(now())
-  evidence   ProjectEvidence      @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  evidence   ProjectEvidence      @relation(fields: [evidenceId], references: [id], onDelete: Restrict)
   actor      User?                @relation("EvidenceReviewActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([evidenceId, createdAt])
@@ -1870,4 +1897,76 @@ model OpsRun {
   createdAt   DateTime   @default(now())
 
   @@index([kind, createdAt])
+}
+
+/// The institution's own record of a program project. Independent of the live project: it survives the project,
+/// the program link and the student's profile settings. The current version is in `snapshot`; every version is kept
+/// in `events`, so corrections never silently overwrite what was recorded. See docs/OFFICIAL-PROJECT-RECORDS.md.
+model ProgramProjectRecord {
+  id                String                      @id @default(cuid())
+  organizationId    String
+  programId         String?
+  projectId         String?
+  organizationName  String
+  programTitle      String
+  programTerm       String?
+  projectTitle      String
+  status            ProgramProjectRecordStatus  @default(ACTIVE)
+  snapshot          Json
+  contentHash       String
+  version           Int                         @default(1)
+  capturedAt        DateTime                    @default(now())
+  finalizedAt       DateTime?
+  /// Fixed from the organization's retention policy when the record is finalized; null = no end date configured.
+  retainUntil       DateTime?
+  retentionPolicyId String?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  organization      Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  program           Program?                    @relation(fields: [programId], references: [id], onDelete: SetNull)
+  project           Project?                    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  retentionPolicy   RecordRetentionPolicy?      @relation(fields: [retentionPolicyId], references: [id], onDelete: SetNull)
+  events            ProgramProjectRecordEvent[]
+
+  @@unique([programId, projectId])
+  @@index([organizationId, status])
+  @@index([projectId])
+}
+
+/// Append-only history of a ProgramProjectRecord: the full snapshot of every version.
+model ProgramProjectRecordEvent {
+  id           String                          @id @default(cuid())
+  recordId     String
+  version      Int
+  action       ProgramProjectRecordEventAction
+  trigger      String
+  actorId      String?
+  reason       String?
+  snapshot     Json
+  contentHash  String
+  previousHash String?
+  createdAt    DateTime                        @default(now())
+  record       ProgramProjectRecord            @relation(fields: [recordId], references: [id], onDelete: Restrict)
+  actor        User?                           @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@unique([recordId, version])
+}
+
+/// How long an organization keeps its official records and on what basis. Never hard-coded: set per organization
+/// from its legal, contractual or service-policy basis. Changing it retires the previous row.
+model RecordRetentionPolicy {
+  id              String                 @id @default(cuid())
+  organizationId  String
+  basis           RetentionBasis
+  reference       String
+  /// Null = no end date: records are kept until a policy with a period is set.
+  retentionMonths Int?
+  createdById     String?
+  createdAt       DateTime               @default(now())
+  retiredAt       DateTime?
+  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdBy       User?                  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  records         ProgramProjectRecord[]
+
+  @@index([organizationId, retiredAt])
 }

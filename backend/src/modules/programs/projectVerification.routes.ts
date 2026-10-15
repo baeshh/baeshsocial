@@ -12,6 +12,7 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { audit } from '../../services/audit/audit.js'
 import { notifyUsers } from '../../services/programs/programProjects.js'
+import { captureProgramProjectRecord } from '../../services/records/programProjectRecords.js'
 import {
   ContributionError,
   hashSnapshot,
@@ -254,6 +255,7 @@ export function registerProjectVerificationRoutes(router: Router) {
             description: `${access.organization.name}이(가) 프로젝트 성과와 팀원 ${input.members.length}명의 기여를 공식 인증했습니다.`,
           },
         })
+        await captureProgramProjectRecord(tx, { programId: access.program.id, projectId: project.id, trigger: 'project.verified', actorId: authUser.id })
         return created
       })
 
@@ -288,7 +290,7 @@ export function registerProjectVerificationRoutes(router: Router) {
 
       const live = await prisma.projectVerification.findFirst({
         where: { projectId: project.id, status: ProjectVerificationStatus.VERIFIED },
-        select: { id: true, records: { where: { status: VerifiedRecordStatus.VERIFIED }, select: { userId: true } } },
+        select: { id: true, programId: true, records: { where: { status: VerifiedRecordStatus.VERIFIED }, select: { userId: true } } },
       })
       if (!live) throw new HttpError(409, '먼저 프로젝트 성과를 인증해 주세요.')
       const already = new Set(live.records.map((r) => r.userId))
@@ -307,6 +309,7 @@ export function registerProjectVerificationRoutes(router: Router) {
           data: { projectVerificationId: null },
         })
         await issueMembers(tx, live.id, input.members, authUser.id, new Date())
+        await captureProgramProjectRecord(tx, { programId: live.programId, projectId: project.id, trigger: 'members.verified', actorId: authUser.id })
       })
 
       await audit(req, res, {
@@ -340,7 +343,11 @@ export function registerProjectVerificationRoutes(router: Router) {
 
       const live = await prisma.projectVerification.findFirst({
         where: { projectId: project.id, status: ProjectVerificationStatus.VERIFIED },
-        select: { id: true, records: { where: { status: VerifiedRecordStatus.VERIFIED }, select: { id: true, userId: true } } },
+        select: {
+          id: true,
+          programId: true,
+          records: { where: { status: VerifiedRecordStatus.VERIFIED }, select: { id: true, userId: true } },
+        },
       })
       if (!live) throw new HttpError(409, '인증된 상태가 아닙니다.')
       const targets = userId ? live.records.filter((r) => r.userId === userId) : live.records
@@ -362,6 +369,13 @@ export function registerProjectVerificationRoutes(router: Router) {
             title: userId ? 'Member verification revoked' : 'Project verification revoked',
             description: `${userId ? '팀원 기여 인증' : '프로젝트 성과 인증'}이 취소되었습니다. 사유: ${reason}`,
           },
+        })
+        await captureProgramProjectRecord(tx, {
+          programId: live.programId,
+          projectId: project.id,
+          trigger: userId ? 'member_verification.revoked' : 'verification.revoked',
+          actorId: authUser.id,
+          reason,
         })
       })
       await refreshCandidateResultsSafely(targets.map((record) => record.userId))

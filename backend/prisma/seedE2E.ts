@@ -36,6 +36,7 @@ import {
   UserRole,
 } from '@prisma/client'
 import { prisma } from '../src/config/prisma.js'
+import { removeFixtures } from './fixtureCleanup.js'
 import { env } from '../src/config/env.js'
 import { ensureTrialSubscription } from '../src/services/billing/subscriptions.js'
 import { DEFAULT_PROJECT_ROLE_TEMPLATES } from '../src/utils/projectPermissions.js'
@@ -88,11 +89,10 @@ if (env.NODE_ENV === 'production' || env.APP_ENV !== 'local' || !/e2e|test/i.tes
 }
 
 async function clean() {
-  await prisma.organization.deleteMany({ where: { name: { in: [E2E_UNIVERSITY, E2E_COMPANY] } } })
   const users = await prisma.user.findMany({ where: { email: { endsWith: E2E_DOMAIN } }, select: { id: true } })
   const ids = users.map((user) => user.id)
+  await removeFixtures({ organizationNames: [E2E_UNIVERSITY, E2E_COMPANY], userIds: ids })
   await prisma.opportunity.deleteMany({ where: { createdBy: { in: ids } } })
-  await prisma.project.deleteMany({ where: { ownerId: { in: ids } } })
   await prisma.user.deleteMany({ where: { id: { in: ids } } })
 }
 
