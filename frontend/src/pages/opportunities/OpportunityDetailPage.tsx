@@ -49,7 +49,6 @@ export function OpportunityDetailPage() {
     queryKey: ['opportunities', 'detail', opportunityId],
     queryFn: () => getOpportunity(token ?? '', opportunityId),
     enabled: Boolean(token && opportunityId),
-    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 2,
   })
   const enrollmentsQuery = useQuery({
     queryKey: ['opportunities', 'enrollments', 'me'],
@@ -128,25 +127,25 @@ function OpportunityDetail({ opportunity, enrollment, token }: { opportunity: Op
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <aside aria-label="지원 정보" className="space-y-4 lg:order-last">
           <Card className="space-y-4 rounded-2xl">
-            <dl className="space-y-3 text-sm">
-              <div className="flex gap-2.5">
+            <ul className="space-y-3 text-sm">
+              <li className="flex gap-2.5">
                 <CalendarDays aria-hidden className="mt-0.5 shrink-0 text-ink-muted" size={16} />
                 <div>
-                  <dt className="text-xs font-semibold text-ink-muted">마감일</dt>
-                  <dd className="font-semibold text-ink-strong">
+                  <p className="text-xs font-semibold text-ink-muted">마감일</p>
+                  <p className="font-semibold text-ink-strong">
                     {opportunity.deadline ? deadline.dateLabel : '상시 모집'}
                     {opportunity.deadline ? <span className={`ml-1.5 text-xs ${deadline.closed ? 'text-ink-muted' : 'text-warning-700'}`}>{deadline.label}</span> : null}
-                  </dd>
+                  </p>
                 </div>
-              </div>
-              <div className="flex gap-2.5">
+              </li>
+              <li className="flex gap-2.5">
                 <MapPin aria-hidden className="mt-0.5 shrink-0 text-ink-muted" size={16} />
                 <div>
-                  <dt className="text-xs font-semibold text-ink-muted">위치·진행 방식</dt>
-                  <dd className="font-semibold text-ink-strong">{place || '등록되지 않음'}</dd>
+                  <p className="text-xs font-semibold text-ink-muted">위치·진행 방식</p>
+                  <p className="font-semibold text-ink-strong">{place || '등록되지 않음'}</p>
                 </div>
-              </div>
-            </dl>
+              </li>
+            </ul>
             <ApplySection applyUrl={applyUrl} closed={deadline.closed} enrollment={enrollment} internal={internal} opportunity={opportunity} token={token} />
           </Card>
           {canManage ? <ManageOpportunity opportunity={opportunity} token={token} /> : null}
