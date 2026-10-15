@@ -115,6 +115,25 @@ try {
     failed = true
   }
 
+  if (existsSync(path.join(backendDir, 'scripts/backfillProgramProjectRecords.ts'))) {
+    try {
+      const backfill = (extra: string[]) =>
+        execFileSync('npx', ['tsx', 'scripts/backfillProgramProjectRecords.ts', ...extra], {
+          cwd: backendDir,
+          env: { ...env, ...SMOKE_ENV },
+          encoding: 'utf8',
+        })
+      console.log(backfill([]))
+      console.log(backfill(['--apply']))
+      const second = backfill(['--apply'])
+      if (!second.includes('Created 0, finalized 0')) throw new Error(`second backfill changed data:\n${second}`)
+      console.log('Official record backfill applied to the upgraded data and is idempotent')
+    } catch (error) {
+      console.error('::error::Official record backfill failed on the upgraded database', error instanceof Error ? error.message : error)
+      failed = true
+    }
+  }
+
   try {
     execFileSync('npx', ['tsx', 'scripts/smokeUpgradedApi.ts'], { cwd: backendDir, env: { ...env, ...SMOKE_ENV }, stdio: 'inherit' })
     console.log('Seeded accounts from the base release can log in and read the main endpoints')
