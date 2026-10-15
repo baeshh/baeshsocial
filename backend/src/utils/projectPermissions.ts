@@ -144,10 +144,10 @@ export async function getOwnerRoleId(projectId: string) {
 }
 
 /** Team leaders: the personal-project owner role and the program "팀장" role. */
-const LEADER_ROLE_SLUGS = new Set(['owner', 'admin'])
+export const LEADER_ROLE_SLUGS = ['owner', 'admin']
 
 export function isLeaderSlug(slug: string | null | undefined) {
-  return Boolean(slug && LEADER_ROLE_SLUGS.has(slug))
+  return Boolean(slug && LEADER_ROLE_SLUGS.includes(slug))
 }
 
 /**
