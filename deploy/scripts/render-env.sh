@@ -25,6 +25,10 @@ aws ssm get-parameters-by-path --region "$REGION" --path "$PREFIX" --recursive -
 for required in DATABASE_URL JWT_SECRET FRONTEND_URL STORAGE_DRIVER S3_BUCKET OPS_INGEST_TOKEN; do
   grep -q "^${required}=" "$TMP" || die "SSM parameter ${PREFIX}${required} is missing"
 done
+# The API refuses to boot with STORAGE_DRIVER=s3 and no public media URL (backend/src/config/env.ts).
+if grep -q '^STORAGE_DRIVER=s3$' "$TMP"; then
+  grep -q '^MEDIA_PUBLIC_BASE_URL=' "$TMP" || die "SSM parameter ${PREFIX}MEDIA_PUBLIC_BASE_URL is missing (required with STORAGE_DRIVER=s3)"
+fi
 grep -q '^TRUST_PROXY=' "$TMP" || echo 'TRUST_PROXY=1' >>"$TMP"
 grep -q '^JOBS_ENABLED=' "$TMP" || echo 'JOBS_ENABLED=true' >>"$TMP"
 
