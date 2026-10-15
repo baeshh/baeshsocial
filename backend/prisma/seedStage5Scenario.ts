@@ -28,6 +28,7 @@ import {
   UserRole,
 } from '@prisma/client'
 import { prisma } from '../src/config/prisma.js'
+import { removeFixtures } from './fixtureCleanup.js'
 import { storage } from '../src/services/storage/storage.js'
 import { issueVerifiedRecord } from '../src/services/verification/verifiedRecords.js'
 
@@ -96,10 +97,9 @@ async function clean() {
     select: { storageKey: true },
   })
   for (const file of [...files, ...reports]) await storage.remove(file.storageKey!).catch(() => undefined)
-  await prisma.organization.deleteMany({ where: { name: { in: [UNIVERSITY, COMPANY] } } })
   const users = await prisma.user.findMany({ where: { email: { endsWith: DOMAIN } }, select: { id: true } })
   const ids = users.map((u) => u.id)
-  await prisma.project.deleteMany({ where: { ownerId: { in: ids } } })
+  await removeFixtures({ organizationNames: [UNIVERSITY, COMPANY], userIds: ids })
   await prisma.aIUsageLog.deleteMany({ where: { userId: { in: ids } } })
   await prisma.user.deleteMany({ where: { id: { in: ids } } })
   console.log(`cleaned: ${ids.length} users, ${files.length} files, ${reports.length} reports`)

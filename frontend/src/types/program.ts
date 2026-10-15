@@ -323,6 +323,7 @@ export type ProjectRegistration = {
   requester: MemberUser | null
   reviewedBy: { id: string; name: string } | null
   snapshot: RegistrationSnapshot | null
+  /** Null when the student later deleted the project; the review log is kept. */
   project: {
     id: string
     title: string
@@ -330,7 +331,7 @@ export type ProjectRegistration = {
     visibility: ProjectVisibility
     inProgram: boolean
     counts: { members: number; tasks: number; activities: number; externalLinks: number }
-  }
+  } | null
 }
 
 export type LinkableProject = {

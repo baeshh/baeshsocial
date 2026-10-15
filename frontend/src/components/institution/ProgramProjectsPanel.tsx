@@ -397,7 +397,7 @@ function MyRequests({ program }: { program: Program }) {
     },
     onError: (error: Error) => showToast(error.message, 'error'),
   })
-  const requests = (requestsQuery.data?.requests ?? []).filter((r) => r.status !== 'approved' || !r.project.inProgram)
+  const requests = (requestsQuery.data?.requests ?? []).filter((r) => r.status !== 'approved' || !r.project?.inProgram)
   if (requests.length === 0) return null
   return (
     <section className="space-y-3">
@@ -407,9 +407,11 @@ function MyRequests({ program }: { program: Program }) {
           <RegistrationCard
             actions={
               <>
-                <Button className="min-h-9 px-4" to={`/projects/${request.project.id}`} variant="secondary">
-                  <ExternalLink className="mr-1" size={14} /> 프로젝트 열기
-                </Button>
+                {request.project ? (
+                  <Button className="min-h-9 px-4" to={`/projects/${request.project.id}`} variant="secondary">
+                    <ExternalLink className="mr-1" size={14} /> 프로젝트 열기
+                  </Button>
+                ) : null}
                 {request.status === 'pending' ? (
                   <Button
                     className="min-h-9 px-4"
