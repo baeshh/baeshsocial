@@ -7,6 +7,7 @@ import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization
 import { runAiTask } from '../../services/ai/runner.js'
 import { audit } from '../../services/audit/audit.js'
 import { assertOrgCapacity } from '../../services/billing/entitlements.js'
+import { hiddenProjectsByUser } from '../../services/projects/profileDisplay.js'
 import {
   buildTalentExplanationInput,
   fallbackExplanation,
@@ -57,12 +58,31 @@ async function loadResults(searchId: string) {
       },
     },
   })
+  // Projects hidden from the profile since the search are dropped from its evidence on every read too.
+  const hidden = await hiddenProjectsByUser(rows.map((row) => row.candidate.id))
+  const recordIds = rows.flatMap((row) => (hidden.has(row.candidate.id) ? (row.evidence as unknown as StoredEvidence).verified.map((item) => item.id) : []))
+  const recordProjects = new Map(
+    recordIds.length
+      ? (await prisma.verifiedRecord.findMany({ where: { id: { in: recordIds } }, select: { id: true, projectId: true } })).map((record) => [
+          record.id,
+          record.projectId,
+        ])
+      : [],
+  )
   // Consent is re-checked on every read: withdrawn candidates are hidden from past searches too.
   return rows.map((row) => {
     if (!row.candidate.profile?.talentSearchOptIn) {
       return { id: row.id, rank: row.rank, withdrawn: true as const }
     }
-    const evidence = row.evidence as unknown as StoredEvidence
+    const stored = row.evidence as unknown as StoredEvidence
+    const hiddenIds = hidden.get(row.candidate.id)
+    const evidence: StoredEvidence = hiddenIds
+      ? {
+          ...stored,
+          projects: stored.projects.filter((project) => !hiddenIds.has(project.id)),
+          verified: stored.verified.filter((item) => !hiddenIds.has(recordProjects.get(item.id) ?? '')),
+        }
+      : stored
     return {
       id: row.id,
       rank: row.rank,

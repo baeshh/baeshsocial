@@ -81,7 +81,7 @@ profilesRouter.put('/me/featured-projects', authenticate, async (req, res, next)
   try {
     const authUser = res.locals.user as AuthTokenPayload
     const { projectIds: requested } = featuredProjectsSchema.parse(req.body)
-    const [current, eligibleRows] = await Promise.all([
+    const [current, eligibleRows, hiddenRows] = await Promise.all([
       prisma.profile.findUnique({ where: { userId: authUser.id }, select: { featuredProjectIds: true } }),
       requested.length
         ? prisma.project.findMany({
@@ -89,12 +89,18 @@ profilesRouter.put('/me/featured-projects', authenticate, async (req, res, next)
             select: { id: true },
           })
         : Promise.resolve([]),
+      prisma.projectDisplayPreference.findMany({ where: { userId: authUser.id, projectId: { in: requested } }, select: { projectId: true } }),
     ])
     const eligible = new Set(eligibleRows.map((row) => row.id))
+    const hidden = new Set(hiddenRows.map((row) => row.projectId))
     const previouslyPinned = new Set(current?.featuredProjectIds ?? [])
     // Pins the user no longer qualifies for (e.g. left the team) are dropped instead of blocking the update.
     if (requested.some((id) => !eligible.has(id) && !previouslyPinned.has(id))) {
       res.status(400).json({ message: '직접 참여한 프로젝트만 대표 프로젝트로 고정할 수 있습니다.' })
+      return
+    }
+    if (requested.some((id) => hidden.has(id) && !previouslyPinned.has(id))) {
+      res.status(400).json({ message: '프로필에서 숨긴 프로젝트는 대표 프로젝트로 고정할 수 없습니다. 먼저 다시 표시해 주세요.' })
       return
     }
     const projectIds = requested.filter((id) => eligible.has(id))

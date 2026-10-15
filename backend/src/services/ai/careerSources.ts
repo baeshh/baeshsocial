@@ -58,7 +58,8 @@ export async function collectCareerSources(userId: string, options: { projectIds
     where: {
       OR: [{ ownerId: userId }, { members: { some: { userId } } }],
       status: { not: 'ARCHIVED' },
-      ...(options.projectIds?.length ? { id: { in: options.projectIds } } : {}),
+      // Projects hidden from the profile stay out unless the user picks them explicitly.
+      ...(options.projectIds?.length ? { id: { in: options.projectIds } } : { displayPreferences: { none: { userId } } }),
     },
     orderBy: { updatedAt: 'desc' },
     take: maxProjects,
