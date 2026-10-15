@@ -151,4 +151,9 @@ export type ProjectSummary = Pick<
     members: number
     externalLinks: number
   }
+  myRole?: { name: string | null; isLeader: boolean }
+  /** A member locked out of a PRIVATE project until a leader grants access. */
+  restricted?: boolean
+  /** The open task due soonest; null when none is open or the viewer may not see tasks. */
+  nextTask?: Pick<ProjectTask, 'id' | 'title' | 'status' | 'dueDate'> | null
 }

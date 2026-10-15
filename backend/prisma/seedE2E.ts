@@ -10,6 +10,9 @@
  * posted opportunities by the operator — an internship with an external link, an education programme taken
  * inside BAESH and a closed job. The applicant's profile lists React, which the internship asks for.
  *
+ * Projects: a team project of the active move-target program led by member (evidence and review), and the
+ * applicant's private personal project where member is an editor without private access (restricted view).
+ *
  * Every account uses the @e2e.baesh.dev domain. The script refuses to run unless the database name contains
  * "e2e" or "test", so it can never touch development, staging or production data.
  */
@@ -27,20 +30,56 @@ import {
   ProgramRecruitmentMode,
   ProgramStatus,
   ProgramVisibility,
+  ProjectStatus,
+  ProjectTaskStatus,
+  ProjectVisibility,
   UserRole,
 } from '@prisma/client'
 import { prisma } from '../src/config/prisma.js'
 import { env } from '../src/config/env.js'
 import { ensureTrialSubscription } from '../src/services/billing/subscriptions.js'
+import { DEFAULT_PROJECT_ROLE_TEMPLATES } from '../src/utils/projectPermissions.js'
 
 export const E2E_DOMAIN = '@e2e.baesh.dev'
 export const E2E_UNIVERSITY = 'E2E 대학교'
 export const E2E_COMPANY = 'E2E 테크'
 export const E2E_MOVE_TARGET = 'E2E 이동 대상 프로그램'
 export const E2E_JOBS_PROGRAM = 'E2E 공개 모집 프로그램'
+export const E2E_PROGRAM_PROJECT = 'E2E 증빙 팀 프로젝트'
+export const E2E_PRIVATE_PROJECT = 'E2E 비공개 개인 프로젝트'
 
 const DAY = 86_400_000
 const dateOnly = (days: number) => new Date(`${new Date(Date.now() + days * DAY).toISOString().slice(0, 10)}T00:00:00.000Z`)
+
+type SeedProject = {
+  title: string
+  slug: string
+  description?: string
+  ownerId: string
+  programId?: string
+  visibility: ProjectVisibility
+  status: ProjectStatus
+  progress?: number
+  members: Array<{ userId: string; role: 'owner' | 'admin' | 'editor' | 'viewer' }>
+  tasks?: Array<{ title: string; status: ProjectTaskStatus; dueDate?: Date }>
+}
+
+/** Same default roles as a project created through the API. */
+async function createProject({ members, tasks = [], ...data }: SeedProject) {
+  const project = await prisma.project.create({
+    data: {
+      ...data,
+      roles: { create: DEFAULT_PROJECT_ROLE_TEMPLATES.map(({ name, slug, description, permissions, isSystem, sortOrder }) => ({ name, slug, description, permissions, isSystem, sortOrder })) },
+      tasks: { create: tasks },
+    },
+    select: { id: true, roles: { select: { id: true, slug: true, name: true } } },
+  })
+  for (const member of members) {
+    const role = project.roles.find((item) => item.slug === member.role)!
+    await prisma.projectMember.create({ data: { projectId: project.id, userId: member.userId, roleId: role.id, role: role.name } })
+  }
+  return project
+}
 
 const databaseName = new URL(env.DATABASE_URL).pathname.slice(1)
 if (env.NODE_ENV === 'production' || env.APP_ENV !== 'local' || !/e2e|test/i.test(databaseName)) {
@@ -98,13 +137,40 @@ async function main() {
   await ensureTrialSubscription(university.id)
   await ensureTrialSubscription(company.id)
 
-  await prisma.program.create({
+  const moveTarget = await prisma.program.create({
     data: {
       organizationId: university.id,
       title: E2E_MOVE_TARGET,
       createdById: operator.id,
       managers: { create: [{ userId: operator.id }] },
+      participants: { create: [{ userId: member.id, addedById: operator.id }] },
     },
+  })
+  await createProject({
+    title: E2E_PROGRAM_PROJECT,
+    slug: 'e2e-program-project',
+    ownerId: operator.id,
+    programId: moveTarget.id,
+    visibility: ProjectVisibility.TEAM,
+    status: ProjectStatus.ACTIVE,
+    members: [{ userId: member.id, role: 'admin' }],
+  })
+  await createProject({
+    title: E2E_PRIVATE_PROJECT,
+    slug: 'e2e-private-project',
+    description: '팀장이 허용한 팀원만 내용을 볼 수 있는 개인 프로젝트입니다.',
+    ownerId: applicant.id,
+    visibility: ProjectVisibility.PRIVATE,
+    status: ProjectStatus.ACTIVE,
+    progress: 40,
+    members: [
+      { userId: applicant.id, role: 'owner' },
+      { userId: member.id, role: 'editor' },
+    ],
+    tasks: [
+      { title: 'E2E 화면 설계 검토', status: ProjectTaskStatus.DONE },
+      { title: 'E2E 로그인 API 연결', status: ProjectTaskStatus.IN_PROGRESS, dueDate: dateOnly(3) },
+    ],
   })
   await prisma.program.create({
     data: {

@@ -51,6 +51,16 @@ export function EvidenceCard({ evidence, showProject, actions, onRemoveFile, rem
             <span>활동일 {formatDate(evidence.activityDate)}</span>
             {evidence.submittedAt ? <span>· 제출 {formatDate(evidence.submittedAt)}</span> : null}
           </p>
+          {(evidence.status === 'approved' || evidence.status === 'rejected') && evidence.reviewedAt ? (
+            <p className="mt-1 text-xs font-semibold text-ink-body">
+              {evidence.status === 'approved' ? '기관 승인' : '기관 반려'} · {evidence.reviewedBy?.name ?? '담당자'} ·{' '}
+              {formatDate(evidence.reviewedAt)}
+            </p>
+          ) : evidence.status === 'submitted' ? (
+            <p className="mt-1 text-xs text-ink-muted">기관 담당자가 아직 검토하지 않았습니다.</p>
+          ) : evidence.status === 'draft' ? (
+            <p className="mt-1 text-xs text-ink-muted">제출 전 임시저장 상태로, 작성자에게만 보입니다.</p>
+          ) : null}
         </div>
         {evidence.author ? (
           <div className="flex items-center gap-2 text-sm">

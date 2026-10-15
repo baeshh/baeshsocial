@@ -74,4 +74,15 @@ export const projectLinkSchema = z.object({
 
 export const updateProjectLinkSchema = projectLinkSchema.partial()
 
-export const projectListQuerySchema = pageQuerySchema(100, 100)
+export const projectListQuerySchema = pageQuerySchema(100, 100).extend({
+  status: z.enum(['planning', 'active', 'completed', 'archived']).optional(),
+  /** personal: not linked to an institution program; program: linked to one. */
+  kind: z.enum(['personal', 'program']).optional(),
+  q: z
+    .string()
+    .trim()
+    .max(100)
+    .optional()
+    .transform((value) => value || undefined),
+  sort: z.enum(['updated', 'created']).default('updated'),
+})

@@ -343,12 +343,30 @@ projectsRouter.get('/', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
     const query = projectListQuerySchema.parse(req.query)
+    const sortField = query.sort === 'created' ? 'createdAt' : 'updatedAt'
     const mine: Prisma.ProjectWhereInput = {
-      OR: [{ ownerId: authUser.id, programId: null }, { members: { some: { userId: authUser.id } } }],
+      AND: [
+        { OR: [{ ownerId: authUser.id, programId: null }, { members: { some: { userId: authUser.id } } }] },
+        ...(query.kind ? [{ programId: query.kind === 'program' ? { not: null } : null }] : []),
+        ...(query.q
+          ? [
+              {
+                OR: [
+                  { title: { contains: query.q, mode: 'insensitive' as const } },
+                  { description: { contains: query.q, mode: 'insensitive' as const } },
+                ],
+              },
+            ]
+          : []),
+      ],
     }
     const rows = await prisma.project.findMany({
       where: {
-        AND: [mine, keysetAfter('updatedAt', decodeCursor(query.cursor)) as Prisma.ProjectWhereInput],
+        AND: [
+          mine,
+          ...(query.status ? [{ status: statusMap[query.status] }] : []),
+          keysetAfter(sortField, decodeCursor(query.cursor)) as Prisma.ProjectWhereInput,
+        ],
       },
       select: {
         id: true,
@@ -365,12 +383,32 @@ projectsRouter.get('/', authenticate, async (req, res, next) => {
         createdAt: true,
         updatedAt: true,
         program: { select: { id: true, title: true, organization: { select: { id: true, name: true } } } },
+        members: { where: { userId: authUser.id }, select: { role: true, projectRole: { select: { name: true } } } },
         _count: { select: { tasks: true, activities: true, files: true, members: true, externalLinks: true } },
       },
-      orderBy: keysetOrder('updatedAt') as Prisma.ProjectOrderByWithRelationInput[],
+      orderBy: keysetOrder(sortField) as Prisma.ProjectOrderByWithRelationInput[],
       take: query.limit + 1,
     })
-    const page = toPage(rows, query.limit, (row) => ({ v: row.updatedAt, id: row.id }))
+    const page = toPage(rows, query.limit, (row) => ({ v: row[sortField], id: row.id }))
+    const access = new Map(
+      await Promise.all(
+        page.items.map(async (row) => [row.id, await resolveUserProjectPermissions(row.id, authUser.id)] as const),
+      ),
+    )
+    const taskViewable = page.items.filter((row) => access.get(row.id)?.permissions.includes('tasks.view')).map((row) => row.id)
+    // The open task due soonest (undated ones last) per project, only where the viewer may see tasks.
+    const nextTasks = taskViewable.length
+      ? await prisma.projectTask.findMany({
+          where: {
+            projectId: { in: taskViewable },
+            status: { in: [ProjectTaskStatus.TODO, ProjectTaskStatus.IN_PROGRESS, ProjectTaskStatus.BLOCKED] },
+          },
+          distinct: ['projectId'],
+          orderBy: [{ projectId: 'asc' }, { dueDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
+          select: { id: true, projectId: true, title: true, status: true, dueDate: true },
+        })
+      : []
+    const nextTaskByProject = new Map(nextTasks.map(({ projectId, ...task }) => [projectId, task]))
     const doneCounts = page.items.length
       ? await prisma.projectTask.groupBy({
           by: ['projectId'],
@@ -381,6 +419,7 @@ projectsRouter.get('/', authenticate, async (req, res, next) => {
     const doneByProject = new Map(doneCounts.map((row) => [row.projectId, row._count._all]))
     // Totals across every page, so a "N active projects" summary does not depend on the page size.
     let statusCounts: Record<ProjectStatus, number> | undefined
+    // Counts ignore the status filter so every status tab can show how many projects it holds.
     if (!query.cursor) {
       const grouped = await prisma.project.groupBy({ by: ['status'], where: mine, _count: { _all: true } })
       statusCounts = { PLANNING: 0, ACTIVE: 0, COMPLETED: 0, ARCHIVED: 0 }
@@ -388,10 +427,19 @@ projectsRouter.get('/', authenticate, async (req, res, next) => {
     }
 
     res.status(200).json({
-      projects: page.items.map(({ _count, ...row }) => ({
-        ...row,
-        counts: { ..._count, doneTasks: doneByProject.get(row.id) ?? 0 },
-      })),
+      projects: page.items.map(({ _count, members, ...row }) => {
+        const viewer = access.get(row.id)
+        return {
+          ...row,
+          counts: { ..._count, doneTasks: doneByProject.get(row.id) ?? 0 },
+          myRole: {
+            name: members[0]?.projectRole?.name ?? members[0]?.role ?? (row.ownerId === authUser.id ? '소유자' : null),
+            isLeader: Boolean(viewer?.isLeader),
+          },
+          restricted: Boolean(viewer?.restricted),
+          nextTask: nextTaskByProject.get(row.id) ?? null,
+        }
+      }),
       nextCursor: page.nextCursor,
       ...(statusCounts ? { statusCounts } : {}),
     })
@@ -1043,12 +1091,22 @@ projectsRouter.post('/:id/members', authenticate, async (req, res, next) => {
   }
 })
 
+async function assertAssignable(projectId: string, assigneeId: string | null | undefined) {
+  if (!assigneeId) return
+  const member = await prisma.projectMember.findUnique({
+    where: { projectId_userId: { projectId, userId: assigneeId } },
+    select: { id: true },
+  })
+  if (!member) throw new HttpError(400, '담당자는 이 프로젝트의 팀원 중에서 지정해 주세요.')
+}
+
 projectsRouter.post('/:id/tasks', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
     const projectId = String(req.params.id)
     await requireProjectPermission(projectId, authUser.id, 'tasks.create')
     const input = projectTaskSchema.parse(req.body)
+    await assertAssignable(projectId, input.assigneeId)
     const task = await prisma.projectTask.create({
       data: {
         projectId,
@@ -1078,6 +1136,7 @@ projectsRouter.patch('/:id/tasks/:taskId', authenticate, async (req, res, next) 
     const projectId = String(req.params.id)
     await requireProjectPermission(projectId, authUser.id, 'tasks.edit')
     const input = updateProjectTaskSchema.parse(req.body)
+    await assertAssignable(projectId, input.assigneeId)
     const task = await prisma.projectTask.update({
       where: {
         id: String(req.params.taskId),
