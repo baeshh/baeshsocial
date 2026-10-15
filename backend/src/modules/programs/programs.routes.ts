@@ -704,9 +704,25 @@ programsRouter.delete('/:programId', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
     const access = await requireProgramAccess(String(req.params.programId), authUser.id, 'admin')
-    const projectCount = await prisma.project.count({ where: { programId: access.program.id } })
+    const programId = access.program.id
+    const projectCount = await prisma.project.count({ where: { programId } })
     if (projectCount > 0) {
       throw new HttpError(409, '프로젝트가 남아 있는 프로그램은 삭제할 수 없습니다. 보관 상태로 변경해 주세요.')
+    }
+    // Deleting the program cascades to these; they are the institution's record of who took part and what it signed.
+    const [participants, applications, registrations, reviews, verifications, records] = await Promise.all([
+      prisma.programParticipant.count({ where: { programId } }),
+      prisma.programApplication.count({ where: { programId } }),
+      prisma.programProjectRegistration.count({ where: { programId } }),
+      prisma.projectReview.count({ where: { programId } }),
+      prisma.projectVerification.count({ where: { programId } }),
+      prisma.verifiedRecord.count({ where: { programId } }),
+    ])
+    if (participants + applications + registrations + reviews + verifications + records > 0) {
+      throw new HttpError(409, '참여·지원·검증 기록이 있는 프로그램은 삭제할 수 없습니다. 보관 상태로 변경해 주세요.', {
+        code: 'PROGRAM_RETAINED',
+        counts: { participants, applications, registrations, reviews, verifications, records },
+      })
     }
     await prisma.program.delete({ where: { id: access.program.id } })
     await audit(req, res, {

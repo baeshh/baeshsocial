@@ -162,7 +162,10 @@ const PROGRAM_TEAM_MANAGED = new Set<ProjectPermission>([
   'members.remove',
   'members.assign_role',
 ])
-const PROGRAM_STAFF_PERMISSIONS = ALL_PROJECT_PERMISSIONS.filter((permission) => !PROGRAM_TEAM_MANAGED.has(permission))
+/** Program projects are official records: staff archive them, nobody deletes them through the project API. */
+const PROGRAM_STAFF_PERMISSIONS = ALL_PROJECT_PERMISSIONS.filter(
+  (permission) => !PROGRAM_TEAM_MANAGED.has(permission) && permission !== 'project.delete',
+)
 /** Staff supervise student-led projects through reviews, so they read but do not edit them. */
 const PROGRAM_STAFF_REVIEW_PERMISSIONS: ProjectPermission[] = ['project.view', 'tasks.view', 'files.view']
 
