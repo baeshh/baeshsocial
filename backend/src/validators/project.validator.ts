@@ -61,6 +61,11 @@ export const projectFileSchema = z.object({
   fileType: z.string().min(1).max(80),
 })
 
+/** Multipart fields of an upload; without a type each file is labelled by its format. */
+export const projectFileUploadSchema = z.object({
+  fileType: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().trim().max(80).optional()),
+})
+
 const linkTypeSchema = z
   .enum(['github', 'figma', 'notion', 'google_drive', 'deployment', 'other'])
   .transform((value) => value.toUpperCase() as ProjectLinkType)

@@ -129,8 +129,13 @@ export type ValidatedFile = {
   scanStatus: ScanResult
 }
 
+/** Multer hands over UTF-8 file names decoded as latin1. */
+export function uploadedFileName(file: { originalname: string }) {
+  return sanitizeFileName(Buffer.from(file.originalname, 'latin1').toString('utf8'))
+}
+
 export async function validateUpload(file: { originalname: string; buffer: Buffer; size: number }): Promise<ValidatedFile> {
-  const originalName = sanitizeFileName(Buffer.from(file.originalname, 'latin1').toString('utf8'))
+  const originalName = uploadedFileName(file)
   const declaredExtension = originalName.includes('.') ? originalName.split('.').pop()!.toLowerCase() : ''
   const declared = EXTENSION_ALIASES[declaredExtension]
   if (!declared) {

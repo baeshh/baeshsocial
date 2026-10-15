@@ -152,6 +152,54 @@ test('생성: 새 프로젝트를 만들면 상세로 이동하고, 기본 정�
   await expect(card(page, title)).toHaveCount(0)
 })
 
+test('파일: 일반 사용자가 파일을 직접 올리고 열기·삭제하며, 내용이 확장자와 다른 문서는 거부된다', async ({ page }) => {
+  const PDF = Buffer.from('%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n')
+  await signIn(page, 'applicant')
+  const headers = { Authorization: `Bearer ${await apiToken(page.request, 'applicant')}` }
+  const created = await page.request.post(`${API}/projects`, { headers, data: { title: `E2E 파일 ${Date.now().toString(36)}`, visibility: 'team' } })
+  const id = ((await created.json()) as { project: { id: string } }).project.id
+
+  await page.goto(`/projects/${id}?tab=files`)
+  await page.getByRole('button', { name: '파일 올리기' }).click()
+  const form = page.getByRole('form', { name: '파일 올리기' })
+  await form.locator('input[type=file]').setInputFiles([
+    { name: '기획서.pdf', mimeType: 'application/pdf', buffer: PDF },
+    { name: '화면.png', mimeType: 'image/png', buffer: PNG },
+  ])
+  await expect(form.getByText('기획서.pdf')).toBeVisible()
+  await expectNoA11yViolations(page)
+  await form.getByRole('button', { name: '올리기' }).click()
+  await expectToast(page, '파일 2개를 올렸습니다.')
+
+  const list = page.getByRole('list', { name: '파일 목록' })
+  const pdfRow = list.getByRole('listitem').filter({ hasText: '기획서.pdf' })
+  await expect(pdfRow).toContainText('PDF · ')
+  await expect(pdfRow).toContainText('박지원')
+  await expect(list.getByRole('listitem').filter({ hasText: '화면.png' })).toContainText('이미지')
+
+  const popup = page.waitForEvent('popup')
+  await list.getByRole('listitem').filter({ hasText: '화면.png' }).getByRole('button', { name: /열기/ }).click()
+  const opened = await popup
+  await opened.waitForLoadState()
+  expect(opened.url()).toContain('/api/files/local/')
+  await opened.close()
+
+  await page.getByRole('button', { name: '파일 올리기' }).click()
+  await form.locator('input[type=file]').setInputFiles({ name: '회의록.docx', mimeType: 'application/octet-stream', buffer: PNG })
+  await form.getByRole('button', { name: '올리기' }).click()
+  await expect(form.getByRole('alert')).toContainText('파일 내용이 확장자와 일치하지 않습니다.')
+  await form.getByRole('button', { name: '취소' }).click()
+
+  page.once('dialog', (dialog) => void dialog.accept())
+  await list.getByRole('button', { name: '화면.png 삭제' }).click()
+  await expectToast(page, '파일을 삭제했습니다.')
+  await expect(list.getByRole('listitem')).toHaveCount(1)
+  await expect(tab(page, '파일')).toContainText('1')
+
+  const removed = await page.request.delete(`${API}/projects/${id}`, { headers, data: { password: PASSWORD } })
+  expect(removed.status()).toBe(204)
+})
+
 test('권한: 비공개 열람이 없는 팀원은 내용을 못 보고, 팀장이 허용하면 바뀐 역할의 권한만큼 본다', async ({ browser }) => {
   const owner = await pageAs(browser, 'applicant')
   const id = await projectId(owner, 'applicant', PROJECTS.private)
