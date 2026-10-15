@@ -11,9 +11,10 @@
 # Generated secrets (DB password, JWT_SECRET, OPS_INGEST_TOKEN) go straight to SSM SecureString through
 # temporary 0600 files; they are never printed or passed on the command line.
 #
-# Creates: 2 private S3 buckets (s3-setup.sh hardening), security groups, RDS PostgreSQL 16 (encrypted,
-# private, 7-day backups, deletion protection), SSM parameters under /baesh/staging/, an EC2 role limited
-# to those buckets/parameters, and an EC2 instance with an Elastic IP bootstrapped by staging-user-data.sh.
+# Creates: 2 private S3 buckets (s3-setup.sh hardening), a private media bucket served through CloudFront
+# (origin access control), security groups, RDS PostgreSQL 16 (encrypted, private, 7-day backups, deletion
+# protection), SSM parameters under /baesh/staging/, an EC2 role limited to those buckets/parameters, and an
+# EC2 instance with an Elastic IP bootstrapped by staging-user-data.sh (runtime, ClamAV, Chromium libraries).
 # DNS, TLS certificates and the GitHub `staging` environment are manual steps: see docs/STAGING-AWS.md.
 set -Eeuo pipefail
 trap 'echo "::error::provision-staging.sh failed at line ${LINENO}: ${BASH_COMMAND}" >&2' ERR
@@ -29,13 +30,15 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 BAESH_ENV=staging
 REGION="${AWS_REGION:-ap-northeast-2}"
 PREFIX="${NAME_PREFIX:-baesh-staging}"
-APP_DOMAIN="${APP_DOMAIN:-staging.baesh.kr}"
-API_DOMAIN="${API_DOMAIN:-staging-api.baesh.kr}"
-INSTANCE_TYPE="${INSTANCE_TYPE:-t3.small}"
+APP_DOMAIN="${APP_DOMAIN:-staging.baesh.cloud}"
+API_DOMAIN="${API_DOMAIN:-staging-api.baesh.cloud}"
+# clamd keeps ~1.2GB of signatures in memory next to Node and Chromium, so 2GB (t3.small) is not enough.
+INSTANCE_TYPE="${INSTANCE_TYPE:-t3.medium}"
 DB_CLASS="${DB_CLASS:-db.t4g.micro}"
 DB_STORAGE_GB="${DB_STORAGE_GB:-20}"
 FILES_BUCKET="${FILES_BUCKET:-${PREFIX}-files}"
 BACKUP_BUCKET="${BACKUP_BUCKET:-${PREFIX}-backups}"
+MEDIA_BUCKET="${MEDIA_BUCKET:-${PREFIX}-media}"
 SSM_PREFIX="/baesh/${BAESH_ENV}"
 ADMIN_SSM_PREFIX="/baesh-admin/${BAESH_ENV}"
 DB_ID="${PREFIX}-db"
@@ -49,13 +52,17 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 step() { printf '\n=== %s ===\n' "$*"; }
 plan() { printf '  - %s\n' "$*"; }
 
-for name in "$PREFIX" "$FILES_BUCKET" "$BACKUP_BUCKET"; do
+for name in "$PREFIX" "$FILES_BUCKET" "$BACKUP_BUCKET" "$MEDIA_BUCKET"; do
   [[ "$name" != *prod* ]] || die "refusing to touch '${name}': this script is for staging only"
   [[ "$name" =~ ^[a-z0-9][a-z0-9-]{2,61}$ ]] || die "invalid name '${name}'"
 done
 for domain in "$APP_DOMAIN" "$API_DOMAIN"; do
   [[ "$domain" =~ ^[a-z0-9.-]+$ ]] || die "invalid domain '${domain}'"
 done
+
+PLAYWRIGHT_VERSION="$(awk '/"node_modules\/playwright": \{/ { found = 1 } found && /"version"/ { gsub(/[",]/, "", $2); print $2; exit }' \
+  "$DIR/../../backend/package-lock.json")"
+[[ "$PLAYWRIGHT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "could not read the playwright version from backend/package-lock.json"
 
 DEPLOY_PUBLIC_KEY=""
 if [ -n "${DEPLOY_PUBLIC_KEY_FILE:-}" ]; then
@@ -67,14 +74,15 @@ fi
 if ! $APPLY; then
   step "Plan for ${PREFIX} in ${REGION} (no AWS calls made)"
   plan "S3: create ${FILES_BUCKET}, ${BACKUP_BUCKET}; run s3-setup.sh (versioning, public access block, SSE-KMS, TLS-only, lifecycle)"
+  plan "Media: create ${MEDIA_BUCKET} (public access block, SSE-S3, TLS-only) + CloudFront distribution with origin access control reading media/*"
   plan "Security groups: ${PREFIX}-web (80/443 public, 22 from ADMIN_CIDR=${ADMIN_CIDR:-<required>}), ${PREFIX}-db (5432 from ${PREFIX}-web only)"
   plan "RDS: ${DB_ID} PostgreSQL 16.x ${DB_CLASS} ${DB_STORAGE_GB}GB gp3, encrypted, not public, backups 7 days, deletion protection"
   plan "SSM ${ADMIN_SSM_PREFIX}/DB_MASTER_PASSWORD (generated, SecureString; not read by the app)"
   plan "SSM ${SSM_PREFIX}/: DATABASE_URL, JWT_SECRET, OPS_INGEST_TOKEN (SecureString, generated)"
-  plan "SSM ${SSM_PREFIX}/: FRONTEND_URL=https://${APP_DOMAIN}, API_PUBLIC_URL=https://${API_DOMAIN}, STORAGE_DRIVER=s3, S3_BUCKET=${FILES_BUCKET}, S3_REGION, BACKUP_S3_BUCKET=${BACKUP_BUCKET}, MAIL_DRIVER=log, AI_PROVIDER=mock, TRUST_PROXY=1"
-  plan "IAM: role/instance profile ${ROLE} (S3 on the two buckets, SSM read ${SSM_PREFIX}/*, KMS via S3/SSM, SSM Session Manager)"
+  plan "SSM ${SSM_PREFIX}/: FRONTEND_URL(S)=https://${APP_DOMAIN}, API_PUBLIC_URL=https://${API_DOMAIN}, STORAGE_DRIVER=s3, S3_BUCKET=${FILES_BUCKET}, S3_REGION, BACKUP_S3_BUCKET=${BACKUP_BUCKET}, MEDIA_S3_BUCKET=${MEDIA_BUCKET}, MEDIA_PUBLIC_BASE_URL=https://<cloudfront>/media, CLAMAV_HOST=127.0.0.1, MALWARE_SCAN_REQUIRED=true, MAIL_DRIVER=log, AI_PROVIDER=mock, TRUST_PROXY=1"
+  plan "IAM: role/instance profile ${ROLE} (S3 on the files/backup buckets, PutObject on ${MEDIA_BUCKET}/media/*, SSM read ${SSM_PREFIX}/*, KMS via S3/SSM, SSM Session Manager)"
   plan "EC2: ${INSTANCE_NAME} Ubuntu 24.04 ${INSTANCE_TYPE}, 30GB encrypted gp3, IMDSv2 only, key pair KEY_NAME=${KEY_NAME:-<required>}, Elastic IP"
-  plan "EC2 user data: Node 22, PM2, nginx, postgresql-client-16, aws-cli, RDS CA bundle, user baesh, /srv/baesh/staging, render-env.sh"
+  plan "EC2 user data: Node 22, PM2, nginx, postgresql-client-16, aws-cli, RDS CA bundle, ClamAV (127.0.0.1:3310), Chromium libraries (playwright ${PLAYWRIGHT_VERSION}), user baesh, /srv/baesh/staging, render-env.sh"
   plan "deploy key for user baesh: ${DEPLOY_PUBLIC_KEY_FILE:-<none; add it to /home/baesh/.ssh/authorized_keys later>}"
   echo
   echo "Run with --apply (and AWS_ACCOUNT_ID, ADMIN_CIDR, KEY_NAME) to create these resources."
@@ -125,6 +133,78 @@ for bucket in "$FILES_BUCKET" "$BACKUP_BUCKET"; do
   fi
 done
 FILES_BUCKET="$FILES_BUCKET" BACKUP_BUCKET="$BACKUP_BUCKET" AWS_REGION="$REGION" bash "$DIR/s3-setup.sh"
+
+step "1b. Public media (${MEDIA_BUCKET} behind CloudFront)"
+if aws s3api head-bucket --bucket "$MEDIA_BUCKET" >/dev/null 2>&1; then
+  log "keep s3://${MEDIA_BUCKET}"
+else
+  aws s3api create-bucket --bucket "$MEDIA_BUCKET" --create-bucket-configuration "LocationConstraint=${REGION}" >/dev/null
+  log "created s3://${MEDIA_BUCKET}"
+fi
+aws s3api put-public-access-block --bucket "$MEDIA_BUCKET" --public-access-block-configuration \
+  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+# SSE-S3 rather than SSE-KMS: CloudFront origin access control cannot decrypt objects under the AWS-managed aws/s3 key.
+aws s3api put-bucket-encryption --bucket "$MEDIA_BUCKET" --server-side-encryption-configuration \
+  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+
+OAC_ID="$(aws cloudfront list-origin-access-controls \
+  --query "OriginAccessControlList.Items[?Name=='${MEDIA_BUCKET}'] | [0].Id" --output text)"
+if none "$OAC_ID"; then
+  OAC_ID="$(aws cloudfront create-origin-access-control --origin-access-control-config \
+    "Name=${MEDIA_BUCKET},SigningProtocol=sigv4,SigningBehavior=always,OriginAccessControlOriginType=s3" \
+    --query OriginAccessControl.Id --output text)"
+  log "created origin access control ${OAC_ID}"
+fi
+
+read -r DIST_ID DIST_DOMAIN DIST_ARN <<<"$(aws cloudfront list-distributions \
+  --query "DistributionList.Items[?Comment=='${MEDIA_BUCKET}'] | [0].[Id,DomainName,ARN]" --output text)"
+if none "${DIST_ID:-}"; then
+  cat >"$WORK/cloudfront.json" <<JSON
+{
+  "CallerReference": "${MEDIA_BUCKET}-$(date +%s)",
+  "Comment": "${MEDIA_BUCKET}",
+  "Enabled": true,
+  "PriceClass": "PriceClass_200",
+  "HttpVersion": "http2and3",
+  "Origins": {"Quantity": 1, "Items": [{
+    "Id": "media",
+    "DomainName": "${MEDIA_BUCKET}.s3.${REGION}.amazonaws.com",
+    "OriginAccessControlId": "${OAC_ID}",
+    "S3OriginConfig": {"OriginAccessIdentity": ""}
+  }]},
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "media",
+    "ViewerProtocolPolicy": "redirect-to-https",
+    "Compress": true,
+    "AllowedMethods": {"Quantity": 2, "Items": ["GET", "HEAD"], "CachedMethods": {"Quantity": 2, "Items": ["GET", "HEAD"]}},
+    "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6"
+  },
+  "ViewerCertificate": {"CloudFrontDefaultCertificate": true}
+}
+JSON
+  read -r DIST_ID DIST_DOMAIN DIST_ARN <<<"$(aws cloudfront create-distribution \
+    --distribution-config "file://${WORK}/cloudfront.json" --query 'Distribution.[Id,DomainName,ARN]' --output text)"
+  log "created CloudFront distribution ${DIST_ID}; it serves traffic once deployed (usually 5-15 minutes)"
+else
+  log "keep CloudFront distribution ${DIST_ID}"
+fi
+
+cat >"$WORK/media-policy.json" <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Sid": "TlsOnly", "Effect": "Deny", "Principal": "*", "Action": "s3:*",
+     "Resource": ["arn:aws:s3:::${MEDIA_BUCKET}", "arn:aws:s3:::${MEDIA_BUCKET}/*"],
+     "Condition": {"Bool": {"aws:SecureTransport": "false"}}},
+    {"Sid": "CloudFrontReadMedia", "Effect": "Allow", "Principal": {"Service": "cloudfront.amazonaws.com"},
+     "Action": "s3:GetObject", "Resource": "arn:aws:s3:::${MEDIA_BUCKET}/media/*",
+     "Condition": {"StringEquals": {"AWS:SourceArn": "${DIST_ARN}"}}}
+  ]
+}
+JSON
+aws s3api put-bucket-policy --bucket "$MEDIA_BUCKET" --policy "file://${WORK}/media-policy.json"
+MEDIA_PUBLIC_BASE_URL="https://${DIST_DOMAIN}/media"
+log "media served from ${MEDIA_PUBLIC_BASE_URL}"
 
 step "2. Network"
 VPC_ID="${VPC_ID:-$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)}"
@@ -211,11 +291,17 @@ put_param "${SSM_PREFIX}/DATABASE_URL" SecureString \
 put_param "${SSM_PREFIX}/JWT_SECRET" SecureString "$(openssl rand -hex 48)"
 put_param "${SSM_PREFIX}/OPS_INGEST_TOKEN" SecureString "$(openssl rand -hex 32)"
 put_param "${SSM_PREFIX}/FRONTEND_URL" String "https://${APP_DOMAIN}"
+# Replaces the localhost default so the staging API accepts CORS only from the staging app.
+put_param "${SSM_PREFIX}/FRONTEND_URLS" String "https://${APP_DOMAIN}"
 put_param "${SSM_PREFIX}/API_PUBLIC_URL" String "https://${API_DOMAIN}"
 put_param "${SSM_PREFIX}/STORAGE_DRIVER" String s3
 put_param "${SSM_PREFIX}/S3_BUCKET" String "$FILES_BUCKET"
 put_param "${SSM_PREFIX}/S3_REGION" String "$REGION"
 put_param "${SSM_PREFIX}/BACKUP_S3_BUCKET" String "$BACKUP_BUCKET"
+put_param "${SSM_PREFIX}/MEDIA_S3_BUCKET" String "$MEDIA_BUCKET"
+put_param "${SSM_PREFIX}/MEDIA_PUBLIC_BASE_URL" String "$MEDIA_PUBLIC_BASE_URL"
+put_param "${SSM_PREFIX}/CLAMAV_HOST" String 127.0.0.1
+put_param "${SSM_PREFIX}/MALWARE_SCAN_REQUIRED" String true
 put_param "${SSM_PREFIX}/MAIL_DRIVER" String log
 put_param "${SSM_PREFIX}/AI_PROVIDER" String mock
 put_param "${SSM_PREFIX}/TRUST_PROXY" String 1
@@ -235,6 +321,7 @@ cat >"$WORK/policy.json" <<JSON
      "Resource": ["arn:aws:s3:::${FILES_BUCKET}", "arn:aws:s3:::${BACKUP_BUCKET}"]},
     {"Effect": "Allow", "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"],
      "Resource": ["arn:aws:s3:::${FILES_BUCKET}/*", "arn:aws:s3:::${BACKUP_BUCKET}/*"]},
+    {"Effect": "Allow", "Action": "s3:PutObject", "Resource": "arn:aws:s3:::${MEDIA_BUCKET}/media/*"},
     {"Effect": "Allow", "Action": ["ssm:GetParametersByPath", "ssm:GetParameters", "ssm:GetParameter"],
      "Resource": ["arn:aws:ssm:${REGION}:${account}:parameter${SSM_PREFIX}", "arn:aws:ssm:${REGION}:${account}:parameter${SSM_PREFIX}/*"]},
     {"Effect": "Allow", "Action": ["kms:Decrypt", "kms:GenerateDataKey"], "Resource": "*",
@@ -261,6 +348,7 @@ if none "$INSTANCE_ID"; then
     --query Parameter.Value --output text)"
   sed -e "s|__BAESH_ENV__|${BAESH_ENV}|" -e "s|__AWS_REGION__|${REGION}|" \
     -e "s|__DEPLOY_PUBLIC_KEY__|${DEPLOY_PUBLIC_KEY}|" \
+    -e "s|__PLAYWRIGHT_VERSION__|${PLAYWRIGHT_VERSION}|" \
     -e "s|__LIB_SH_B64__|$(base64 <"$DIR/lib.sh" | tr -d '\n')|" \
     -e "s|__RENDER_ENV_SH_B64__|$(base64 <"$DIR/render-env.sh" | tr -d '\n')|" \
     "$DIR/staging-user-data.sh" >"$WORK/user-data.sh"
@@ -290,7 +378,8 @@ step "Done"
 cat <<EOF
 Server      ${INSTANCE_ID}  ${PUBLIC_IP}  (bootstrap log: /var/log/baesh-bootstrap.log, takes ~5 minutes)
 Database    ${DB_HOST} (private; reachable only from ${PREFIX}-web)
-Buckets     s3://${FILES_BUCKET}  s3://${BACKUP_BUCKET}
+Buckets     s3://${FILES_BUCKET}  s3://${BACKUP_BUCKET}  s3://${MEDIA_BUCKET}
+Media CDN   ${MEDIA_PUBLIC_BASE_URL} (CloudFront ${DIST_ID})
 
 Next (docs/STAGING-AWS.md):
   1. DNS A records: ${APP_DOMAIN} and ${API_DOMAIN} -> ${PUBLIC_IP}
