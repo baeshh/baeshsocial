@@ -134,7 +134,17 @@ sudo systemctl enable --now baesh-backup@staging.timer baesh-restore-drill@stagi
 - [ ] 웹 `https://staging.baesh.cloud` 로그인·회원가입, 인증 필요 API 401, 요금제 목록 200 (배포 워크플로 스모크 테스트와 동일)
 - [ ] 증빙 파일 업로드 → S3 `baesh-staging-files`에 저장되고, 다운로드는 만료되는 임시 URL로만 열림
 - [ ] 프로필 이미지 업로드 → `https://<cloudfront>/media/...` URL로 표시됨, S3 버킷 URL로 직접 열면 403
-- [ ] EICAR 테스트 파일 업로드 → 악성코드 의심으로 거부, 30MB 이상 동영상 → 정상 업로드
+- [ ] 서버에서 `/srv/baesh/staging/current/deploy/scripts/check-clamav.sh` → `ok` 네 줄 (설정값·PING·EICAR 탐지·정상 60MB 파일)
+- [ ] 앱 경로로 정상 대용량 확인: 30MB 이상 100MB 이하의 정상 동영상(mp4)을 증빙 파일로 업로드 → 성공하고 다운로드 가능 (기본 스트림 제한 25MB였다면 여기서 거부됨)
+- [ ] 앱이 실제로 clamd 검사를 거쳤는지 확인 (`skipped`가 아니라 `clean`):
+
+  ```bash
+  sudo -u baesh env BAESH_ENV=staging bash -c '. /srv/baesh/staging/current/deploy/scripts/lib.sh
+    psql "$(pg_url)" -c "SELECT \"originalName\", \"sizeBytes\", \"scanStatus\" FROM \"EvidenceFile\" ORDER BY \"createdAt\" DESC LIMIT 3"'
+  ```
+
+- [ ] 검사기 장애 시 업로드 거부(fail-closed): `sudo systemctl stop clamav-daemon` → 아무 정상 PDF 업로드 → "악성코드 검사기를 사용할 수 없어 업로드를 거부했습니다" → `sudo systemctl start clamav-daemon` 후 `check-clamav.sh --wait 300` 재통과
+- 참고: EICAR 원본 파일은 앱에서 직접 올릴 수 없습니다. 업로드 검증이 ClamAV보다 먼저 확장자·파일 서명(JPG/PNG/WEBP/PDF/MP4/MOV/WEBM)을 확인하고, ClamAV의 EICAR 시그니처는 원본 파일 그대로일 때만 일치합니다. 그래서 EICAR 탐지는 위 `check-clamav.sh`로 clamd에서 확인하고, 앱→clamd 연결은 `scanStatus=clean`과 fail-closed로 확인합니다.
 - [ ] 포트폴리오 PDF 다운로드 → 한글이 깨지지 않고 "규칙 기반" 표시
 - [ ] `sudo systemctl start baesh-backup@staging.service` → S3 `baesh-staging-backups/db/staging/`에 덤프·매니페스트
 - [ ] `sudo systemctl start baesh-restore-drill@staging.service` → 임시 DB 복원 성공, `/admin/ops` 운영 기록에 표시
