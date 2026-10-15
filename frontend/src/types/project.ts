@@ -81,13 +81,16 @@ export type ProjectActivity = {
   user?: Pick<AuthUser, 'id' | 'name' | 'email' | 'avatarUrl'>
 }
 
+/** A shared link (`url`) or a file uploaded to BAESH (`url` null, opened through a short-lived signed URL). */
 export type ProjectFile = {
   id: string
   projectId: string
   name: string
-  url: string
+  url: string | null
   fileType: string
   uploadedBy: string
+  mimeType: string | null
+  sizeBytes: number | null
   createdAt: string
   uploader?: Pick<AuthUser, 'id' | 'name' | 'email' | 'avatarUrl'>
 }
