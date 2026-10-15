@@ -33,6 +33,7 @@ import { healthRouter } from './routes/health.route.js'
 import { publicRouter } from './routes/public.routes.js'
 import { seoRouter } from './modules/seo/seo.routes.js'
 import { adminAuditRouter, organizationAuditRouter } from './modules/admin/audit.routes.js'
+import { organizationProjectRecordsRouter } from './modules/records/projectRecords.routes.js'
 import { adminUsersRouter } from './modules/admin/adminUsers.routes.js'
 import { billingRouter, organizationBillingRouter } from './modules/billing/billing.routes.js'
 import { billingAdminRouter } from './modules/billing/billingAdmin.routes.js'
@@ -101,6 +102,7 @@ app.use('/api/organizations/:orgId/invites', organizationInvitesRouter)
 app.use('/api/organizations/:orgId/onboarding', organizationOnboardingRouter)
 app.use('/api/organizations/:orgId/billing', organizationBillingRouter)
 app.use('/api/organizations/:orgId/audit-logs', organizationAuditRouter)
+app.use('/api/organizations/:orgId/project-records', organizationProjectRecordsRouter)
 app.use('/api/invites', invitesRouter)
 app.use('/api/billing', billingRouter)
 app.use('/api/support', supportRouter)
