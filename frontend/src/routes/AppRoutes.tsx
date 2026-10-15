@@ -8,6 +8,7 @@ import { HomePage } from '../pages/home/HomePage'
 import { NetworkPage } from '../pages/network/NetworkPage'
 import { OpportunitiesPage } from '../pages/opportunities/OpportunitiesPage'
 import { OpportunityDetailPage } from '../pages/opportunities/OpportunityDetailPage'
+import { OpportunityManagePage } from '../pages/opportunities/OpportunityManagePage'
 import { ProfilePage } from '../pages/profile/ProfilePage'
 import { PublicProfilePage } from '../pages/profile/PublicProfilePage'
 import { ProjectsPage } from '../pages/projects/ProjectsPage'
@@ -66,6 +67,7 @@ export function AppRoutes() {
       <Route element={<NetworkPage />} path="/network" />
       <Route element={<FindPage />} path="/find" />
       <Route element={<OpportunitiesPage />} path="/opportunities" />
+      <Route element={<OpportunityManagePage />} path="/opportunities/manage" />
       <Route
         element={
           <RemountOnParams params={['opportunityId']}>
