@@ -1,6 +1,5 @@
-import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
-import { orgIds, signIn } from './support'
+import { expect, test } from '@playwright/test'
+import { expectNoA11yViolations, orgIds, signIn } from './support'
 
 test.describe('로딩·오류·빈 화면', () => {
   test('홈: 느린 응답은 로딩으로 알리고, 데이터가 없으면 빈 상태를 보여준다', async ({ page }) => {
@@ -52,15 +51,6 @@ test.describe('로딩·오류·빈 화면', () => {
 })
 
 /** WCAG A/AA rules that a markup change can fix; contrast is tracked separately against the design tokens. */
-async function expectNoA11yViolations(page: Page) {
-  const { violations } = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-    .disableRules(['color-contrast'])
-    .analyze()
-  const summary = violations.map((v) => `${v.impact} ${v.id}: ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(' | ')}`)
-  expect(summary).toEqual([])
-}
-
 test.describe('접근성 (axe)', () => {
   test('공개 화면', async ({ page }) => {
     await page.goto('/auth/login')
