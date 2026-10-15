@@ -9,6 +9,7 @@ import {
   opportunitySchema,
   updateOpportunitySchema,
 } from '../../validators/opportunity.validator.js'
+import { SERVICE_TIME_ZONE } from '../../utils/serviceDate.js'
 import {
   applyForProgram,
   assertCanManageEnrollment,
@@ -178,7 +179,9 @@ opportunitiesRouter.get('/', authenticate, async (req, res, next) => {
     if (query.saved) {
       conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM "SavedOpportunity" s WHERE s."opportunityId" = o.id AND s."userId" = ${authUser.id})`)
     }
-    if (query.openOnly) conditions.push(Prisma.sql`(o.deadline IS NULL OR o.deadline >= date_trunc('day', now()))`)
+    if (query.openOnly) {
+      conditions.push(Prisma.sql`(o.deadline IS NULL OR o.deadline::date >= (now() AT TIME ZONE ${SERVICE_TIME_ZONE})::date)`)
+    }
     const where = Prisma.join(conditions, ' AND ')
 
     const [{ total }] = await prisma.$queryRaw<{ total: bigint }[]>`SELECT count(*) AS total FROM "Opportunity" o WHERE ${where}`
