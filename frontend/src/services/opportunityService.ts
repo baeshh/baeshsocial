@@ -32,6 +32,8 @@ export type OpportunityPage = {
   pageSize: number
   total: number
   totalPages: number
+  /** Skills on the viewer's profile; with none, the match order carries no meaning. */
+  profileSkillCount?: number
 }
 
 function toQueryString(filters: OpportunityFilters) {
@@ -49,6 +51,10 @@ function toQueryString(filters: OpportunityFilters) {
 
 export function getOpportunities(token: string, filters: OpportunityFilters = {}) {
   return apiRequest<OpportunityPage>(`/opportunities${toQueryString(filters)}`, { token })
+}
+
+export function getOpportunity(token: string, opportunityId: string) {
+  return apiRequest<{ opportunity: Opportunity }>(`/opportunities/${encodeURIComponent(opportunityId)}`, { token })
 }
 
 export function createOpportunity(token: string, payload: OpportunityPayload) {

@@ -222,7 +222,6 @@ export function OpportunitiesPage() {
                 onReset={resetSearch}
                 search={effectiveSearch}
                 token={token}
-                user={user}
               />
             </div>
           </>

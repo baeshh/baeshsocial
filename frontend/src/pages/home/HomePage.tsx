@@ -322,7 +322,7 @@ export function HomePage() {
                     const matched = opportunity.skills.filter((skill) => mySkills.has(skill.toLowerCase()))
                     return (
                       <li className="py-3" key={`opportunity-${opportunity.id}`}>
-                        <Link className="group flex items-center gap-3" to={`/opportunities?q=${encodeURIComponent(opportunity.title)}`}>
+                        <Link className="group flex items-center gap-3" to={`/opportunities/${opportunity.id}`}>
                           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
                             <BriefcaseBusiness aria-hidden size={18} />
                           </span>

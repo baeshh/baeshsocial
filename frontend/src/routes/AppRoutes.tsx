@@ -7,6 +7,7 @@ import { FindPage } from '../pages/find/FindPage'
 import { HomePage } from '../pages/home/HomePage'
 import { NetworkPage } from '../pages/network/NetworkPage'
 import { OpportunitiesPage } from '../pages/opportunities/OpportunitiesPage'
+import { OpportunityDetailPage } from '../pages/opportunities/OpportunityDetailPage'
 import { ProfilePage } from '../pages/profile/ProfilePage'
 import { PublicProfilePage } from '../pages/profile/PublicProfilePage'
 import { ProjectsPage } from '../pages/projects/ProjectsPage'
@@ -65,6 +66,14 @@ export function AppRoutes() {
       <Route element={<NetworkPage />} path="/network" />
       <Route element={<FindPage />} path="/find" />
       <Route element={<OpportunitiesPage />} path="/opportunities" />
+      <Route
+        element={
+          <RemountOnParams params={['opportunityId']}>
+            <OpportunityDetailPage />
+          </RemountOnParams>
+        }
+        path="/opportunities/:opportunityId"
+      />
       <Route element={<ProgramPublicPage />} path="/programs/:programId" />
       <Route element={<AICopilotPage />} path="/ai-copilot" />
       <Route element={<TalentDBPage />} path="/talent-db" />

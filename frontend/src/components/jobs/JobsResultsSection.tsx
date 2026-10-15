@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useDiscoverPrograms } from '../../hooks/useDiscoverPrograms'
@@ -11,9 +11,7 @@ import {
   writeJobsSearchParams,
   type JobsSearch,
 } from '../../lib/jobsSearch'
-import { canManageOpportunity } from '../../lib/opportunityPermissions'
 import { getMyEnrollments, getOpportunities } from '../../services/opportunityService'
-import type { AuthUser } from '../../types/auth'
 import type { OpportunityEnrollment } from '../../types/opportunity'
 import { ErrorState } from '../common/ErrorState'
 import { Pagination } from '../common/Pagination'
@@ -25,7 +23,6 @@ import { JobsResultSkeleton } from './JobsResultSkeleton'
 type Props = {
   search: JobsSearch
   token: string | null
-  user: AuthUser | null
   narrowed: boolean
   onReset: () => void
 }
@@ -36,8 +33,7 @@ const scrollToGroup = (id: string) => document.getElementById(id)?.scrollIntoVie
  * Institution programs and posted opportunities come from two APIs that page and rank independently, so each
  * keeps its own list, count and order instead of being interleaved into one ranking the server never made.
  */
-export function JobsResultsSection({ search, token, user, narrowed, onReset }: Props) {
-  const queryClient = useQueryClient()
+export function JobsResultsSection({ search, token, narrowed, onReset }: Props) {
   const programs = useMemo(() => programQuery(search), [search])
   const postings = useMemo(() => opportunityQuery(search), [search])
   const postingsVisible = postings.query !== null && Boolean(token)
@@ -69,6 +65,7 @@ export function JobsResultsSection({ search, token, user, narrowed, onReset }: P
 
   const programData = programs.query ? programsQuery.data : undefined
   const postingData = postingsVisible ? postingsQuery.data : undefined
+  const hasProfileSkills = (postingData?.profileSkillCount ?? 0) > 0
   const failed = (Boolean(programs.query) && programsQuery.isError && !programData) || (postingsVisible && postingsQuery.isError && !postingData)
   const settled = (!programs.query || programData !== undefined) && (!postingsVisible || postingData !== undefined)
   const programTotal = programData?.total ?? 0
@@ -163,20 +160,26 @@ export function JobsResultsSection({ search, token, user, narrowed, onReset }: P
               />
             ) : null
           }
+          notice={
+            search.sort === 'recommended' && postingData && !hasProfileSkills ? (
+              <>
+                프로필에 등록한 스킬이 없어 추천순이 개인화되지 않습니다.{' '}
+                <Link className="font-semibold text-brand-600 hover:underline" to="/profile">
+                  프로필에 스킬 추가하기
+                </Link>
+              </>
+            ) : null
+          }
           query={postingsQuery}
           sortNote={postingSortNote(search.sort)}
           title="일반 공고"
         >
           {postingData?.opportunities.map((opportunity) => (
             <JobOpportunityCard
-              canManage={canManageOpportunity(user?.role, user?.id, opportunity)}
               enrollment={enrollmentByOpportunity.get(opportunity.id)}
               key={opportunity.id}
-              onChanged={() => {
-                void queryClient.invalidateQueries({ queryKey: ['opportunities'] })
-                void queryClient.invalidateQueries({ queryKey: ['profiles'] })
-              }}
               opportunity={opportunity}
+              showMatch={hasProfileSkills}
               token={token ?? ''}
             />
           ))}
@@ -205,6 +208,7 @@ function ResultGroup({
   query,
   emptyText,
   pagination,
+  notice,
   children,
 }: {
   id: string
@@ -215,6 +219,7 @@ function ResultGroup({
   query: UseQueryResult<unknown>
   emptyText: string
   pagination: ReactNode
+  notice?: ReactNode
   children: ReactNode
 }) {
   const headingId = `${id}-title`
@@ -230,6 +235,7 @@ function ResultGroup({
         </div>
         <p className="mt-0.5 text-xs text-ink-muted">{description}</p>
       </div>
+      {notice ? <p className="rounded-xl bg-warning-50 px-3.5 py-2.5 text-xs leading-5 text-warning-700">{notice}</p> : null}
       {query.isError && !query.data ? (
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
       ) : query.isPending ? (

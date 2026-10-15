@@ -153,6 +153,42 @@ describe('opportunity listing on Jobs', () => {
     expect(saved.opportunities).toEqual([expect.objectContaining({ title: '불일치', saved: true })])
   })
 
+  it('names the matched profile skills and how many skills the profile has', async () => {
+    const page = (await api().get('/api/opportunities?pageSize=10').set(bearer(viewer.token))).body as {
+      opportunities: { title: string; matchedSkills: string[] }[]
+      profileSkillCount: number
+    }
+    expect(page.profileSkillCount).toBe(2)
+    const matched = Object.fromEntries(page.opportunities.map((row) => [row.title, row.matchedSkills]))
+    expect(matched).toMatchObject({ '완전 일치': ['React', 'TypeScript'], '절반 일치': ['React'], '스킬 없음': [], 불일치: [] })
+
+    const target = await prisma.opportunity.findFirstOrThrow({ where: { title: '절반 일치' } })
+    const detail = await api().get(`/api/opportunities/${target.id}`).set(bearer(viewer.token))
+    expect(detail.body.opportunity.matchedSkills).toEqual(['React'])
+  })
+
+  it("never shows other users' saves or the poster's email", async () => {
+    const poster = await createUserWithToken({ name: '공고 등록자' })
+    const other = await createUserWithToken({ name: '다른 사람' })
+    const posted = await opportunity('개인정보 확인', { createdBy: poster.user.id })
+    await prisma.savedOpportunity.create({ data: { userId: other.user.id, opportunityId: posted.id } })
+
+    const detail = (await api().get(`/api/opportunities/${posted.id}`).set(bearer(viewer.token))).body.opportunity
+    expect(detail.saved).toBe(false)
+    expect(detail.savedOpportunities).toEqual([])
+    expect(detail.creator).toEqual({ id: poster.user.id, name: '공고 등록자', role: expect.any(String) })
+    expect(JSON.stringify(detail)).not.toContain(poster.user.email)
+
+    const listed = (await list(`q=${encodeURIComponent('개인정보 확인')}`)).opportunities[0] as unknown as Record<string, unknown>
+    expect(listed.savedOpportunities).toEqual([])
+    expect(JSON.stringify(listed)).not.toContain(poster.user.email)
+
+    const own = (await api().get(`/api/opportunities/${posted.id}`).set(bearer(other.token))).body.opportunity
+    expect(own.saved).toBe(true)
+    expect(own.savedOpportunities).toHaveLength(1)
+    await prisma.opportunity.delete({ where: { id: posted.id } })
+  })
+
   it('rejects unknown types and oversized pages', async () => {
     expect((await api().get('/api/opportunities?types=job,unknown').set(bearer(viewer.token))).status).toBe(400)
     expect((await api().get('/api/opportunities?pageSize=500').set(bearer(viewer.token))).status).toBe(400)
