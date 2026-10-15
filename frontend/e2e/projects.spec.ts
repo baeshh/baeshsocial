@@ -161,8 +161,13 @@ test('권한: 비공개 열람이 없는 팀원은 내용을 못 보고, 팀장�
   await expect(member.getByRole('heading', { level: 1, name: PROJECTS.private })).toBeVisible()
   await expect(member.getByText('팀장이 비공개로 설정한 프로젝트입니다.', { exact: false })).toBeVisible()
   await expect(tab(member, '작업')).toHaveCount(0)
-  await expect(tab(member, '설정')).toHaveCount(0)
   await expect(member.getByText('E2E 로그인 API 연결')).toHaveCount(0)
+  // Only the member's own profile setting: hiding from their history is separate from access to the work.
+  await tab(member, '설정').click()
+  await expect(member.getByRole('region', { name: '내 프로필 표시' })).toBeVisible()
+  for (const teamSetting of ['기본 정보', '진행 상태', '공개 범위', '프로젝트 삭제']) {
+    await expect(member.getByRole('region', { name: teamSetting })).toHaveCount(0)
+  }
   await member.goto(`/projects/${id}?tab=tasks`)
   await expect(tab(member, '개요')).toHaveAttribute('aria-current', 'page')
 
@@ -182,7 +187,6 @@ test('권한: 비공개 열람이 없는 팀원은 내용을 못 보고, 팀장�
 
   await member.reload()
   await expect(tab(member, '작업')).toBeVisible()
-  await expect(tab(member, '설정')).toHaveCount(0)
   await tab(member, '작업').click()
   await expect(member.getByRole('list', { name: '작업 목록' })).toContainText('E2E 로그인 API 연결')
   await expect(member.getByRole('button', { name: '작업 추가' })).toHaveCount(0)
@@ -264,6 +268,74 @@ test('보존: 프로그램 프로젝트는 팀장도 기관 담당자도 삭제�
   await confirm.getByRole('button', { name: '취소' }).click()
   await expect(owner.getByRole('heading', { level: 1, name: PROJECTS.private })).toBeVisible()
   await owner.context().close()
+})
+
+test('프로필 표시: 내 이력에서 숨겨도 기관 담당자와 다른 팀원의 기록은 그대로이고, 다시 표시하면 복구된다', async ({ browser }) => {
+  type Card = { id: string; hiddenFromProfile?: boolean }
+  type History = { items: { project: { id: string } | null }[] }
+  const student = await pageAs(browser, 'member')
+  const programProject = await projectId(student, 'member', PROJECTS.program)
+  const sharedProject = await projectId(student, 'member', PROJECTS.private)
+  const memberId = (await apiGet<{ user: { id: string } }>(student.request, 'member', '/profiles/me')).user.id
+  const applicantId = (await apiGet<{ user: { id: string } }>(student.request, 'applicant', '/profiles/me')).user.id
+  const seenBy = async (role: Role, userId: string) => {
+    const { projects } = await apiGet<{ projects: Card[] }>(student.request, role, `/profiles/${userId}/projects?limit=30`)
+    const { items } = await apiGet<History>(student.request, role, `/profiles/${userId}/history?limit=50&type=verified`)
+    return { projects: projects.map((card) => card.id), records: items.map((item) => item.project?.id), cards: projects }
+  }
+
+  const before = await seenBy('outsider', memberId)
+  expect(before.projects).toContain(programProject)
+  expect(before.records).toContain(programProject)
+
+  await student.goto(`/projects/${programProject}?tab=settings`)
+  const display = student.getByRole('region', { name: '내 프로필 표시' })
+  await expect(display).toContainText('내 프로필에 표시 중')
+  await expect(display).toContainText('기관의 운영·검증 기록도 공식 기록으로 그대로 보존됩니다.')
+  await display.getByRole('button', { name: '내 이력에서 숨기기' }).click()
+  await expectToast(student, '내 프로필에서 숨겼습니다. 팀 작업과 기관 기록은 그대로입니다.')
+  await expect(display).toContainText('내 프로필에서 숨김')
+  await expect(student.getByRole('region', { name: '기록 보존' })).toBeVisible()
+
+  const hidden = await seenBy('outsider', memberId)
+  expect(hidden.projects).not.toContain(programProject)
+  expect(hidden.records).not.toContain(programProject)
+
+  const staff = await apiGet<{ project: { id: string } }>(student.request, 'operator', `/projects/${programProject}`)
+  expect(staff.project.id).toBe(programProject)
+  const evidence = await apiGet<{ evidence: { title: string; status: string }[] }>(student.request, 'operator', `/projects/${programProject}/evidence`)
+  expect(evidence.evidence.find((item) => item.title === 'E2E 중간 발표')?.status).toBe('approved')
+
+  const hideShared = await student.request.put(`${API}/projects/${sharedProject}/profile-display`, {
+    headers: { Authorization: `Bearer ${await apiToken(student.request, 'member')}` },
+    data: { hidden: true },
+  })
+  expect(hideShared.ok()).toBeTruthy()
+  const owner = await seenBy('applicant', applicantId)
+  expect(owner.cards.find((card) => card.id === sharedProject)?.hiddenFromProfile).toBe(false)
+  const outsiderPut = await student.request.put(`${API}/projects/${programProject}/profile-display`, {
+    headers: { Authorization: `Bearer ${await apiToken(student.request, 'outsider')}` },
+    data: { hidden: false },
+  })
+  expect(outsiderPut.status()).toBe(404)
+
+  await student.goto('/projects')
+  await expect(card(student, PROJECTS.program)).toContainText('프로필 숨김')
+
+  await student.goto('/profile?tab=projects')
+  const profileCard = card(student, PROJECTS.program)
+  await expect(profileCard).toContainText('프로필에서 숨김')
+  await profileCard.getByRole('button', { name: `${PROJECTS.program} 내 프로필에 다시 표시` }).click()
+  await expectToast(student, '내 프로필에 다시 표시합니다.')
+  await expect(profileCard).not.toContainText('프로필에서 숨김')
+  await card(student, PROJECTS.private).getByRole('button', { name: `${PROJECTS.private} 내 프로필에 다시 표시` }).click()
+  await expect(card(student, PROJECTS.private)).not.toContainText('프로필에서 숨김')
+
+  const restored = await seenBy('outsider', memberId)
+  expect(restored.projects).toContain(programProject)
+  expect(restored.records).toContain(programProject)
+  await expectNoA11yViolations(student)
+  await student.context().close()
 })
 
 test('모바일: 빠른 작업이 하단 메뉴 위에 있고, 작업 추가를 누르면 입력란으로 바로 이동한다', async ({ page }) => {
