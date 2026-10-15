@@ -28,6 +28,7 @@ import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { requireOrgAccess, type OrgAccess } from '../../middlewares/organization.middleware.js'
 import { audit } from '../../services/audit/audit.js'
+import { refreshCandidateResultsSafely } from '../matching/resultPrivacy.js'
 import { assertOrgCapacity, assertParticipantSeats } from '../../services/billing/entitlements.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
 import { HttpError } from '../../utils/httpError.js'
@@ -600,6 +601,13 @@ programsRouter.patch('/:programId', authenticate, async (req, res, next) => {
       if (resuming) await reopenProgramRecords(tx, access.program.id, 'program.reopened', authUser.id)
       return updated
     }, ending || resuming ? { timeout: 60_000 } : undefined)
+    if (closingPublic || (input.recordDisclosure !== undefined && input.recordDisclosure !== access.program.recordDisclosure.toLowerCase())) {
+      const [members, holders] = await Promise.all([
+        prisma.projectMember.findMany({ where: { project: { programId: access.program.id } }, select: { userId: true } }),
+        prisma.verifiedRecord.findMany({ where: { programId: access.program.id }, select: { userId: true } }),
+      ])
+      await refreshCandidateResultsSafely([...new Set([...members, ...holders].map((row) => row.userId))])
+    }
 
     await audit(req, res, {
       action: 'program.update',

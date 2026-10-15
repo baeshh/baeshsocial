@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { audit } from '../../services/audit/audit.js'
+import { refreshCandidateResultsSafely } from '../matching/resultPrivacy.js'
 import {
   effectiveDisclosure,
   readContributionSnapshot,
@@ -93,6 +94,7 @@ verifiedRecordsRouter.patch('/:recordId/visibility', authenticate, async (req, r
       data: { disclosure: disclosure.toUpperCase() as RecordDisclosure },
       select: recordSelect,
     })
+    await refreshCandidateResultsSafely([authUser.id])
     await audit(req, res, {
       action: 'verified_record.disclosure_change',
       organizationId: record.organizationId,

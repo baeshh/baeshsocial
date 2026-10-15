@@ -202,11 +202,15 @@ export type TalentMeta = {
 }
 
 export type TalentResult =
-  | { id: string; rank: number; withdrawn: true }
+  /** consent: the candidate turned talent search off; not_shareable: nothing they share now matches any more. */
+  | { id: string; rank: number; withdrawn: true; reason?: 'consent' | 'not_shareable' }
   | {
       id: string
       rank: number
       withdrawn: false
+      /** Re-scored from what the candidate shares now because something in the original result is no longer shared. */
+      recalculated?: boolean
+      recalculatedAt?: string | null
       score: number
       breakdown: Record<TalentBreakdownKey, { score: number; weight: number; points: number }>
       evidence: {

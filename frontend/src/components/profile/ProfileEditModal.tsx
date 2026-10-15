@@ -338,8 +338,9 @@ export function ProfileEditModal({
                   <span>
                     <span className="block text-[13px] font-semibold text-slate-700">기업 인재 검색에 노출</span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
-                      승인된 기업이 나를 추천 후보로 볼 수 있습니다. 이름·직무·소속·기술과 함께 <b>공개 프로젝트</b>와{' '}
-                      <b>기관 검증 기록</b>(활동명·기관·검증일)만 공유되며, 비공개 프로젝트·연락처는 공유되지 않습니다. 언제든 끌 수 있습니다.
+                      승인된 기업이 나를 추천 후보로 볼 수 있습니다. 이름·직무·소속·기술과 함께 <b>전체 공개 프로젝트</b>와 공개를 허용한{' '}
+                      <b>기관 검증 기록</b>(활동명·기관·검증일)만 공유되며, 팀 공개·비공개 프로젝트, 프로필에서 숨긴 프로젝트, 연락처는 공유되지
+                      않습니다. 끄거나 프로젝트를 숨기면 이미 저장된 기업 검색 결과에서도 해당 정보가 빠집니다.
                     </span>
                   </span>
                 </label>
