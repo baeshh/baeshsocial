@@ -1,11 +1,10 @@
 import { apiRequest } from '../lib/api'
-import type { AuthResponse, AuthUser, UserRole } from '../types/auth'
+import type { AuthResponse, AuthUser } from '../types/auth'
 
 export type RegisterPayload = {
   email: string
   password: string
   name: string
-  role: UserRole
 }
 
 export type LoginPayload = {

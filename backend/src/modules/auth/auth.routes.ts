@@ -1,10 +1,10 @@
+import { UserRole } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import { Router } from 'express'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
 import { loginSchema, registerSchema } from '../../validators/auth.validator.js'
 import { signAccessToken, type AuthTokenPayload } from '../../utils/auth.js'
-import { toUserRole } from '../../utils/roles.js'
 import { serializeUser } from '../../utils/users.js'
 
 export const authRouter = Router()
@@ -27,7 +27,8 @@ authRouter.post('/register', async (req, res, next) => {
         email: input.email.toLowerCase(),
         password: hashedPassword,
         name: input.name,
-        role: toUserRole(input.role),
+        // Public signup is always USER. registerSchema rejects any client-supplied role.
+        role: UserRole.USER,
         profile: {
           create: {},
         },
