@@ -35,7 +35,7 @@ authRouter.post('/register', limits.register, async (req, res, next) => {
         email,
         password: hashedPassword,
         name: input.name,
-        // Platform roles are never taken from the client; elevated roles are granted by an admin.
+        // Public signup is always USER. registerSchema rejects any client-supplied role.
         role: UserRole.USER,
         passwordChangedAt: new Date(),
         profile: { create: {} },

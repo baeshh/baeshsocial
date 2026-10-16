@@ -6,18 +6,46 @@ import { api, bearer, createUser, createUserWithToken, login, prisma, resetDb } 
 beforeEach(resetDb)
 
 describe('registration', () => {
-  it('always creates a USER account even if a role is sent', async () => {
+  it('creates a USER when no role is sent', async () => {
     const response = await api()
       .post('/api/auth/register')
-      .send({ name: '공격자', email: 'attacker@test.baesh.dev', password: 'abcd1234x', role: 'ADMIN' })
+      .send({ name: '일반가입', email: 'member@test.baesh.dev', password: 'abcd1234x' })
     expect(response.status).toBe(201)
-    const user = await prisma.user.findUniqueOrThrow({ where: { email: 'attacker@test.baesh.dev' } })
+    expect(response.body.user.role).toBe('user')
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: 'member@test.baesh.dev' } })
     expect(user.role).toBe(UserRole.USER)
   })
+
+  it.each(['admin', 'ADMIN', 'institution', 'company', 'user'] as const)(
+    'rejects register requests that include role=%s and creates no account',
+    async (role) => {
+      const email = `attacker-${role.toLowerCase()}@test.baesh.dev`
+      const response = await api()
+        .post('/api/auth/register')
+        .send({ name: '권한위조', email, password: 'abcd1234x', role })
+      expect(response.status).toBe(400)
+      expect(response.body.message).toBe('Validation failed')
+      const issueText = JSON.stringify(response.body.issues ?? [])
+      expect(issueText).toMatch(/역할/)
+      expect(await prisma.user.findUnique({ where: { email } })).toBeNull()
+    },
+  )
 
   it('rejects weak passwords', async () => {
     const response = await api().post('/api/auth/register').send({ name: '약한암호', email: 'weak@test.baesh.dev', password: 'aaaaaaaa' })
     expect(response.status).toBe(400)
+  })
+
+  it('keeps existing USER and ADMIN accounts able to log in', async () => {
+    const member = await createUser({ email: 'existing-user@test.baesh.dev', role: UserRole.USER })
+    const admin = await createUser({ email: 'existing-admin@test.baesh.dev', role: UserRole.ADMIN })
+    const memberLogin = await api().post('/api/auth/login').send({ email: member.email, password: 'password123' })
+    const adminLogin = await api().post('/api/auth/login').send({ email: admin.email, password: 'password123' })
+    expect(memberLogin.status).toBe(200)
+    expect(memberLogin.body.user.role).toBe('user')
+    expect(adminLogin.status).toBe(200)
+    expect(adminLogin.body.user.role).toBe('admin')
+    expect(await prisma.user.findUniqueOrThrow({ where: { id: admin.id } })).toMatchObject({ role: UserRole.ADMIN })
   })
 
   it('rate limits registrations per IP', async () => {
