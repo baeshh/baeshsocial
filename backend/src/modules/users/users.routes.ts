@@ -1,3 +1,4 @@
+import { UserRole } from '@prisma/client'
 import { Router } from 'express'
 import { prisma } from '../../config/prisma.js'
 import { authenticate } from '../../middlewares/auth.middleware.js'
@@ -150,7 +151,7 @@ usersRouter.get('/:id/followers', authenticate, async (req, res, next) => {
 
     res.status(200).json({
       users: rows.map((row) => ({
-        ...serializeUser(row.follower),
+        ...serializeUserFor(row.follower, authUser),
         isFollowing: viewerFollowingIds.has(row.follower.id),
       })),
     })
@@ -179,7 +180,7 @@ usersRouter.get('/:id/following', authenticate, async (req, res, next) => {
 
     res.status(200).json({
       users: rows.map((row) => ({
-        ...serializeUser(row.following),
+        ...serializeUserFor(row.following, authUser),
         isFollowing: viewerFollowingIds.has(row.following.id),
       })),
     })
@@ -187,6 +188,12 @@ usersRouter.get('/:id/following', authenticate, async (req, res, next) => {
     next(error)
   }
 })
+
+/** Emails are personal data: only the account owner and platform admins see them. */
+function serializeUserFor(user: Parameters<typeof serializeUser>[0], viewer: AuthTokenPayload) {
+  const serialized = serializeUser(user)
+  return viewer.id === user.id || viewer.role === UserRole.ADMIN ? serialized : { ...serialized, email: null }
+}
 
 usersRouter.get('/:id', authenticate, async (req, res, next) => {
   try {
@@ -200,7 +207,7 @@ usersRouter.get('/:id', authenticate, async (req, res, next) => {
       return
     }
 
-    res.status(200).json({ user: serializeUser(user) })
+    res.status(200).json({ user: serializeUserFor(user, res.locals.user as AuthTokenPayload) })
   } catch (error) {
     next(error)
   }

@@ -1,0 +1,207 @@
+name: CI
+
+# Job names are referenced by main's ruleset "main: PR only + required CI (everyone)". Renaming a job
+# requires updating the ruleset, otherwise PRs wait forever for the old check name.
+on:
+  push:
+    branches: [main, develop, 'feat/**', 'fix/**', 'hotfix/**', 'chore/**', 'release/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/baesh_ci?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/baesh_ci_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Integration tests (isolation · auth · billing · invites · recruitment · concurrency)
+        run: npm test
+
+  migrations:
+    name: DB migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/baesh_ci?schema=public
+      UPGRADE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/baesh_upgrade?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - name: Resolve comparison base
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            BASE="origin/$BASE_REF"
+          elif [ "$REF_NAME" = "$DEFAULT_BRANCH" ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            BASE="$BEFORE"
+          else
+            BASE="origin/$DEFAULT_BRANCH"
+          fi
+          echo "Comparing against $BASE ($(git rev-parse --short "$BASE"))"
+          echo "ref=$BASE" >> "$GITHUB_OUTPUT"
+      - name: Migrations apply cleanly to an empty database
+        run: npx prisma migrate deploy
+      - name: Migrations match schema.prisma (no drift)
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+      - name: Destructive migration guard
+        run: npm run migrations:check -- --base "${{ steps.base.outputs.ref }}"
+      - name: Upgrade path from the base release (seeded data survives, API still serves it)
+        run: npx tsx scripts/checkUpgradePath.ts --base "${{ steps.base.outputs.ref }}"
+
+  frontend:
+    name: Frontend build & lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck + build
+        run: npm run build
+        env:
+          VITE_API_URL: https://api.example.invalid/api
+
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # playwright.config.ts passes this to the API it starts; the fixture seed refuses names without e2e/test.
+      E2E_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/baesh_e2e?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install backend
+        working-directory: backend
+        run: |
+          npm ci --no-audit --no-fund
+          npx prisma generate
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Playwright (login · shells · workspace switch · recruitment · Jobs URL · viewports · a11y)
+        working-directory: frontend
+        run: npm run e2e
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secret scan (gitleaks)
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/gitleaks/gitleaks:v8.21.2 \
+            dir /repo --config /repo/.gitleaks.toml --redact --no-banner --exit-code 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Dependency audit (production deps, high/critical; waivers in .github/audit-allowlist.json)
+        run: |
+          node .github/scripts/audit-gate.mjs backend
+          node .github/scripts/audit-gate.mjs frontend
+      - name: Forbid committed env files
+        run: |
+          if git ls-files | grep -E '(^|/)\.env($|\.(local|production|staging))' | grep -v '\.env\.example$'; then
+            echo "::error::.env files must never be committed"; exit 1
+          fi

@@ -12,7 +12,7 @@ function statusLabel(status: OpportunityEnrollment['status']) {
     case 'APPLIED':
       return '신청 대기'
     case 'ENROLLED':
-      return '수강 중'
+      return '참여 중'
     case 'COMPLETED':
       return '수료'
     case 'REJECTED':
@@ -55,7 +55,7 @@ export function EnrollmentManagePanel({ token }: EnrollmentManagePanelProps) {
   return (
     <Card className="rounded-2xl border-brand-100 bg-brand-50/30 shadow-sm">
       <CardHeader>
-        <CardTitle>프로그램 수강·수료 관리</CardTitle>
+        <CardTitle>프로그램 참여·수료 관리</CardTitle>
         <CardDescription>
           기관 계정으로 등록한 프로그램 신청자를 승인하고, 수료 시 프로필에 인증 이력이 자동 발급됩니다.
         </CardDescription>
@@ -95,7 +95,7 @@ export function EnrollmentManagePanel({ token }: EnrollmentManagePanelProps) {
                   type="button"
                   variant="secondary"
                 >
-                  수강 승인
+                  참여 승인
                 </Button>
               ) : null}
               {enrollment.status === 'APPLIED' || enrollment.status === 'ENROLLED' ? (

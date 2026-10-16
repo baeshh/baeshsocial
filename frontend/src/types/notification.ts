@@ -25,6 +25,8 @@ export type AppNotification = {
   type: NotificationType
   read: boolean
   link: string | null
+  /** Sent by BAESH (platform admin or scheduled notice); rendered with the BAESH logo. */
+  fromPlatform: boolean
   createdAt: string
   actor: NotificationActor | null
 }

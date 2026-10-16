@@ -152,11 +152,15 @@ function NotificationPanel({
                     tabIndex={notification.type === 'PROJECT_INVITE' ? undefined : 0}
                   >
                     <div className="relative shrink-0">
-                      <Avatar
-                        name={notification.actor?.name ?? notification.title}
-                        size="sm"
-                        src={notification.actor?.avatarUrl}
-                      />
+                      {notification.fromPlatform ? (
+                        <Avatar className="bg-white object-contain p-1" name="BAESH" size="sm" src="/baesh-logo.png" />
+                      ) : (
+                        <Avatar
+                          name={notification.actor?.name ?? notification.title}
+                          size="sm"
+                          src={notification.actor?.avatarUrl}
+                        />
+                      )}
                       <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-white shadow ring-1 ring-surface-border">
                         {notificationIcon(notification.type)}
                       </span>

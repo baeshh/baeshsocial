@@ -1,5 +1,15 @@
-import { apiRequest } from '../lib/api'
-import type { Project, ProjectInvite, TeamCandidates } from '../types/project'
+import { apiRequest, apiUpload, withQuery } from '../lib/api'
+import type { ProjectLink, ProjectLinkType } from '../types/profile'
+import type {
+  ProfileDisplay,
+  Project,
+  ProjectDeletionCheck,
+  ProjectFile,
+  ProjectInvite,
+  ProjectRegistrationBrief,
+  ProjectSummary,
+  TeamCandidates,
+} from '../types/project'
 import type { PermissionCatalogItem, ProjectPermission, ProjectRole } from '../types/projectRole'
 
 export type ProjectPayload = {
@@ -51,8 +61,68 @@ export type FilePayload = {
   fileType: string
 }
 
-export function getProjects(token: string) {
-  return apiRequest<{ projects: Project[] }>('/projects', { token })
+export type ProjectListParams = {
+  cursor?: string | null
+  limit?: number
+  q?: string
+  status?: string
+  kind?: 'personal' | 'program'
+  sort?: 'updated' | 'created'
+}
+
+export function getProjects(token: string, params: ProjectListParams = {}) {
+  return apiRequest<{
+    projects: ProjectSummary[]
+    nextCursor: string | null
+    /** Totals across every page for the search and kind filters (not status); only sent with the first page. */
+    statusCounts?: Record<ProjectSummary['status'], number>
+  }>(
+    withQuery('/projects', {
+      limit: params.limit,
+      cursor: params.cursor,
+      q: params.q,
+      status: params.status,
+      kind: params.kind,
+      sort: params.sort === 'updated' ? undefined : params.sort,
+    }),
+    { token },
+  )
+}
+
+export type ProjectLinkPayload = {
+  url: string
+  type?: ProjectLinkType
+  label?: string | null
+  description?: string | null
+}
+
+export function getProjectLinks(token: string, projectId: string) {
+  return apiRequest<{ links: ProjectLink[] }>(`/projects/${projectId}/links`, { token })
+}
+
+export function addProjectLink(token: string, projectId: string, payload: ProjectLinkPayload) {
+  return apiRequest<{ link: ProjectLink }>(`/projects/${projectId}/links`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateProjectLink(
+  token: string,
+  projectId: string,
+  linkId: string,
+  payload: Partial<Omit<ProjectLinkPayload, 'url' | 'type'>>,
+) {
+  return apiRequest<{ link: ProjectLink }>(`/projects/${projectId}/links/${linkId}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteProjectLink(token: string, projectId: string, linkId: string) {
+  return apiRequest<void>(`/projects/${projectId}/links/${linkId}`, { method: 'DELETE', token })
 }
 
 export function getProject(token: string, projectId: string) {
@@ -62,8 +132,38 @@ export function getProject(token: string, projectId: string) {
     myPermissions: ProjectPermission[]
     isOwner: boolean
     isGuestViewer?: boolean
+    isLeader?: boolean
+    isProgramStaff?: boolean
+    restricted?: boolean
+    registration?: ProjectRegistrationBrief | null
+    profileDisplay?: ProfileDisplay
   }>(`/projects/${projectId}`, {
     token,
+  })
+}
+
+/** Hides or shows the project on the caller's own profile only; team access and institution records are unaffected. */
+export function setProfileDisplay(token: string, projectId: string, hidden: boolean) {
+  return apiRequest<{ hidden: boolean }>(`/projects/${projectId}/profile-display`, {
+    method: 'PUT',
+    token,
+    body: JSON.stringify({ hidden }),
+  })
+}
+
+export function updateProjectVisibility(token: string, projectId: string, visibility: 'private' | 'team' | 'public') {
+  return apiRequest<{ id: string; visibility: string }>(`/projects/${projectId}/visibility`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({ visibility }),
+  })
+}
+
+export function setMemberPrivateAccess(token: string, projectId: string, memberId: string, allowed: boolean) {
+  return apiRequest<{ id: string; privateAccess: boolean }>(`/projects/${projectId}/members/${memberId}/private-access`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify({ allowed }),
   })
 }
 
@@ -200,11 +300,33 @@ export function addProjectFile(token: string, projectId: string, payload: FilePa
   })
 }
 
-export function deleteProject(token: string, projectId: string, password: string) {
+export function uploadProjectFiles(token: string, projectId: string, files: File[], fileType?: string) {
+  const form = new FormData()
+  if (fileType) form.append('fileType', fileType)
+  for (const file of files) form.append('files', file)
+  return apiUpload<{ files: ProjectFile[] }>(`/projects/${projectId}/files`, form, { token })
+}
+
+export function getProjectFileUrl(token: string, projectId: string, fileId: string, download = false) {
+  return apiRequest<{ url: string; expiresAt: string }>(`/projects/${projectId}/files/${fileId}/url${download ? '?download=1' : ''}`, {
+    token,
+  })
+}
+
+export function deleteProjectFile(token: string, projectId: string, fileId: string) {
+  return apiRequest<void>(`/projects/${projectId}/files/${fileId}`, { method: 'DELETE', token })
+}
+
+export function getProjectDeletion(token: string, projectId: string) {
+  return apiRequest<ProjectDeletionCheck>(`/projects/${projectId}/deletion`, { token })
+}
+
+/** `confirmTeamImpact` is required by the server once other members are on the team. */
+export function deleteProject(token: string, projectId: string, password: string, confirmTeamImpact = false) {
   return apiRequest<void>(`/projects/${projectId}`, {
     method: 'DELETE',
     token,
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, confirmTeamImpact }),
   })
 }
 

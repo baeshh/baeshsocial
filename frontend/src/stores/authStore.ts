@@ -19,6 +19,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
   clearSession: () => {
     localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem('baesh.activeOrganizationId')
     set({ token: null, user: null })
   },
 }))

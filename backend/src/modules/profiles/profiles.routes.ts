@@ -1,285 +1,58 @@
-import { OpportunityEnrollmentStatus, Prisma, ProjectVisibility } from '@prisma/client'
-import { Router } from 'express'
+import { Prisma } from '@prisma/client'
+import { Router, type Response } from 'express'
 import { prisma } from '../../config/prisma.js'
-import { authenticate } from '../../middlewares/auth.middleware.js'
+import { authenticate, optionalAuthenticate } from '../../middlewares/auth.middleware.js'
+import { refreshCandidateResultsSafely } from '../matching/resultPrivacy.js'
 import type { AuthTokenPayload } from '../../utils/auth.js'
-import { buildGrowthTimeline } from '../../utils/growthTimeline.js'
+import { HttpError } from '../../utils/httpError.js'
+import { decodeCursor } from '../../utils/pagination.js'
 import { recordProfileView } from '../../utils/peopleRecommendations.js'
-import { buildSkillInsights } from '../../utils/skillInsights.js'
 import {
   awardSchema,
   careerSchema,
   certificateSchema,
+  featuredProjectsSchema,
   portfolioSchema,
+  profileHistoryQuerySchema,
+  profileProjectsQuerySchema,
   updateProfileSchema,
 } from '../../validators/profile.validator.js'
+import {
+  buildProfileOverview,
+  involvementWhere,
+  listProfileHistory,
+  listProfileHistoryPage,
+  listProfileProjects,
+  requireProfileDetails,
+  resolveProfileViewer,
+} from './profileData.js'
 
 export const profilesRouter = Router()
-
-const profileInclude = {
-  user: {
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      avatarUrl: true,
-      coverUrl: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  },
-  certificates: true,
-  careers: true,
-  awards: true,
-  portfolios: true,
-} as const
 
 function toOptionalDate(value?: string | null) {
   return value ? new Date(value) : null
 }
 
-function toProfileData(input: ReturnType<typeof updateProfileSchema.parse>) {
-  return {
-    ...input,
-    socialLinks: input.socialLinks === null ? Prisma.JsonNull : input.socialLinks,
-  }
+function viewerIdOf(res: Response) {
+  return (res.locals.user as AuthTokenPayload | undefined)?.id ?? null
 }
 
 async function ensureProfile(userId: string) {
-  return prisma.profile.upsert({
-    where: { userId },
-    update: {},
-    create: { userId },
-    include: profileInclude,
-  })
+  return prisma.profile.upsert({ where: { userId }, update: {}, create: { userId }, select: { id: true } })
 }
 
 async function requireProfileForUser(userId: string) {
-  const profile = await prisma.profile.findUnique({ where: { userId } })
+  const profile = await prisma.profile.findUnique({ where: { userId }, select: { id: true } })
   if (!profile) {
-    throw new Error('PROFILE_NOT_FOUND')
+    throw new HttpError(404, '프로필을 찾을 수 없습니다.')
   }
   return profile
-}
-
-async function getProfilePayload(userId: string, viewerId?: string) {
-  const profile = await ensureProfile(userId)
-  const publicProjectWhere = { visibility: ProjectVisibility.PUBLIC }
-
-  const [
-    ownedProjects,
-    memberProjects,
-    verifiedRecords,
-    programEnrollments,
-    timelineOwnedProjects,
-    timelineMemberships,
-    timelineActivities,
-    timelineVerifiedRecords,
-    followerCount,
-    followingCount,
-    postCount,
-    followRow,
-  ] = await Promise.all([
-    prisma.project.findMany({
-      where: { ownerId: userId },
-      orderBy: { updatedAt: 'desc' },
-      take: 6,
-      select: {
-        id: true,
-        title: true,
-        slug: true,
-        description: true,
-        status: true,
-        progress: true,
-        skills: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    }),
-    prisma.projectMember.findMany({
-      where: {
-        userId,
-        project: { ownerId: { not: userId } },
-      },
-      orderBy: { joinedAt: 'desc' },
-      take: 6,
-      include: {
-        project: {
-          select: {
-            id: true,
-            title: true,
-            slug: true,
-            description: true,
-            status: true,
-            progress: true,
-            skills: true,
-            updatedAt: true,
-          },
-        },
-
-      },
-    }),
-    prisma.verifiedRecord.findMany({
-      where: { userId },
-      orderBy: { issuedAt: 'desc' },
-      take: 6,
-      include: {
-        project: {
-          select: {
-            id: true,
-            title: true,
-            slug: true,
-          },
-        },
-      },
-    }),
-    prisma.opportunityEnrollment.findMany({
-      where: { userId },
-      orderBy: { appliedAt: 'desc' },
-      include: {
-        opportunity: {
-          select: {
-            id: true,
-            title: true,
-            organization: true,
-            type: true,
-          },
-        },
-        certificate: {
-          select: {
-            id: true,
-            verified: true,
-            issuedAt: true,
-          },
-        },
-      },
-    }),
-    prisma.project.findMany({
-      where: { ownerId: userId, ...publicProjectWhere },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, title: true, createdAt: true },
-    }),
-    prisma.projectMember.findMany({
-      where: {
-        userId,
-        project: { ownerId: { not: userId }, ...publicProjectWhere },
-      },
-      orderBy: { joinedAt: 'desc' },
-      select: {
-        id: true,
-        role: true,
-        joinedAt: true,
-        project: { select: { title: true } },
-      },
-    }),
-    prisma.projectActivity.findMany({
-      where: {
-        userId,
-        project: publicProjectWhere,
-        NOT: { type: 'MILESTONE', title: 'Project created' },
-      },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        createdAt: true,
-        project: { select: { title: true } },
-      },
-    }),
-    prisma.verifiedRecord.findMany({
-      where: { userId, project: publicProjectWhere },
-      orderBy: { issuedAt: 'desc' },
-      select: {
-        id: true,
-        role: true,
-        contributionSummary: true,
-        issuedAt: true,
-        status: true,
-        project: { select: { title: true } },
-      },
-    }),
-    prisma.userFollow.count({ where: { followingId: userId } }),
-    prisma.userFollow.count({ where: { followerId: userId } }),
-    prisma.post.count({ where: { authorId: userId } }),
-    viewerId && viewerId !== userId
-      ? prisma.userFollow.findUnique({
-          where: {
-            followerId_followingId: {
-              followerId: viewerId,
-              followingId: userId,
-            },
-          },
-        })
-      : Promise.resolve(null),
-  ])
-
-  const ownedProjectIds = new Set(ownedProjects.map((project) => project.id))
-
-  const joinedProjects = memberProjects
-    .filter((membership) => !ownedProjectIds.has(membership.project.id))
-    .map((membership) => ({
-      ...membership.project,
-      memberRole: membership.role,
-      contribution: membership.contribution,
-    }))
-
-  const allProjects = [...ownedProjects, ...joinedProjects]
-  const profileVisibleProgramStatuses: OpportunityEnrollmentStatus[] = [
-    OpportunityEnrollmentStatus.ENROLLED,
-    OpportunityEnrollmentStatus.COMPLETED,
-  ]
-  const publicProgramEnrollments = programEnrollments.filter((enrollment) =>
-    profileVisibleProgramStatuses.includes(enrollment.status),
-  )
-  const completedPrograms = publicProgramEnrollments.filter(
-    (enrollment) => enrollment.status === OpportunityEnrollmentStatus.COMPLETED,
-  )
-
-  return {
-    profile,
-    projects: allProjects,
-    verifiedRecords,
-    programEnrollments: publicProgramEnrollments,
-    stats: {
-      followerCount,
-      followingCount,
-      postCount,
-    },
-    isFollowing: Boolean(followRow),
-    isOwnProfile: !viewerId || viewerId === userId,
-    aiSkillInsights: buildSkillInsights({
-      profileSkills: profile.skills,
-      trustScore: profile.trustScore,
-      projects: allProjects,
-      verifiedCount: verifiedRecords.filter((record) => record.status === 'VERIFIED').length,
-      certificateCount: profile.certificates.length,
-      completedProgramCount: completedPrograms.length,
-      careerCount: profile.careers.length,
-    }),
-    growthTimeline: buildGrowthTimeline({
-      profileCreatedAt: profile.createdAt,
-      certificates: profile.certificates,
-      careers: profile.careers,
-      awards: profile.awards,
-      ownedProjects: timelineOwnedProjects,
-      memberships: timelineMemberships,
-      activities: timelineActivities,
-      verifiedRecords: timelineVerifiedRecords,
-      programEnrollments: completedPrograms.map((enrollment) => ({
-        id: enrollment.id,
-        completedAt: enrollment.completedAt,
-        opportunity: enrollment.opportunity,
-      })),
-    }),
-  }
 }
 
 profilesRouter.get('/me', authenticate, async (_req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
-    res.status(200).json(await getProfilePayload(authUser.id, authUser.id))
+    res.status(200).json(await buildProfileOverview(await resolveProfileViewer(authUser.id, authUser.id)))
   } catch (error) {
     next(error)
   }
@@ -288,77 +61,111 @@ profilesRouter.get('/me', authenticate, async (_req, res, next) => {
 profilesRouter.patch('/me', authenticate, async (req, res, next) => {
   try {
     const authUser = res.locals.user as AuthTokenPayload
-    const input = updateProfileSchema.parse(req.body)
-    const profileData = toProfileData(input)
+    const { socialLinks, ...input } = updateProfileSchema.parse(req.body)
+    const data = {
+      ...input,
+      ...(socialLinks !== undefined ? { socialLinks: socialLinks === null ? Prisma.JsonNull : socialLinks } : {}),
+      ...(input.talentSearchOptIn !== undefined ? { talentSearchOptInAt: input.talentSearchOptIn ? new Date() : null } : {}),
+    }
+    await prisma.profile.upsert({
+      where: { userId: authUser.id },
+      create: { userId: authUser.id, ...data },
+      update: data,
+    })
+    if (input.talentSearchOptIn === false || input.skills !== undefined) await refreshCandidateResultsSafely([authUser.id])
+    res.status(200).json(await buildProfileOverview(await resolveProfileViewer(authUser.id, authUser.id)))
+  } catch (error) {
+    next(error)
+  }
+})
+
+profilesRouter.put('/me/featured-projects', authenticate, async (req, res, next) => {
+  try {
+    const authUser = res.locals.user as AuthTokenPayload
+    const { projectIds: requested } = featuredProjectsSchema.parse(req.body)
+    const [current, eligibleRows, hiddenRows] = await Promise.all([
+      prisma.profile.findUnique({ where: { userId: authUser.id }, select: { featuredProjectIds: true } }),
+      requested.length
+        ? prisma.project.findMany({
+            where: { AND: [involvementWhere(authUser.id), { id: { in: requested } }] },
+            select: { id: true },
+          })
+        : Promise.resolve([]),
+      prisma.projectDisplayPreference.findMany({ where: { userId: authUser.id, projectId: { in: requested } }, select: { projectId: true } }),
+    ])
+    const eligible = new Set(eligibleRows.map((row) => row.id))
+    const hidden = new Set(hiddenRows.map((row) => row.projectId))
+    const previouslyPinned = new Set(current?.featuredProjectIds ?? [])
+    // Pins the user no longer qualifies for (e.g. left the team) are dropped instead of blocking the update.
+    if (requested.some((id) => !eligible.has(id) && !previouslyPinned.has(id))) {
+      res.status(400).json({ message: '직접 참여한 프로젝트만 대표 프로젝트로 고정할 수 있습니다.' })
+      return
+    }
+    if (requested.some((id) => hidden.has(id) && !previouslyPinned.has(id))) {
+      res.status(400).json({ message: '프로필에서 숨긴 프로젝트는 대표 프로젝트로 고정할 수 없습니다. 먼저 다시 표시해 주세요.' })
+      return
+    }
+    const projectIds = requested.filter((id) => eligible.has(id))
     const profile = await prisma.profile.upsert({
       where: { userId: authUser.id },
-      create: {
-        userId: authUser.id,
-        ...profileData,
-      },
-      update: profileData,
-      include: profileInclude,
+      create: { userId: authUser.id, featuredProjectIds: projectIds },
+      update: { featuredProjectIds: projectIds },
+      select: { featuredProjectIds: true },
     })
-
-    res.status(200).json({ profile })
+    res.status(200).json({ featuredProjectIds: profile.featuredProjectIds })
   } catch (error) {
     next(error)
   }
 })
 
-profilesRouter.get('/public/:userId', async (req, res, next) => {
+/* Viewer-aware read APIs. Anonymous access works for PUBLIC profiles (used by the share page). */
+
+profilesRouter.get('/:userId/overview', optionalAuthenticate, async (req, res, next) => {
   try {
-    const userId = String(req.params.userId)
-    const user = await prisma.user.findUnique({ where: { id: userId } })
-
-    if (!user) {
-      res.status(404).json({ message: 'User not found' })
-      return
-    }
-
-    const payload = await getProfilePayload(userId)
-    const publicProjectRows = await prisma.project.findMany({
-      where: {
-        visibility: ProjectVisibility.PUBLIC,
-        OR: [{ ownerId: userId }, { members: { some: { userId } } }],
-      },
-      select: { id: true },
-    })
-    const publicProjectIds = new Set(publicProjectRows.map((row) => row.id))
-    const { email: _email, ...publicUser } = payload.profile.user
-
-    res.status(200).json({
-      ...payload,
-      profile: {
-        ...payload.profile,
-        user: publicUser,
-      },
-      projects: payload.projects.filter((project) => publicProjectIds.has(project.id)),
-      isFollowing: false,
-      isOwnProfile: false,
-    })
-  } catch (error) {
-    next(error)
-  }
-})
-
-profilesRouter.get('/:userId', authenticate, async (req, res, next) => {
-  try {
-    const userId = String(req.params.userId)
-    const user = await prisma.user.findUnique({ where: { id: userId } })
-
-    if (!user) {
-      res.status(404).json({ message: 'User not found' })
-      return
-    }
-
-    const authUser = res.locals.user as AuthTokenPayload
-    if (authUser.id !== userId) {
-      void recordProfileView(authUser.id, userId).catch((error) => {
+    const viewerId = viewerIdOf(res)
+    const viewer = await resolveProfileViewer(String(req.params.userId), viewerId)
+    if (viewerId && !viewer.isSelf) {
+      void recordProfileView(viewerId, viewer.userId).catch((error) => {
         console.error('Profile view tracking failed:', error)
       })
     }
-    res.status(200).json(await getProfilePayload(userId, authUser.id))
+    res.status(200).json(await buildProfileOverview(viewer))
+  } catch (error) {
+    next(error)
+  }
+})
+
+profilesRouter.get('/:userId/projects', optionalAuthenticate, async (req, res, next) => {
+  try {
+    const viewer = await resolveProfileViewer(String(req.params.userId), viewerIdOf(res))
+    requireProfileDetails(viewer)
+    const query = profileProjectsQuerySchema.parse(req.query)
+    const page = await listProfileProjects(viewer, {
+      limit: query.limit,
+      cursor: decodeCursor(query.cursor),
+      filter: query.filter,
+    })
+    res.status(200).json({ projects: page.items, nextCursor: page.nextCursor })
+  } catch (error) {
+    next(error)
+  }
+})
+
+profilesRouter.get('/:userId/history', optionalAuthenticate, async (req, res, next) => {
+  try {
+    const viewer = await resolveProfileViewer(String(req.params.userId), viewerIdOf(res))
+    requireProfileDetails(viewer)
+    const query = profileHistoryQuerySchema.parse(req.query)
+    if (query.page) {
+      res.status(200).json(await listProfileHistoryPage(viewer, { type: query.type, limit: query.limit, page: query.page }))
+      return
+    }
+    const page = await listProfileHistory(viewer, {
+      type: query.type,
+      limit: query.limit,
+      cursor: decodeCursor(query.cursor),
+    })
+    res.status(200).json({ items: page.items, nextCursor: page.nextCursor })
   } catch (error) {
     next(error)
   }
@@ -376,7 +183,7 @@ profilesRouter.post('/me/certificates', authenticate, async (req, res, next) => 
         issuer: input.issuer,
         issuedAt: toOptionalDate(input.issuedAt),
         credentialUrl: input.credentialUrl,
-        verified: input.verified,
+        verified: false,
       },
     })
 
@@ -551,3 +358,42 @@ profilesRouter.post('/me/portfolios', authenticate, async (req, res, next) => {
     next(error)
   }
 })
+
+const deletableHistory = {
+  certificates: {
+    find: (id: string, profileId: string) =>
+      prisma.certificate.findFirst({ where: { id, profileId }, select: { id: true, source: true } }),
+    remove: (id: string) => prisma.certificate.delete({ where: { id } }),
+  },
+  careers: {
+    find: (id: string, profileId: string) => prisma.career.findFirst({ where: { id, profileId }, select: { id: true } }),
+    remove: (id: string) => prisma.career.delete({ where: { id } }),
+  },
+  awards: {
+    find: (id: string, profileId: string) => prisma.award.findFirst({ where: { id, profileId }, select: { id: true } }),
+    remove: (id: string) => prisma.award.delete({ where: { id } }),
+  },
+} as const
+
+for (const [segment, handlers] of Object.entries(deletableHistory)) {
+  profilesRouter.delete(`/me/${segment}/:id`, authenticate, async (req, res, next) => {
+    try {
+      const authUser = res.locals.user as AuthTokenPayload
+      const profile = await requireProfileForUser(authUser.id)
+      const id = String(req.params.id)
+      const existing = await handlers.find(id, profile.id)
+      if (!existing) {
+        res.status(404).json({ message: '이력을 찾을 수 없습니다.' })
+        return
+      }
+      if ('source' in existing && existing.source === 'PROGRAM') {
+        res.status(403).json({ message: '프로그램 수료로 생성된 이력은 삭제할 수 없습니다.' })
+        return
+      }
+      await handlers.remove(id)
+      res.status(204).send()
+    } catch (error) {
+      next(error)
+    }
+  })
+}

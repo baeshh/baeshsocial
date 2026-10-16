@@ -14,4 +14,6 @@ export type AuthUser = {
 export type AuthResponse = {
   token: string
   user: AuthUser
+  invite?: { organizationId: string; organizationName: string; programId: string | null; role: string; participantOnly: boolean }
+  inviteError?: string
 }

@@ -1,6 +1,6 @@
-import type { Profile } from '../types/profile'
+import type { ProfileOverview } from '../types/profile'
 
-export function buildProfileMetaDescription(profile: Profile) {
+export function buildProfileMetaDescription({ profile, user }: ProfileOverview) {
   const parts: string[] = []
   if (profile.headline?.trim()) {
     parts.push(profile.headline.trim())
@@ -15,9 +15,7 @@ export function buildProfileMetaDescription(profile: Profile) {
     parts.push(profile.skills.slice(0, 8).join(', '))
   }
   const body = parts.join(' · ')
-  return body
-    ? `${profile.user.name} — ${body}`.slice(0, 160)
-    : `${profile.user.name}의 BAESH 프로필`
+  return body ? `${user.name} — ${body}`.slice(0, 160) : `${user.name}의 BAESH 프로필`
 }
 
 function upsertMeta(attr: 'name' | 'property', key: string, content: string) {
@@ -32,9 +30,9 @@ function upsertMeta(attr: 'name' | 'property', key: string, content: string) {
   element.setAttribute('content', content)
 }
 
-export function applyProfilePageMeta(profile: Profile, canonicalUrl: string) {
-  const title = `${profile.user.name} · BAESH 프로필`
-  const description = buildProfileMetaDescription(profile)
+export function applyProfilePageMeta(overview: ProfileOverview, canonicalUrl: string) {
+  const title = `${overview.user.name} · BAESH 프로필`
+  const description = buildProfileMetaDescription(overview)
 
   document.title = title
   upsertMeta('name', 'description', description)

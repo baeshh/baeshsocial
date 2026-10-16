@@ -1,3 +1,5 @@
+import { ProjectLinkType } from '@prisma/client'
+import { pageQuerySchema } from '../utils/pagination.js'
 import { z } from 'zod'
 
 export const projectSchema = z.object({
@@ -57,4 +59,35 @@ export const projectFileSchema = z.object({
   name: z.string().min(1).max(200),
   url: z.string().url(),
   fileType: z.string().min(1).max(80),
+})
+
+/** Multipart fields of an upload; without a type each file is labelled by its format. */
+export const projectFileUploadSchema = z.object({
+  fileType: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().trim().max(80).optional()),
+})
+
+const linkTypeSchema = z
+  .enum(['github', 'figma', 'notion', 'google_drive', 'deployment', 'other'])
+  .transform((value) => value.toUpperCase() as ProjectLinkType)
+
+export const projectLinkSchema = z.object({
+  url: z.string().trim().min(1).max(2048),
+  type: linkTypeSchema.optional(),
+  label: z.string().trim().max(80).nullable().optional(),
+  description: z.string().trim().max(300).nullable().optional(),
+})
+
+export const updateProjectLinkSchema = projectLinkSchema.partial()
+
+export const projectListQuerySchema = pageQuerySchema(100, 100).extend({
+  status: z.enum(['planning', 'active', 'completed', 'archived']).optional(),
+  /** personal: not linked to an institution program; program: linked to one. */
+  kind: z.enum(['personal', 'program']).optional(),
+  q: z
+    .string()
+    .trim()
+    .max(100)
+    .optional()
+    .transform((value) => value || undefined),
+  sort: z.enum(['updated', 'created']).default('updated'),
 })

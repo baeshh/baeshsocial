@@ -65,18 +65,25 @@ export function ImageCropDialog({
     return () => observer.disconnect()
   }, [open, preset, loading, loaded])
 
-  useEffect(() => {
+  const [source, setSource] = useState({ open, file })
+  if (source.open !== open || source.file !== file) {
+    setSource({ open, file })
+    setError(null)
     if (!open || !file) {
       setLoaded(null)
       setTransform({ panX: 0, panY: 0, zoom: 1 })
       setDisplaySize(viewport)
-      setError(null)
+    } else {
+      setLoading(true)
+    }
+  }
+
+  useEffect(() => {
+    if (!open || !file) {
       return
     }
 
     let cancelled = false
-    setLoading(true)
-    setError(null)
 
     void loadImageFromFile(file)
       .then((result) => {

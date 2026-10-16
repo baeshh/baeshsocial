@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily BAESH %i S3 file protection check
+
+[Timer]
+OnCalendar=*-*-* 19:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

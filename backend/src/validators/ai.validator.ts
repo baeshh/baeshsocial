@@ -1,13 +1,13 @@
 import { z } from 'zod'
 
 export const projectInsightSchema = z.object({
-  projectId: z.string(),
+  projectId: z.string().min(1).max(64),
 })
 
 export const opportunityMatchSchema = z.object({
-  opportunityId: z.string(),
+  opportunityId: z.string().min(1).max(64),
 })
 
-export const portfolioGeneratorSchema = z.object({
-  projectId: z.string(),
+export const portfolioRequestSchema = z.object({
+  projectIds: z.array(z.string().min(1).max(64)).max(6).optional(),
 })

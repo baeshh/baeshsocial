@@ -1,11 +1,11 @@
-import type { AIProvider } from './aiProvider.js'
-import { mockProvider } from './mockProvider.js'
+import { env } from '../../config/env.js'
+import { createOpenAICompatibleProvider } from './openaiCompatible.js'
 
-export const openaiProvider: AIProvider = {
-  name: 'openai',
-  model: 'gpt-4o-mini',
-  async generate(request) {
-    // Phase 8 keeps the provider contract stable. Real OpenAI calls can replace this fallback.
-    return mockProvider.generate(request)
-  },
+export function createOpenAIProvider(apiKey: string) {
+  return createOpenAICompatibleProvider({
+    name: 'openai',
+    baseUrl: env.OPENAI_BASE_URL,
+    apiKey,
+    model: env.AI_MODEL ?? 'gpt-4o-mini',
+  })
 }

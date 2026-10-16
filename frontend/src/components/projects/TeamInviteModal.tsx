@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Avatar } from '../common/Avatar'
 import { Button } from '../common/Button'
 import { Select } from '../common/Input'
@@ -22,6 +22,7 @@ const relationLabels: Record<TeamCandidateRelation, string> = {
   mutual: '맞팔로우',
   following: '팔로잉',
   follower: '팔로워',
+  participant: '프로그램 참여자',
 }
 
 type TeamInviteModalProps = {
@@ -31,6 +32,8 @@ type TeamInviteModalProps = {
   token: string
   roles: ProjectRole[]
   onClose: () => void
+  /** Program projects invite only from the program roster, and never into a leader role. */
+  programTitle?: string | null
 }
 
 export function TeamInviteModal({
@@ -40,20 +43,27 @@ export function TeamInviteModal({
   token,
   roles,
   onClose,
+  programTitle,
 }: TeamInviteModalProps) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<TeamInviteTab>('mutual')
   const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set())
+  const [inviteError, setInviteError] = useState<string | null>(null)
+  const inProgram = Boolean(programTitle)
 
-  const inviteRoles = useMemo(() => roles.filter((role) => role.slug !== 'owner'), [roles])
+  const inviteRoles = useMemo(
+    () => roles.filter((role) => role.slug !== 'owner' && !(inProgram && role.slug === 'admin')),
+    [roles, inProgram],
+  )
   const defaultRoleId = inviteRoles.find((role) => role.slug === 'editor')?.id ?? inviteRoles[0]?.id ?? ''
   const [roleId, setRoleId] = useState(defaultRoleId)
-
-  useEffect(() => {
+  const [roleSync, setRoleSync] = useState({ open, defaultRoleId })
+  if (roleSync.open !== open || roleSync.defaultRoleId !== defaultRoleId) {
+    setRoleSync({ open, defaultRoleId })
     if (open) {
       setRoleId(defaultRoleId)
     }
-  }, [open, defaultRoleId])
+  }
 
   const candidatesQuery = useQuery({
     queryKey: ['projects', projectId, 'team-candidates'],
@@ -68,15 +78,18 @@ export function TeamInviteModal({
         roleId,
       }),
     onSuccess: (_data, user) => {
+      setInviteError(null)
       setInvitedIds((prev) => new Set(prev).add(user.id))
       void queryClient.invalidateQueries({ queryKey: ['projects', projectId] })
       void queryClient.invalidateQueries({ queryKey: ['projects', projectId, 'team-candidates'] })
     },
+    onError: (error: Error) => setInviteError(error.message),
   })
 
   const candidates = candidatesQuery.data
-  const list =
-    tab === 'mutual'
+  const list = inProgram
+    ? candidates?.participants ?? []
+    : tab === 'mutual'
       ? candidates?.mutual ?? []
       : tab === 'following'
         ? candidates?.following ?? []
@@ -84,7 +97,11 @@ export function TeamInviteModal({
 
   return (
     <Modal
-      description={`「${projectTitle}」에 초대할 사람을 선택하세요. 초대를 수락하면 선택한 역할 권한으로 팀에 합류합니다.`}
+      description={
+        inProgram
+          ? `「${projectTitle}」은 ${programTitle} 프로그램 프로젝트입니다. 이 프로그램 참여자 중 다른 팀에 속하지 않은 사람만 초대할 수 있습니다.`
+          : `「${projectTitle}」에 초대할 사람을 선택하세요. 초대를 수락하면 선택한 역할 권한으로 팀에 합류합니다.`
+      }
       onClose={onClose}
       open={open}
       title="팀 초대"
@@ -106,7 +123,7 @@ export function TeamInviteModal({
         </Select>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2 border-b border-surface-border pb-4">
+      <div className={cn('mb-4 flex flex-wrap gap-2 border-b border-surface-border pb-4', inProgram && 'hidden')}>
         {(Object.keys(tabLabels) as TeamInviteTab[]).map((key) => (
           <button
             className={cn(
@@ -146,7 +163,9 @@ export function TeamInviteModal({
         <ul className="max-h-[min(20rem,50vh)] space-y-2 overflow-y-auto">
           {list.length === 0 ? (
             <li className="py-8 text-center text-sm text-ink-muted">
-              {tab === 'mutual'
+              {inProgram
+                ? '초대할 수 있는 참여자가 없습니다.'
+                : tab === 'mutual'
                 ? '맞팔로우한 사람이 없습니다.'
                 : tab === 'following'
                   ? '초대할 팔로잉이 없습니다.'
@@ -180,6 +199,8 @@ export function TeamInviteModal({
           )}
         </ul>
       ) : null}
+
+      {inviteError ? <p className="mt-3 rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{inviteError}</p> : null}
 
       <div className="mt-5 flex justify-end border-t border-surface-border pt-4">
         <Button onClick={onClose} type="button" variant="secondary">

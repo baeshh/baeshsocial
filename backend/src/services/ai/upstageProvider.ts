@@ -1,11 +1,11 @@
-import type { AIProvider } from './aiProvider.js'
-import { mockProvider } from './mockProvider.js'
+import { env } from '../../config/env.js'
+import { createOpenAICompatibleProvider } from './openaiCompatible.js'
 
-export const upstageProvider: AIProvider = {
-  name: 'upstage',
-  model: 'solar-mini',
-  async generate(request) {
-    // Phase 8 keeps the provider contract stable. Real Upstage calls can replace this fallback.
-    return mockProvider.generate(request)
-  },
+export function createUpstageProvider(apiKey: string) {
+  return createOpenAICompatibleProvider({
+    name: 'upstage',
+    baseUrl: env.UPSTAGE_BASE_URL,
+    apiKey,
+    model: env.AI_MODEL ?? 'solar-pro2',
+  })
 }

@@ -8,8 +8,7 @@ import { PublicProfileView } from '../../components/profile/PublicProfileView'
 import { PublicPostSignupCta } from '../../components/posts/PublicPostSignupCta'
 import { applyProfilePageMeta, clearProfilePageMeta } from '../../lib/profileSeo'
 import { buildProfileShareUrl } from '../../lib/profileShare'
-import { getPublicProfile } from '../../services/profileService'
-import { getPublicPostsByUser } from '../../services/postService'
+import { getProfileOverview } from '../../services/profileService'
 import { useAuthStore } from '../../stores/authStore'
 
 export function PublicProfilePage() {
@@ -17,28 +16,20 @@ export function PublicProfilePage() {
   const token = useAuthStore((state) => state.token)
 
   const profileQuery = useQuery({
-    queryKey: ['profiles', 'public', userId],
-    queryFn: () => getPublicProfile(userId ?? ''),
+    queryKey: ['profiles', 'public', userId, 'overview'],
+    queryFn: () => getProfileOverview(null, userId ?? ''),
     enabled: Boolean(userId) && !token,
-    retry: false,
-  })
-
-  const postsQuery = useQuery({
-    queryKey: ['posts', 'public', 'by-user', userId],
-    queryFn: () => getPublicPostsByUser(userId ?? ''),
-    enabled: Boolean(userId) && !token,
-    retry: false,
   })
 
   useEffect(() => {
-    const profile = profileQuery.data?.profile
-    if (profile && userId) {
-      applyProfilePageMeta(profile, buildProfileShareUrl(userId))
+    const overview = profileQuery.data
+    if (overview && userId) {
+      applyProfilePageMeta(overview, buildProfileShareUrl(userId))
     }
     return () => {
       clearProfilePageMeta()
     }
-  }, [profileQuery.data?.profile, userId])
+  }, [profileQuery.data, userId])
 
   if (token && userId) {
     return <Navigate replace to={`/profile/${userId}`} />
@@ -81,7 +72,7 @@ export function PublicProfilePage() {
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-8">
-        <PublicProfileView data={profileQuery.data} posts={postsQuery.data?.posts ?? []} />
+        <PublicProfileView data={profileQuery.data} />
         <PublicPostSignupCta />
         <p className="mt-8 text-center text-xs text-ink-muted">
           <Link className="font-medium text-brand-600 hover:text-brand-700" to="/">

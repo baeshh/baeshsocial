@@ -12,12 +12,13 @@ type MediaLightboxProps = {
 
 export function MediaLightbox({ urls, initialIndex = 0, open, onClose }: MediaLightboxProps) {
   const [index, setIndex] = useState(initialIndex)
-
-  useEffect(() => {
+  const [synced, setSynced] = useState({ open, initialIndex })
+  if (synced.open !== open || synced.initialIndex !== initialIndex) {
+    setSynced({ open, initialIndex })
     if (open) {
       setIndex(initialIndex)
     }
-  }, [open, initialIndex])
+  }
 
   useEffect(() => {
     if (!open) {

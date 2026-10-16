@@ -1,0 +1,26 @@
+[
+  {
+    "app": "backend",
+    "package": "prisma",
+    "reason": "Prisma CLI (needed for `migrate deploy`) bundles mysql2/deepmerge-ts; only fix is a downgrade to 6.x. We use PostgreSQL only and the CLI never runs on user input.",
+    "expires": "2026-12-31"
+  },
+  {
+    "app": "backend",
+    "package": "@prisma/config",
+    "reason": "Transitive deepmerge-ts in Prisma CLI config loading; merges our static prisma.config.ts only.",
+    "expires": "2026-12-31"
+  },
+  {
+    "app": "backend",
+    "package": "deepmerge-ts",
+    "reason": "Only reached through the Prisma CLI config loader (see prisma entry).",
+    "expires": "2026-12-31"
+  },
+  {
+    "app": "backend",
+    "package": "mysql2",
+    "reason": "Optional Prisma CLI dependency; no MySQL connection is ever opened (PostgreSQL only).",
+    "expires": "2026-12-31"
+  }
+]

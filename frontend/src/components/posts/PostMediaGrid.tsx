@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Play } from 'lucide-react'
-import { isVideoMediaUrl } from '../../lib/readMediaFile'
+import { isVideoMediaUrl, mediaThumbnailUrl } from '../../lib/readMediaFile'
 import { MediaLightbox } from './MediaLightbox'
 import { cn } from '../../lib/cn'
 
@@ -14,9 +14,11 @@ type PostMediaGridProps = {
 function MediaThumb({
   url,
   className,
+  sizes,
 }: {
   url: string
   className?: string
+  sizes: string
 }) {
   if (isVideoMediaUrl(url)) {
     return (
@@ -37,11 +39,17 @@ function MediaThumb({
     )
   }
 
+  const thumbnail = mediaThumbnailUrl(url)
+
   return (
     <img
       alt=""
       className={cn('h-full w-full object-cover transition group-hover:scale-[1.02]', className)}
+      decoding="async"
+      loading="lazy"
+      sizes={thumbnail !== url ? sizes : undefined}
       src={url}
+      srcSet={thumbnail !== url ? `${thumbnail} 480w, ${url} 1600w` : undefined}
     />
   )
 }
@@ -74,7 +82,7 @@ export function PostMediaGrid({ urls, className, variant = 'feed' }: PostMediaGr
             onClick={() => openAt(0)}
             type="button"
           >
-            <MediaThumb url={cover} />
+            <MediaThumb sizes="(max-width: 640px) 100vw, 448px" url={cover} />
             {extraCount > 0 ? (
               <span className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-2.5 py-1 text-sm font-bold text-white shadow-lg backdrop-blur-sm">
                 +{extraCount}
@@ -105,7 +113,7 @@ export function PostMediaGrid({ urls, className, variant = 'feed' }: PostMediaGr
             onClick={() => openAt(index)}
             type="button"
           >
-            <MediaThumb url={url} />
+            <MediaThumb sizes="80px" url={url} />
           </button>
         ))}
       </div>

@@ -1,7 +1,15 @@
-import { apiRequest } from '../lib/api'
-import type { ProfilePayload } from '../types/profile'
+import { apiRequest, withQuery } from '../lib/api'
+import type {
+  HistoryFilter,
+  HistoryItem,
+  Paged,
+  ProfileOverview,
+  ProfileProjectCard,
+  ProfileProjectFilter,
+  ProfileVisibility,
+} from '../types/profile'
 
-export type UpdateProfilePayload = {
+export type UpdateProfilePayload = Partial<{
   headline: string | null
   bio: string | null
   school: string | null
@@ -10,14 +18,15 @@ export type UpdateProfilePayload = {
   skills: string[]
   interests: string[]
   socialLinks: Record<string, string> | null
-}
+  visibility: Lowercase<ProfileVisibility>
+  talentSearchOptIn: boolean
+}>
 
 export type CertificatePayload = {
   title: string
   issuer: string
   issuedAt?: string | null
   credentialUrl?: string | null
-  verified?: boolean
 }
 
 export type CareerPayload = {
@@ -35,85 +44,85 @@ export type AwardPayload = {
   description?: string | null
 }
 
-export type PortfolioPayload = {
-  title: string
-  description?: string | null
-  url?: string | null
-  imageUrl?: string | null
+export type EditableHistoryKind = 'certificate' | 'career' | 'award'
+
+const HISTORY_PATHS: Record<EditableHistoryKind, string> = {
+  certificate: 'certificates',
+  career: 'careers',
+  award: 'awards',
 }
 
-export function getMyProfile(token: string) {
-  return apiRequest<ProfilePayload>('/profiles/me', { token })
+export function getProfileOverview(token: string | null, userId: string) {
+  return apiRequest<ProfileOverview>(`/profiles/${userId}/overview`, { token })
 }
 
-export function getProfileByUserId(token: string, userId: string) {
-  return apiRequest<ProfilePayload>(`/profiles/${userId}`, { token })
+export function getProfileProjects(
+  token: string | null,
+  userId: string,
+  params: { cursor?: string | null; limit?: number; filter?: ProfileProjectFilter } = {},
+) {
+  return apiRequest<Paged<'projects', ProfileProjectCard>>(
+    withQuery(`/profiles/${userId}/projects`, {
+      limit: params.limit ?? 10,
+      cursor: params.cursor,
+      filter: params.filter === 'all' ? undefined : params.filter,
+    }),
+    { token },
+  )
 }
 
-export function getPublicProfile(userId: string) {
-  return apiRequest<ProfilePayload>(`/profiles/public/${userId}`)
+export type HistoryPage = {
+  items: HistoryItem[]
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+}
+
+export function getProfileHistoryPage(
+  token: string | null,
+  userId: string,
+  params: { page: number; limit?: number; type?: HistoryFilter },
+) {
+  return apiRequest<HistoryPage>(
+    withQuery(`/profiles/${userId}/history`, {
+      page: params.page,
+      limit: params.limit ?? 10,
+      type: params.type === 'all' ? undefined : params.type,
+    }),
+    { token },
+  )
 }
 
 export function updateMyProfile(token: string, payload: UpdateProfilePayload) {
-  return apiRequest<{ profile: ProfilePayload['profile'] }>('/profiles/me', {
+  return apiRequest<ProfileOverview>('/profiles/me', {
     method: 'PATCH',
     token,
     body: JSON.stringify(payload),
   })
 }
 
-export function addCertificate(token: string, payload: CertificatePayload) {
-  return apiRequest('/profiles/me/certificates', {
-    method: 'POST',
+export function setFeaturedProjects(token: string, projectIds: string[]) {
+  return apiRequest<{ featuredProjectIds: string[] }>('/profiles/me/featured-projects', {
+    method: 'PUT',
+    token,
+    body: JSON.stringify({ projectIds }),
+  })
+}
+
+export function saveHistoryItem(
+  token: string,
+  kind: EditableHistoryKind,
+  payload: CertificatePayload | CareerPayload | AwardPayload,
+  id?: string,
+) {
+  return apiRequest(`/profiles/me/${HISTORY_PATHS[kind]}${id ? `/${id}` : ''}`, {
+    method: id ? 'PATCH' : 'POST',
     token,
     body: JSON.stringify(payload),
   })
 }
 
-export function addCareer(token: string, payload: CareerPayload) {
-  return apiRequest('/profiles/me/careers', {
-    method: 'POST',
-    token,
-    body: JSON.stringify(payload),
-  })
-}
-
-export function addAward(token: string, payload: AwardPayload) {
-  return apiRequest('/profiles/me/awards', {
-    method: 'POST',
-    token,
-    body: JSON.stringify(payload),
-  })
-}
-
-export function addPortfolio(token: string, payload: PortfolioPayload) {
-  return apiRequest('/profiles/me/portfolios', {
-    method: 'POST',
-    token,
-    body: JSON.stringify(payload),
-  })
-}
-
-export function updateCertificate(token: string, certificateId: string, payload: CertificatePayload) {
-  return apiRequest(`/profiles/me/certificates/${certificateId}`, {
-    method: 'PATCH',
-    token,
-    body: JSON.stringify(payload),
-  })
-}
-
-export function updateCareer(token: string, careerId: string, payload: CareerPayload) {
-  return apiRequest(`/profiles/me/careers/${careerId}`, {
-    method: 'PATCH',
-    token,
-    body: JSON.stringify(payload),
-  })
-}
-
-export function updateAward(token: string, awardId: string, payload: AwardPayload) {
-  return apiRequest(`/profiles/me/awards/${awardId}`, {
-    method: 'PATCH',
-    token,
-    body: JSON.stringify(payload),
-  })
+export function deleteHistoryItem(token: string, kind: EditableHistoryKind, id: string) {
+  return apiRequest<void>(`/profiles/me/${HISTORY_PATHS[kind]}/${id}`, { method: 'DELETE', token })
 }

@@ -1,4 +1,7 @@
 import { prisma } from '../config/prisma.js'
+import { getProgramAccess } from './programAccess.js'
+
+export const DEFAULT_OWNER_CONTRIBUTION = 'Project owner and primary contributor'
 
 export const PROJECT_PERMISSIONS = [
   'project.view',
@@ -140,35 +143,105 @@ export async function getOwnerRoleId(projectId: string) {
   return role?.id ?? null
 }
 
-export async function resolveUserProjectPermissions(projectId: string, userId: string) {
+/** Team leaders: the personal-project owner role and the program "팀장" role. */
+export const LEADER_ROLE_SLUGS = ['owner', 'admin']
+
+export function isLeaderSlug(slug: string | null | undefined) {
+  return Boolean(slug && LEADER_ROLE_SLUGS.includes(slug))
+}
+
+/**
+ * In institution-run projects, team composition only changes through the program routes (which
+ * enforce participant/organization rules). The one exception is a program that lets students form
+ * their own teams: there the leader may invite, and invites are checked against the program roster.
+ * Students never delete a program project; they can only ask staff to remove it.
+ */
+const PROGRAM_TEAM_MANAGED = new Set<ProjectPermission>([
+  'roles.manage',
+  'members.invite',
+  'members.remove',
+  'members.assign_role',
+])
+/** Program projects are official records: staff archive them, nobody deletes them through the project API. */
+const PROGRAM_STAFF_PERMISSIONS = ALL_PROJECT_PERMISSIONS.filter(
+  (permission) => !PROGRAM_TEAM_MANAGED.has(permission) && permission !== 'project.delete',
+)
+/** Staff supervise student-led projects through reviews, so they read but do not edit them. */
+const PROGRAM_STAFF_REVIEW_PERMISSIONS: ProjectPermission[] = ['project.view', 'tasks.view', 'files.view']
+
+export type ResolvedProjectAccess = {
+  permissions: ProjectPermission[]
+  isOwner: boolean
+  isLeader: boolean
+  isProgramStaff: boolean
+  /** A team member locked out of a PRIVATE project until a leader grants access. */
+  restricted: boolean
+}
+
+const NO_ACCESS: ResolvedProjectAccess = {
+  permissions: [],
+  isOwner: false,
+  isLeader: false,
+  isProgramStaff: false,
+  restricted: false,
+}
+
+export async function resolveUserProjectPermissions(projectId: string, userId: string): Promise<ResolvedProjectAccess> {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
     select: {
       ownerId: true,
+      programId: true,
+      visibility: true,
+      program: { select: { allowStudentTeams: true } },
       members: {
         where: { userId },
         select: {
-          projectRole: {
-            select: { permissions: true },
-          },
+          userId: true,
+          privateAccess: true,
+          projectRole: { select: { slug: true, permissions: true } },
         },
       },
     },
   })
 
-  if (!project) {
-    return { permissions: [] as ProjectPermission[], isOwner: false }
+  if (!project) return NO_ACCESS
+
+  const member = project.members[0] ?? null
+  const isLeader = Boolean(member && isLeaderSlug(member.projectRole?.slug))
+  const lockedOut = Boolean(member && project.visibility === 'PRIVATE' && !member.privateAccess && !isLeader)
+
+  if (project.programId) {
+    const access = await getProgramAccess(project.programId, userId)
+    if (access?.isStaff) {
+      const ownerOnTeam = await prisma.projectMember.findUnique({
+        where: { projectId_userId: { projectId, userId: project.ownerId } },
+        select: { id: true },
+      })
+      return {
+        ...NO_ACCESS,
+        permissions: ownerOnTeam ? PROGRAM_STAFF_REVIEW_PERMISSIONS : PROGRAM_STAFF_PERMISSIONS,
+        isProgramStaff: true,
+      }
+    }
+    if (!access?.canJoinTeams || !member) return NO_ACCESS
+    if (lockedOut) return { ...NO_ACCESS, restricted: true }
+    const canInvite = isLeader && Boolean(project.program?.allowStudentTeams)
+    const permissions = sanitizePermissions(member.projectRole?.permissions ?? []).filter(
+      (permission) =>
+        permission !== 'project.delete' &&
+        (!PROGRAM_TEAM_MANAGED.has(permission) || (permission === 'members.invite' && canInvite)),
+    )
+    if (canInvite && !permissions.includes('members.invite')) permissions.push('members.invite')
+    return { ...NO_ACCESS, permissions, isLeader }
   }
 
   if (project.ownerId === userId) {
-    return { permissions: ALL_PROJECT_PERMISSIONS, isOwner: true }
+    return { ...NO_ACCESS, permissions: ALL_PROJECT_PERMISSIONS, isOwner: true, isLeader: true }
   }
-
-  const memberPermissions = project.members[0]?.projectRole?.permissions ?? []
-  return {
-    permissions: sanitizePermissions(memberPermissions),
-    isOwner: false,
-  }
+  if (!member) return NO_ACCESS
+  if (lockedOut) return { ...NO_ACCESS, restricted: true }
+  return { ...NO_ACCESS, permissions: sanitizePermissions(member.projectRole?.permissions ?? []), isLeader }
 }
 
 export async function userHasProjectPermission(

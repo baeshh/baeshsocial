@@ -1,10 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Repeat2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Avatar } from '../common/Avatar'
 import { Button } from '../common/Button'
 import { LoadingState } from '../common/LoadingState'
+import { LoadMore } from '../common/LoadMore'
 import { Select, Textarea } from '../common/Input'
 import { PostMediaGrid } from '../posts/PostMediaGrid'
 import { PostShareButton } from '../posts/PostShareButton'
@@ -12,6 +13,7 @@ import { EmbeddedPostPreview } from '../posts/EmbeddedPostPreview'
 import {
   createPost,
   deletePost,
+  getMyRepostedSourceIds,
   getPostsByUser,
   updatePost,
   type PostPayload,
@@ -25,6 +27,8 @@ import {
 } from '../../lib/repostRules'
 import { notifyRepostAlreadyDone, notifyRepostError, notifyRepostSuccess } from '../../lib/repostPost'
 import { useAuthStore } from '../../stores/authStore'
+
+const PAGE_SIZE = 10
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('ko-KR', {
@@ -107,7 +111,7 @@ function ProfilePostCard({
   const [error, setError] = useState<string | null>(null)
 
   const projectsQuery = useQuery({
-    queryKey: ['projects'],
+    queryKey: ['projects', 'options'],
     queryFn: () => getProjects(token),
     enabled: Boolean(token) && canManage && editing,
   })
@@ -333,7 +337,7 @@ function ProfilePostCard({
         </div>
       ) : null}
 
-      {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+      {error ? <p className="mt-3 text-sm text-red-600" role="alert">{error}</p> : null}
     </article>
   )
 }
@@ -348,37 +352,23 @@ export function ProfilePostsPanel({
   const queryClient = useQueryClient()
   const currentUserId = useAuthStore((state) => state.user?.id)
 
-  const postsQuery = useQuery({
+  const postsQuery = useInfiniteQuery({
     queryKey: ['posts', 'by-user', userId],
-    queryFn: () => getPostsByUser(token, userId),
+    queryFn: ({ pageParam }) => getPostsByUser(token, userId, { cursor: pageParam, limit: PAGE_SIZE }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: Boolean(token && userId),
-    refetchOnMount: 'always',
   })
 
-  const myPostsQuery = useQuery({
-    queryKey: ['posts', 'by-user', currentUserId, 'repost-tracker'],
-    queryFn: () => getPostsByUser(token, currentUserId!),
-    enabled: Boolean(token && currentUserId && currentUserId !== userId),
+  const repostsQuery = useQuery({
+    queryKey: ['posts', 'my-reposts'],
+    queryFn: () => getMyRepostedSourceIds(token),
+    enabled: Boolean(token && currentUserId),
   })
 
-  const repostedSourceIds = useMemo(() => {
-    const ids = new Set<string>()
-    const sourcePosts = isOwnProfile ? postsQuery.data?.posts : myPostsQuery.data?.posts
-    for (const item of sourcePosts ?? []) {
-      if (item.repostOfId) {
-        ids.add(item.repostOfId)
-      }
-    }
-    return ids
-  }, [isOwnProfile, myPostsQuery.data?.posts, postsQuery.data?.posts])
+  const repostedSourceIds = useMemo(() => new Set(repostsQuery.data?.postIds ?? []), [repostsQuery.data])
 
   const handleChanged = () => {
-    void queryClient.invalidateQueries({ queryKey: ['posts', 'by-user', userId] })
-    if (currentUserId) {
-      void queryClient.invalidateQueries({
-        queryKey: ['posts', 'by-user', currentUserId, 'repost-tracker'],
-      })
-    }
     void queryClient.invalidateQueries({ queryKey: ['posts'] })
     void queryClient.invalidateQueries({ queryKey: ['profiles'] })
   }
@@ -395,7 +385,7 @@ export function ProfilePostsPanel({
     )
   }
 
-  const posts = postsQuery.data?.posts ?? []
+  const posts = postsQuery.data?.pages.flatMap((page) => page.posts) ?? []
 
   if (posts.length === 0) {
     return (
@@ -427,6 +417,12 @@ export function ProfilePostsPanel({
           userName={userName}
         />
       ))}
+      <LoadMore
+        hasNextPage={Boolean(postsQuery.hasNextPage)}
+        isFetchingNextPage={postsQuery.isFetchingNextPage}
+        label="게시물 더 보기"
+        onLoadMore={() => void postsQuery.fetchNextPage()}
+      />
     </div>
   )
 }

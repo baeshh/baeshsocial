@@ -6,7 +6,8 @@ import { Avatar } from '../common/Avatar'
 import { Button } from '../common/Button'
 import { Modal } from '../common/Modal'
 import { Select, Textarea } from '../common/Input'
-import { readMediaFile } from '../../lib/readMediaFile'
+import { MAX_POST_MEDIA, usePostMediaUpload } from '../../hooks/usePostMediaUpload'
+import { POST_MEDIA_ACCEPT } from '../../lib/readMediaFile'
 import { PostMediaGrid } from '../posts/PostMediaGrid'
 import { createPost } from '../../services/postService'
 import { getProjects } from '../../services/projectService'
@@ -36,10 +37,10 @@ export function PostComposerModal({
   const [content, setContent] = useState('')
   const [linkedProjectId, setLinkedProjectId] = useState('')
   const [visibility, setVisibility] = useState('public')
-  const [mediaUrls, setMediaUrls] = useState<string[]>([])
+  const { mediaUrls, uploading, uploadError, handlePick: handlePickMedia, reset: resetMedia } = usePostMediaUpload(token)
 
   const projectsQuery = useQuery({
-    queryKey: ['projects'],
+    queryKey: ['projects', 'options'],
     queryFn: () => getProjects(token),
     enabled: open && Boolean(token),
   })
@@ -56,7 +57,7 @@ export function PostComposerModal({
       setContent('')
       setLinkedProjectId('')
       setVisibility('public')
-      setMediaUrls([])
+      resetMedia()
       onSuccess()
       onClose()
     },
@@ -72,29 +73,9 @@ export function PostComposerModal({
       : '기술스택이나 역할을 해시태그로 추가하면 검색 가능성이 높아집니다.'
   }, [content])
 
-  const handlePickMedia = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files
-    if (!files?.length) {
-      return
-    }
-    const next: string[] = [...mediaUrls]
-    for (const file of Array.from(files)) {
-      if (next.length >= 6) {
-        break
-      }
-      try {
-        next.push(await readMediaFile(file, 'post'))
-      } catch {
-        /* skip */
-      }
-    }
-    setMediaUrls(next)
-    event.target.value = ''
-  }
-
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!content.trim() && mediaUrls.length === 0) {
+    if (uploading || (!content.trim() && mediaUrls.length === 0)) {
       return
     }
     createMutation.mutate()
@@ -119,7 +100,7 @@ export function PostComposerModal({
         </div>
 
         <input
-          accept="image/*,video/*"
+          accept={POST_MEDIA_ACCEPT}
           className="hidden"
           multiple
           onChange={handlePickMedia}
@@ -130,15 +111,17 @@ export function PostComposerModal({
         <div className="flex flex-wrap gap-2">
           <Button
             className="rounded-full"
+            disabled={uploading || mediaUrls.length >= MAX_POST_MEDIA}
             onClick={() => mediaInputRef.current?.click()}
             type="button"
             variant="secondary"
           >
             <Upload className="mr-1.5" size={18} />
-            업로드 ({mediaUrls.length}/6)
+            {uploading ? '업로드 중…' : `업로드 (${mediaUrls.length}/${MAX_POST_MEDIA})`}
           </Button>
         </div>
 
+        {uploadError ? <p className="whitespace-pre-line text-sm text-red-600">{uploadError}</p> : null}
         {mediaUrls.length > 0 ? <PostMediaGrid urls={mediaUrls} variant="compact" /> : null}
 
         <Select label="연결 프로젝트" onChange={(e) => setLinkedProjectId(e.target.value)} value={linkedProjectId}>
@@ -171,7 +154,7 @@ export function PostComposerModal({
           <Button className="flex-1 rounded-lg" onClick={onClose} type="button" variant="secondary">
             취소
           </Button>
-          <Button className="flex-[2] rounded-lg" disabled={createMutation.isPending} type="submit">
+          <Button className="flex-[2] rounded-lg" disabled={createMutation.isPending || uploading} type="submit">
             {createMutation.isPending ? '게시 중…' : '게시하기'}
           </Button>
         </div>

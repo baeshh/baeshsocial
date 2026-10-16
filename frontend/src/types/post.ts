@@ -29,7 +29,7 @@ export type PostComment = {
   content: string
   createdAt: string
   updatedAt: string
-  author: Pick<AuthUser, 'id' | 'name' | 'email' | 'avatarUrl'>
+  author: Pick<AuthUser, 'id' | 'name' | 'avatarUrl'>
   likes: ContentLike[]
 }
 
@@ -43,7 +43,7 @@ export type PostCore = {
   createdAt: string
   updatedAt: string
   mediaUrls?: string[]
-  author: Pick<AuthUser, 'id' | 'name' | 'email' | 'avatarUrl'>
+  author: Pick<AuthUser, 'id' | 'name' | 'avatarUrl'>
   linkedProject: PostProject | null
   likes: PostLike[]
   comments: PostComment[]

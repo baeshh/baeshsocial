@@ -1,0 +1,30 @@
+name: Deploy staging
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy
+        default: main
+        required: true
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  deploy:
+    # Automatic deploys stay off until the staging server exists (docs/STAGING-AWS.md sets STAGING_AUTO_DEPLOY=true).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (vars.STAGING_AUTO_DEPLOY == 'true' &&
+       github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: staging
+      ref: ${{ github.event.workflow_run.head_sha || inputs.ref }}
+    secrets: inherit

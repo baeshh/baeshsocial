@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Briefcase, Globe, Plus, Sparkles, Upload } from 'lucide-react'
@@ -8,7 +8,9 @@ import { Card } from '../../components/common/Card'
 import { EmptyState } from '../../components/common/EmptyState'
 import { Select, Textarea } from '../../components/common/Input'
 import { LoadingState } from '../../components/common/LoadingState'
-import { readMediaFile } from '../../lib/readMediaFile'
+import { LoadMore } from '../../components/common/LoadMore'
+import { MAX_POST_MEDIA, usePostMediaUpload } from '../../hooks/usePostMediaUpload'
+import { POST_MEDIA_ACCEPT } from '../../lib/readMediaFile'
 import { PostMediaGrid } from '../../components/posts/PostMediaGrid'
 import { PostCard } from '../../components/posts/PostCard'
 import { FeedPullToRefresh } from '../../components/network/FeedPullToRefresh'
@@ -24,10 +26,14 @@ import {
 import { AppLayout } from '../../components/layout/AppLayout'
 
 type FeedMode = 'timeline' | 'recommended'
-import { createPost, getPosts, getRecommendedPosts } from '../../services/postService'
+import { createPost, getMyRepostedSourceIds, getPosts, getRecommendedPosts } from '../../services/postService'
 import { getProjects } from '../../services/projectService'
 import { getFollowers, getFollowing } from '../../services/userService'
 import { useAuthStore } from '../../stores/authStore'
+
+const RECOMMENDED_FEED_LIMIT = 20
+const TIMELINE_PAGE_SIZE = 20
+const SIDEBAR_RECOMMENDED_LIMIT = 3
 
 function extractHashtags(content: string) {
   return Array.from(content.matchAll(/#[\p{L}\p{N}_-]+/gu)).map((match) => match[0])
@@ -41,29 +47,38 @@ export function NetworkPage() {
   const [content, setContent] = useState('')
   const [linkedProjectId, setLinkedProjectId] = useState('')
   const [visibility, setVisibility] = useState('public')
-  const [mediaUrls, setMediaUrls] = useState<string[]>([])
+  const {
+    mediaUrls,
+    uploading,
+    uploadError,
+    handlePick: handlePickMedia,
+    reset: resetMedia,
+  } = usePostMediaUpload(token ?? '')
   const [composerOpen, setComposerOpen] = useState(false)
   const [feedMode, setFeedMode] = useState<FeedMode>('timeline')
   const [showRefreshFab, setShowRefreshFab] = useState(false)
   const [refreshingFeed, setRefreshingFeed] = useState(false)
   const suppressRefreshFabUntil = useRef(0)
 
-  const postsQuery = useQuery({
-    queryKey: ['posts'],
-    queryFn: () => getPosts(token ?? ''),
+  const postsQuery = useInfiniteQuery({
+    queryKey: ['posts', 'timeline'],
+    queryFn: ({ pageParam }) => getPosts(token ?? '', { cursor: pageParam, limit: TIMELINE_PAGE_SIZE }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: Boolean(token),
-    refetchOnWindowFocus: false,
-    staleTime: 30_000,
   })
   const recommendedQuery = useQuery({
     queryKey: ['posts', 'recommended'],
-    queryFn: () => getRecommendedPosts(token ?? '', 20),
+    queryFn: () => getRecommendedPosts(token ?? '', RECOMMENDED_FEED_LIMIT),
     enabled: Boolean(token),
-    refetchOnWindowFocus: false,
-    staleTime: 30_000,
+  })
+  const repostsQuery = useQuery({
+    queryKey: ['posts', 'my-reposts'],
+    queryFn: () => getMyRepostedSourceIds(token ?? ''),
+    enabled: Boolean(token),
   })
   const projectsQuery = useQuery({
-    queryKey: ['projects'],
+    queryKey: ['projects', 'options'],
     queryFn: () => getProjects(token ?? ''),
     enabled: Boolean(token),
   })
@@ -94,9 +109,6 @@ export function NetworkPage() {
     void withPreservedScroll(async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['posts'] }),
-        queryClient.invalidateQueries({ queryKey: ['posts', 'recommended'] }),
-        queryClient.invalidateQueries({ queryKey: ['posts', 'me'] }),
-        queryClient.invalidateQueries({ queryKey: ['posts', 'by-user'] }),
         queryClient.invalidateQueries({ queryKey: ['profiles'] }),
       ])
     })
@@ -124,9 +136,21 @@ export function NetworkPage() {
     forceScrollFeedToTop()
   }, [])
 
-  const timelinePosts = postsQuery.data?.posts ?? []
-  const recommendedPosts = recommendedQuery.data?.posts ?? []
+  const timelinePosts = useMemo(() => {
+    const seen = new Set<string>()
+    return (postsQuery.data?.pages ?? [])
+      .flatMap((page) => page.posts)
+      .filter((post) => (seen.has(post.id) ? false : (seen.add(post.id), true)))
+  }, [postsQuery.data])
+  const recommendedPosts = useMemo(() => recommendedQuery.data?.posts ?? [], [recommendedQuery.data])
   const feedPosts = feedMode === 'recommended' ? recommendedPosts : timelinePosts
+  const sidebarRecommendedPosts = useMemo(() => {
+    if (feedMode === 'recommended') {
+      return []
+    }
+    const shownInFeed = new Set(feedPosts.map((post) => post.id))
+    return recommendedPosts.filter((post) => !shownInFeed.has(post.id)).slice(0, SIDEBAR_RECOMMENDED_LIMIT)
+  }, [feedMode, feedPosts, recommendedPosts])
   const feedLoading =
     feedMode === 'recommended'
       ? recommendedQuery.isLoading || (refreshingFeed && recommendedPosts.length === 0)
@@ -167,32 +191,10 @@ export function NetworkPage() {
       setContent('')
       setLinkedProjectId('')
       setVisibility('public')
-      setMediaUrls([])
+      resetMedia()
       invalidateFeed()
     },
   })
-
-  const handlePickMedia = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files
-    if (!files?.length) {
-      return
-    }
-
-    const next: string[] = [...mediaUrls]
-    for (const file of Array.from(files)) {
-      if (next.length >= 6) {
-        break
-      }
-      try {
-        const dataUrl = await readMediaFile(file, 'post')
-        next.push(dataUrl)
-      } catch {
-        /* skip invalid */
-      }
-    }
-    setMediaUrls(next)
-    event.target.value = ''
-  }
 
   const aiSuggestion = useMemo(() => {
     if (!content.trim()) {
@@ -205,24 +207,15 @@ export function NetworkPage() {
       : '기술스택이나 역할을 해시태그로 추가하면 검색 가능성이 높아집니다.'
   }, [content])
 
-  const projectCount = projectsQuery.data?.projects.length ?? 0
+  const projectCount = projectsQuery.data
+    ? `${projectsQuery.data.projects.length}${projectsQuery.data.nextCursor ? '+' : ''}`
+    : '0'
 
-  const repostedSourceIds = useMemo(() => {
-    const ids = new Set<string>()
-    if (!user?.id) {
-      return ids
-    }
-    for (const feedPost of postsQuery.data?.posts ?? []) {
-      if (feedPost.authorId === user.id && feedPost.repostOfId) {
-        ids.add(feedPost.repostOfId)
-      }
-    }
-    return ids
-  }, [postsQuery.data?.posts, user?.id])
+  const repostedSourceIds = useMemo(() => new Set(repostsQuery.data?.postIds ?? []), [repostsQuery.data])
 
   const handleComposerSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!content.trim() && mediaUrls.length === 0) {
+    if (uploading || (!content.trim() && mediaUrls.length === 0)) {
       return
     }
     createMutation.mutate()
@@ -284,7 +277,7 @@ export function NetworkPage() {
               </div>
 
               <input
-                accept="image/*,video/*"
+                accept={POST_MEDIA_ACCEPT}
                 className="hidden"
                 multiple
                 onChange={handlePickMedia}
@@ -295,25 +288,22 @@ export function NetworkPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   className="rounded-full"
+                  disabled={uploading || mediaUrls.length >= MAX_POST_MEDIA}
                   onClick={() => mediaInputRef.current?.click()}
                   type="button"
                   variant="secondary"
                 >
                   <Upload className="mr-1.5" size={18} />
-                  업로드 ({mediaUrls.length}/6)
+                  {uploading ? '업로드 중…' : `업로드 (${mediaUrls.length}/${MAX_POST_MEDIA})`}
                 </Button>
                 {mediaUrls.length > 0 ? (
-                  <Button
-                    className="rounded-full text-xs"
-                    onClick={() => setMediaUrls([])}
-                    type="button"
-                    variant="ghost"
-                  >
+                  <Button className="rounded-full text-xs" onClick={resetMedia} type="button" variant="ghost">
                     첨부 비우기
                   </Button>
                 ) : null}
               </div>
 
+              {uploadError ? <p className="whitespace-pre-line text-sm text-red-600">{uploadError}</p> : null}
               {mediaUrls.length > 0 ? <PostMediaGrid urls={mediaUrls} variant="compact" /> : null}
 
               <div className="flex flex-col gap-3 border-t border-surface-border pt-3 sm:flex-row sm:items-center sm:justify-between">
@@ -327,7 +317,7 @@ export function NetworkPage() {
                     ))}
                   </Select>
                 </div>
-                <Button className="rounded-full px-6" disabled={createMutation.isPending} type="submit">
+                <Button className="rounded-full px-6" disabled={createMutation.isPending || uploading} type="submit">
                   {createMutation.isPending ? '게시 중' : '게시하기'}
                 </Button>
               </div>
@@ -437,6 +427,15 @@ export function NetworkPage() {
               />
             ))}
           </div>
+
+          {feedMode === 'timeline' ? (
+            <LoadMore
+              hasNextPage={Boolean(postsQuery.hasNextPage)}
+              isFetchingNextPage={postsQuery.isFetchingNextPage}
+              label="이전 게시물 더 보기"
+              onLoadMore={() => void postsQuery.fetchNextPage()}
+            />
+          ) : null}
           </FeedPullToRefresh>
         </div>
 
@@ -451,16 +450,26 @@ export function NetworkPage() {
             </p>
             {recommendedQuery.isLoading ? (
               <p className="mt-4 text-sm text-ink-muted">불러오는 중…</p>
-            ) : recommendedQuery.data?.posts.length === 0 ? (
+            ) : feedMode === 'recommended' ? (
+              <p className="mt-4 text-sm text-ink-muted">가운데 피드에서 추천 게시물을 보고 있습니다.</p>
+            ) : recommendedPosts.length === 0 ? (
               <p className="mt-4 text-sm text-ink-muted">피드에서 반응을 남기면 추천이 채워집니다.</p>
+            ) : sidebarRecommendedPosts.length === 0 ? (
+              <p className="mt-4 text-sm text-ink-muted">추천 게시물이 이미 피드에 표시되어 있습니다.</p>
             ) : (
               <ul className="mt-4 space-y-3">
-                {recommendedQuery.data?.posts.map((post) => (
+                {sidebarRecommendedPosts.map((post) => (
                   <li className="rounded-xl border border-surface-border bg-surface-muted/30 p-3 text-sm" key={post.id}>
                     <Link className="font-semibold text-brand-700 hover:underline" to={`/profile/${post.author.id}`}>
                       {post.author.name}
                     </Link>
-                    <p className="mt-1 line-clamp-3 text-ink-body">{post.content}</p>
+                    {post.visibility === 'PUBLIC' ? (
+                      <Link className="mt-1 line-clamp-3 block text-ink-body hover:text-ink-strong" to={`/p/${post.id}`}>
+                        {post.content || post.repostOf?.content || '미디어 게시물'}
+                      </Link>
+                    ) : (
+                      <p className="mt-1 line-clamp-3 text-ink-body">{post.content || post.repostOf?.content || '미디어 게시물'}</p>
+                    )}
                     <p className="mt-2 text-xs text-ink-muted">
                       ♥ {post.likes.length} · 댓글 {post.comments.length}
                     </p>
@@ -468,6 +477,18 @@ export function NetworkPage() {
                 ))}
               </ul>
             )}
+            {recommendedPosts.length > SIDEBAR_RECOMMENDED_LIMIT && feedMode === 'timeline' ? (
+              <button
+                className="mt-4 text-xs font-semibold text-brand-600 hover:text-brand-700"
+                onClick={() => {
+                  setFeedMode('recommended')
+                  forceScrollFeedToTop()
+                }}
+                type="button"
+              >
+                추천 피드 전체 보기 ({recommendedPosts.length}) →
+              </button>
+            ) : null}
           </Card>
 
           <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-5 text-white shadow-lg ring-1 ring-white/10">

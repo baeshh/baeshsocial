@@ -74,14 +74,15 @@ export function buildSkillInsights(input: {
       ? [
           `${coreSkills[0]} 관련 산출물 정리`,
           projectCount > 0 ? '프로젝트 기여도 수치화' : '첫 프로젝트 등록',
-          input.completedProgramCount > 0 ? '프로그램 수료 이력 공유' : '교육·프로그램 수강 신청',
+          input.completedProgramCount > 0 ? '프로그램 수료 이력 공유' : '교육·프로그램 참여 신청',
         ]
-      : ['대표 기술스택 입력', '첫 프로젝트 등록', 'Jobs에서 프로그램 수강']
+      : [
+          '대표 기술스택 입력',
+          projectCount > 0 ? '프로젝트 기여도 수치화' : '첫 프로젝트 등록',
+          input.completedProgramCount > 0 ? '프로그램 수료 이력 공유' : 'Jobs에서 프로그램 참여',
+        ]
 
   const summaryParts: string[] = []
-  if (coreSkills.length > 0) {
-    summaryParts.push(`${coreSkills.join(', ')} 역량을 중심으로`)
-  }
   if (projectCount > 0) {
     summaryParts.push(`${projectCount}개 프로젝트 경험`)
   }
@@ -92,10 +93,13 @@ export function buildSkillInsights(input: {
     summaryParts.push(`${input.verifiedCount}건 검증된 기여`)
   }
 
+  const skillPrefix = coreSkills.length > 0 ? `${coreSkills.join(', ')} 역량을 중심으로 ` : ''
   const summary =
     summaryParts.length > 0
-      ? `${summaryParts.join(', ')}을 바탕으로 커리어 데이터가 구조화되고 있습니다.`
-      : '프로젝트·프로그램·이력을 추가하면 실제 데이터 기반 인사이트가 생성됩니다.'
+      ? `${skillPrefix}${summaryParts.join(', ')} 기록을 바탕으로 커리어 데이터가 구조화되고 있습니다.`
+      : coreSkills.length > 0
+        ? `${skillPrefix}프로젝트·프로그램·이력을 추가하면 실제 데이터 기반 인사이트가 생성됩니다.`
+        : '프로젝트·프로그램·이력을 추가하면 실제 데이터 기반 인사이트가 생성됩니다.'
 
   return {
     summary,
