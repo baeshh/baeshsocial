@@ -4,17 +4,9 @@ import type { FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/common/Button'
 import { Card } from '../../components/common/Card'
-import { Input, Select } from '../../components/common/Input'
+import { Input } from '../../components/common/Input'
 import { login, register } from '../../services/authService'
 import { useAuthStore } from '../../stores/authStore'
-import type { UserRole } from '../../types/auth'
-
-const roleOptions: Array<{ label: string; value: UserRole }> = [
-  { label: '개인 사용자', value: 'user' },
-  { label: '기업', value: 'company' },
-  { label: '기관', value: 'institution' },
-  { label: '관리자', value: 'admin' },
-]
 
 export function AuthEntryPage() {
   const { mode } = useParams()
@@ -23,7 +15,6 @@ export function AuthEntryPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<UserRole>('user')
   const isRegister = mode === 'register'
   const title = mode === 'register' ? '회원가입' : '로그인'
   const helperText = useMemo(
@@ -37,7 +28,7 @@ export function AuthEntryPage() {
   const authMutation = useMutation({
     mutationFn: () =>
       isRegister
-        ? register({ email, password, name, role })
+        ? register({ email, password, name })
         : login({ email, password }),
     onSuccess: ({ token: nextToken, user }) => {
       setSession(nextToken, user)
@@ -96,20 +87,6 @@ export function AuthEntryPage() {
             type="password"
             value={password}
           />
-
-          {isRegister ? (
-            <Select
-              label="역할"
-              onChange={(event) => setRole(event.target.value as UserRole)}
-              value={role}
-            >
-                {roleOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-            </Select>
-          ) : null}
 
           {authMutation.error ? (
             <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">

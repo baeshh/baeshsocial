@@ -1,11 +1,22 @@
 import { z } from 'zod'
 
-export const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
-  name: z.string().min(2).max(80),
-  role: z.enum(['user', 'company', 'institution', 'admin']).default('user'),
-})
+export const registerSchema = z
+  .object({
+    email: z.string().email(),
+    password: z.string().min(8),
+    name: z.string().min(2).max(80),
+    // Present only so privilege-escalation attempts are rejected instead of applied.
+    role: z.unknown().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.role === undefined) return
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['role'],
+      message: '회원가입으로 계정 역할(user·company·institution·admin)을 지정할 수 없습니다.',
+    })
+  })
+  .transform(({ role: _role, ...rest }) => rest)
 
 export const loginSchema = z.object({
   email: z.string().email(),
