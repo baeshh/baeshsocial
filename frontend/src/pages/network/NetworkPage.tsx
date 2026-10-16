@@ -31,7 +31,7 @@ import { getProjects } from '../../services/projectService'
 import { getFollowers, getFollowing } from '../../services/userService'
 import { useAuthStore } from '../../stores/authStore'
 
-const RECOMMENDED_FEED_LIMIT = 20
+const RECOMMENDED_FEED_LIMIT = 4
 const TIMELINE_PAGE_SIZE = 20
 const SIDEBAR_RECOMMENDED_LIMIT = 3
 

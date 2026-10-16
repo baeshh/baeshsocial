@@ -16,7 +16,7 @@ export function getPosts(token: string, params: PageParams = {}) {
   return apiRequest<PostPage>(withQuery('/posts', { limit: params.limit ?? 20, cursor: params.cursor }), { token })
 }
 
-export function getRecommendedPosts(token: string, limit = 8) {
+export function getRecommendedPosts(token: string, limit = 4) {
   return apiRequest<{ posts: Post[] }>(`/posts/recommended?limit=${limit}`, { token })
 }
 

@@ -19,7 +19,7 @@ const visibilityMap = {
 
 const feedPageSchema = pageQuerySchema(20, 50)
 const profilePageSchema = pageQuerySchema(10, 30)
-const recommendedQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(20).default(8) })
+const recommendedQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(8).default(4) })
 
 /** Feed and profile post lists share one ordering: newest first, id as the tie-breaker. */
 async function findPostPage<T extends Prisma.PostInclude>(
